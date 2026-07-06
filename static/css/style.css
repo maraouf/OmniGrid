@@ -8321,6 +8321,13 @@ body.login {
   margin-top: var(--s-5);
 }
 
+/* One button per configured OIDC provider, stacked. */
+.login-card .sso-btns {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
 .login-card .sso-divider {
   display: flex;
   align-items: center;

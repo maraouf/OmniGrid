@@ -46,6 +46,7 @@ from fastapi.responses import RedirectResponse
 
 from logic import auth
 from logic import errors as _err
+from logic import oidc_providers as _providers
 from logic.db import db_conn
 
 # ----------------------------------------------------------------------------
@@ -151,14 +152,18 @@ def _settings() -> dict:
         return auth.get_auth_settings(c)
 
 
-def _verify_tls() -> bool:
-    """True when OmniGrid should verify the OIDC issuer's TLS cert (DB-backed via
-    Settings -> Authentik OIDC; defaults on so public issuers aren't downgraded)."""
-    # True when OmniGrid should verify the issuer's TLS cert against its
-    # trust store. Homelab installs behind an internal CA flip this off via
-    # the Settings → Authentik OIDC panel; the default stays on so
-    # public issuers aren't silently downgraded.
-    return bool(_settings().get("oidc_verify_tls", True))
+def _pget(provider, name: str, default=None):
+    """Read a provider's namespaced setting by leaf ``name`` from the auth
+    settings dict (e.g. ``issuer_url`` → ``oidc_issuer_url`` for Authentik,
+    ``oidc_unifiedsso_issuer_url`` for UnifiedSSO)."""
+    return _settings().get(_providers.setting_key(provider, name), default)
+
+
+def _verify_tls(provider) -> bool:
+    """True when OmniGrid should verify this provider's issuer TLS cert (DB-backed
+    per provider; defaults on so a public issuer isn't silently downgraded).
+    Homelab installs behind an internal CA flip it off in the provider's panel."""
+    return bool(_pget(provider, "verify_tls", True))
 
 
 def _http_timeout_seconds() -> float:
@@ -177,34 +182,37 @@ def _http_timeout_seconds() -> float:
         return 15.0
 
 
-def is_configured() -> bool:
-    """True when OIDC is enabled AND the three mandatory values are set.
-
-    The login button / SSO routes gate on this — a half-configured OIDC
-    block should 503 rather than blow up mid-flow with a cryptic error.
+def is_configured(provider_id: str = _providers.DEFAULT_PROVIDER_ID) -> bool:
+    """True when the given provider is enabled AND its three mandatory values
+    are set. The login button / SSO routes gate on this — a half-configured
+    provider should 503 rather than blow up mid-flow with a cryptic error.
+    An unknown provider id is treated as not-configured.
     """
-    s = _settings()
-    if not s.get("oidc_enabled"):
+    p = _providers.get(provider_id)
+    if p is None:
         return False
-    return bool(s.get("oidc_issuer_url")) and bool(s.get("oidc_client_id")) \
-        and bool(s.get("oidc_client_secret"))
+    if not _pget(p, "enabled"):
+        return False
+    return bool(_pget(p, "issuer_url")) and bool(_pget(p, "client_id")) \
+        and bool(_pget(p, "client_secret"))
 
 
 # ----------------------------------------------------------------------------
 # Discovery / JWKS fetching
 # ----------------------------------------------------------------------------
-async def _fetch_discovery(issuer: str) -> dict:
+async def _fetch_discovery(issuer: str, verify_tls: bool = True) -> dict:
     """GET ``{issuer}/.well-known/openid-configuration``. Cached per-issuer.
 
     Returns the full discovery document — callers pick out the endpoints
     they need (authorization_endpoint, token_endpoint, jwks_uri).
+    ``verify_tls`` is the calling provider's TLS-verify setting.
     """
     now = time.time()
     cached = _discovery_cache.get(issuer)
     if cached and cached[1] > now:
         return cached[0]
     url = issuer.rstrip("/") + "/.well-known/openid-configuration"
-    async with httpx.AsyncClient(timeout=_http_timeout_seconds(), verify=_verify_tls()) as client:
+    async with httpx.AsyncClient(timeout=_http_timeout_seconds(), verify=verify_tls) as client:
         r = await client.get(url)
         if r.status_code != 200:
             raise HTTPException(
@@ -216,16 +224,17 @@ async def _fetch_discovery(issuer: str) -> dict:
     return doc
 
 
-async def _fetch_jwks(issuer: str, jwks_uri: str, force: bool = False) -> dict:
+async def _fetch_jwks(issuer: str, jwks_uri: str, verify_tls: bool = True, force: bool = False) -> dict:
     """Fetch JWKS; cached per-issuer. ``force=True`` bypasses the TTL — used
     when we encounter a `kid` that isn't in the cached set (key rotation).
+    ``verify_tls`` is the calling provider's TLS-verify setting.
     """
     now = time.time()
     if not force:
         cached = _jwks_cache.get(issuer)
         if cached and cached[1] > now:
             return cached[0]
-    async with httpx.AsyncClient(timeout=_http_timeout_seconds(), verify=_verify_tls()) as client:
+    async with httpx.AsyncClient(timeout=_http_timeout_seconds(), verify=verify_tls) as client:
         r = await client.get(jwks_uri)
         if r.status_code != 200:
             raise HTTPException(
@@ -248,10 +257,11 @@ async def test_discovery(issuer_url: str, verify_tls: Optional[bool] = None) -> 
     admin to read. Bypasses the cache because the admin clicked Test to
     check the live endpoint.
 
-    ``verify_tls`` overrides the saved DB value when supplied — the form
-    sends the in-flight checkbox state so an admin can flip "Verify TLS"
-    OFF, paste a self-signed issuer, and Test before saving. Default ``None`` falls back
-    to the saved value via ``_verify_tls()``.
+    ``verify_tls`` overrides the default when supplied — the form sends the
+    in-flight checkbox state so an admin can flip "Verify TLS" OFF, paste a
+    self-signed issuer, and Test before saving. Default ``None`` verifies TLS
+    (safe default); this is a provider-agnostic probe so it doesn't read any
+    provider's saved setting.
     """
     if not issuer_url:
         return {"ok": False, "status": 0, "detail": "Issuer URL is empty"}
@@ -263,7 +273,7 @@ async def test_discovery(issuer_url: str, verify_tls: Optional[bool] = None) -> 
         return {"ok": False, "status": 0,
                 "detail": "Issuer URL must be http:// or https:// with a hostname"}
     url = issuer_url.rstrip("/") + "/.well-known/openid-configuration"
-    effective_verify = _verify_tls() if verify_tls is None else bool(verify_tls)
+    effective_verify = True if verify_tls is None else bool(verify_tls)
     try:
         async with httpx.AsyncClient(timeout=_http_timeout_seconds(), verify=effective_verify) as client:
             r = await client.get(url)  # lgtm[py/full-ssrf]
@@ -453,37 +463,39 @@ def _safe_next(value: Optional[str]) -> str:
 # ----------------------------------------------------------------------------
 # Route bodies — wired up in main.py.
 # ----------------------------------------------------------------------------
-async def login(request: Request):
+async def login(request: Request, provider_id: str = _providers.DEFAULT_PROVIDER_ID):
     """Start the OIDC flow. Generates state/nonce/PKCE, stashes them in a
     flow cookie, 302s to the IdP's authorization_endpoint."""
-    if not is_configured():
+    provider = _providers.get(provider_id)
+    if provider is None:
+        raise HTTPException(status_code=404, detail=f"Unknown OIDC provider {provider_id!r}")
+    if not is_configured(provider.id):
         raise HTTPException(
             status_code=503,
-            detail="OIDC is not configured. Ask an admin to set it up in Settings → Authentik OIDC.",
+            detail=f"{provider.label} SSO is not configured. Ask an admin to set it up in Settings → OIDC / SSO.",
         )
-    s = _settings()
-    issuer = s["oidc_issuer_url"]
-    client_id = s["oidc_client_id"]
-    configured_redirect = (s.get("oidc_redirect_uri") or "").strip()
-    redirect_uri = configured_redirect or _default_redirect_uri(request)
-    scopes = s.get("oidc_scopes") or "openid email profile groups"
+    issuer = _pget(provider, "issuer_url")
+    client_id = _pget(provider, "client_id")
+    configured_redirect = (_pget(provider, "redirect_uri") or "").strip()
+    redirect_uri = configured_redirect or _default_redirect_uri(request, provider)
+    scopes = _pget(provider, "scopes") or provider.default_scopes
 
     # Diagnostic log — prints to docker service logs so we can see
     # EXACTLY what redirect_uri we're sending to the IdP and whether it
     # came from the DB override or the request-origin auto-compute.
-    # Paste this into Authentik's Redirect URIs allowlist byte-for-byte
+    # Paste this into the IdP's Redirect URIs allowlist byte-for-byte
     # if they don't match.
     source = "DB override" if configured_redirect else "auto-computed from request origin"
     host_hdr = request.headers.get("host") or "(no host)"
     fwd_host = request.headers.get("x-forwarded-host") or "(none)"
     fwd_proto = request.headers.get("x-forwarded-proto") or "(none)"
     print(
-        f"[oidc] /login redirect_uri={redirect_uri!r} source={source} "
+        f"[oidc] /login provider={provider.id} redirect_uri={redirect_uri!r} source={source} "
         f"host={host_hdr!r} x-forwarded-host={fwd_host!r} x-forwarded-proto={fwd_proto!r}"
     )
 
     try:
-        doc = await _fetch_discovery(issuer)
+        doc = await _fetch_discovery(issuer, _verify_tls(provider))
     except HTTPException:
         raise
     except (asyncio.CancelledError, KeyboardInterrupt):
@@ -511,6 +523,7 @@ async def login(request: Request):
         "state": state,
         "nonce": nonce,
         "verifier": verifier,
+        "provider": provider.id,
         "exp": int(time.time()) + FLOW_COOKIE_TTL,
     }
     params = {
@@ -536,10 +549,13 @@ async def login(request: Request):
     return resp
 
 
-async def callback(request: Request):
+async def callback(request: Request, provider_id: str = _providers.DEFAULT_PROVIDER_ID):
     """Complete the OIDC flow and mint an og_session cookie."""
-    if not is_configured():
-        raise HTTPException(status_code=503, detail="OIDC is not configured")
+    provider = _providers.get(provider_id)
+    if provider is None:
+        raise HTTPException(status_code=404, detail=f"Unknown OIDC provider {provider_id!r}")
+    if not is_configured(provider.id):
+        raise HTTPException(status_code=503, detail=f"{provider.label} SSO is not configured")
 
     # Rate-limit per IP the same way /api/local-auth/login does. Stops a
     # runaway loop from hammering the token endpoint on misconfigured
@@ -593,14 +609,23 @@ async def callback(request: Request):
             status_code=400, detail="OIDC state mismatch",
             headers=_flow_clear_headers,
         )
+    # Defence-in-depth: the flow cookie records which provider started the
+    # flow; it must match the callback route's provider so a cookie minted
+    # for provider A can't be replayed against provider B's callback.
+    if flow.get("provider", _providers.DEFAULT_PROVIDER_ID) != provider.id:
+        auth.rate_limit_record_failure(ip)
+        raise HTTPException(
+            status_code=400, detail="OIDC provider mismatch",
+            headers=_flow_clear_headers,
+        )
 
-    s = _settings()
-    issuer = s["oidc_issuer_url"]
-    client_id = s["oidc_client_id"]
-    client_secret = s["oidc_client_secret"]
-    redirect_uri = s.get("oidc_redirect_uri") or _default_redirect_uri(request)
+    issuer = _pget(provider, "issuer_url")
+    client_id = _pget(provider, "client_id")
+    client_secret = _pget(provider, "client_secret")
+    redirect_uri = (_pget(provider, "redirect_uri") or "").strip() or _default_redirect_uri(request, provider)
+    verify_tls = _verify_tls(provider)
 
-    doc = await _fetch_discovery(issuer)
+    doc = await _fetch_discovery(issuer, verify_tls)
     _token_ep_raw = doc.get("token_endpoint")
     _jwks_uri_raw = doc.get("jwks_uri")
     if not isinstance(_token_ep_raw, str) or not isinstance(_jwks_uri_raw, str):
@@ -612,9 +637,9 @@ async def callback(request: Request):
     token_ep: str = _token_ep_raw
     jwks_uri: str = _jwks_uri_raw
 
-    # Token exchange. Authentik accepts client credentials in either the
+    # Token exchange. Providers accept client credentials in either the
     # Authorization header or the body; we use the body for clarity.
-    async with httpx.AsyncClient(timeout=_http_timeout_seconds(), verify=_verify_tls()) as client:
+    async with httpx.AsyncClient(timeout=_http_timeout_seconds(), verify=verify_tls) as client:
         token_resp = await client.post(
             token_ep,
             data={
@@ -654,7 +679,7 @@ async def callback(request: Request):
     try:
         claims = await _validate_id_token(
             id_token, issuer=issuer, jwks_uri=jwks_uri,
-            expected_iss=expected_iss,
+            expected_iss=expected_iss, verify_tls=verify_tls,
             client_id=client_id, expected_nonce=flow["nonce"],
         )
     except jwt.InvalidIssuerError:
@@ -707,17 +732,16 @@ async def callback(request: Request):
             headers=_flow_clear_headers,
         )
     username = (claims.get("preferred_username") or claims.get("nickname") or email).strip()
-    groups = claims.get("groups") or []
-    if isinstance(groups, str):
-        # Some providers emit a space- or comma-separated string instead of a list.
-        groups = [g.strip() for g in groups.replace(",", " ").split() if g.strip()]
 
     # Clear the rate-limit bucket only on fully-successful validation.
     auth.rate_limit_clear(ip)
 
     # --- Provision user + mint session ------------------------------------
+    # `auto_provision_oidc` decides admin/readonly from the id_token claims
+    # per this provider's admin mode (group membership for Authentik, the
+    # `role` claim for UnifiedSSO) and keys the user by auth_source=provider.id.
     with db_conn() as c:
-        u = auth.auto_provision_authentik(c, email, username, list(groups))
+        u = auth.auto_provision_oidc(c, provider, email, username, claims)
         if u.disabled:
             raise HTTPException(
                 status_code=403, detail="Account disabled",
@@ -739,7 +763,7 @@ async def callback(request: Request):
             c, "oidc_login",
             target_kind="user", target_name=u.username, target_id=u.username,
             actor=u.username,
-            message=f"Signed in via Authentik OIDC from {ip}",
+            message=f"Signed in via {provider.label} SSO from {ip}",
         )
 
     # Server-side path retrieval — `state` is the server-generated
@@ -764,7 +788,7 @@ async def callback(request: Request):
         from logic.ops import notify as _notify
         await _notify(
             f"🔓 {u.username} signed in",
-            f"via authentik from {ip}",
+            f"via {provider.label} SSO from {ip}",
             event="user_login",
             actor_username=u.username,
         )
@@ -777,7 +801,7 @@ async def callback(request: Request):
 
 async def _validate_id_token(
     id_token: str, *, issuer: str, jwks_uri: str,
-    expected_iss: Optional[str] = None,
+    expected_iss: Optional[str] = None, verify_tls: bool = True,
     client_id: str, expected_nonce: str,
 ) -> dict:
     """Verify signature + standard claims. Returns decoded claims on
@@ -815,14 +839,14 @@ async def _validate_id_token(
             f"{sorted(_ALLOWED_ID_TOKEN_ALGORITHMS)}"
         )
 
-    jwks = await _fetch_jwks(issuer, jwks_uri)
+    jwks = await _fetch_jwks(issuer, jwks_uri, verify_tls)
     key = _find_key(jwks, kid)
     if key is None:
         # Key rotation — bypass cache once. Log the refresh so operators
         # can see in Admin → Logs that key rotation actually hit this
         # path; without the line the cache-bypass is invisible
         print(f"[oidc] kid={kid!r} not in cached jwks — bypassing cache to refresh")
-        jwks = await _fetch_jwks(issuer, jwks_uri, force=True)
+        jwks = await _fetch_jwks(issuer, jwks_uri, verify_tls, force=True)
         key = _find_key(jwks, kid)
     if key is None:
         raise jwt.InvalidTokenError(f"No matching JWKS key for kid={kid!r}")
@@ -878,19 +902,106 @@ def _is_https(request: Request) -> bool:
     return proto == "https" or request.url.scheme == "https"
 
 
-def _default_redirect_uri(request: Request) -> str:
-    """Compute the callback URL from the request origin. Only used when
-    the admin hasn't pinned one in Settings — pinning is strongly
+def _callback_path(provider) -> str:
+    """The callback route path for a provider. The legacy Authentik provider
+    keeps the bare ``/api/oidc/callback``; every other provider is namespaced
+    under ``/api/oidc/<id>/callback``."""
+    if provider.id == _providers.DEFAULT_PROVIDER_ID:
+        return "/api/oidc/callback"
+    return f"/api/oidc/{provider.id}/callback"
+
+
+def _default_redirect_uri(request: Request, provider) -> str:
+    """Compute a provider's callback URL from the request origin. Only used
+    when the admin hasn't pinned one in Settings — pinning is strongly
     recommended because IdPs require redirect URIs to be exact-match
     allowlisted."""
     scheme = "https" if _is_https(request) else "http"
     host = request.headers.get("x-forwarded-host") or request.headers.get("host", "")
-    return f"{scheme}://{host}/api/oidc/callback"
+    return f"{scheme}://{host}{_callback_path(provider)}"
 
 
-def public_redirect_uri(request: Request) -> str:
-    """What to display in the "Redirect URI" field of the Settings panel
-    when the admin hasn't pinned one. Computed from the request origin
+def public_redirect_uri(request: Request, provider_id: str = _providers.DEFAULT_PROVIDER_ID) -> str:
+    """What to display in the "Redirect URI" field of a provider's Settings
+    panel when the admin hasn't pinned one. Computed from the request origin
     so the Copy button writes exactly what IdPs need in their allowlist.
+    Falls back to the default provider's path for an unknown id."""
+    provider = _providers.get(provider_id) or _providers.require(_providers.DEFAULT_PROVIDER_ID)
+    return _default_redirect_uri(request, provider)
+
+
+# ----------------------------------------------------------------------------
+# RFC 7591 Dynamic Client Registration
+# ----------------------------------------------------------------------------
+async def register_client(provider_id: str, initial_access_token: str, request: Request) -> dict:
+    """Register OmniGrid as a client with ``provider_id`` via RFC 7591 dynamic
+    client registration, returning the issued ``client_id`` / ``client_secret``.
+
+    The admin pastes an initial-access-token (issued by the IdP admin); OmniGrid
+    reads the ``registration_endpoint`` from the provider's discovery doc and
+    POSTs a registration request (client_name, this provider's redirect URI,
+    authorization_code grant, code response type, client_secret_post auth, the
+    provider's scopes). The route handler persists the returned credentials —
+    this function only performs the exchange and never raises for a normal
+    error path other than via ``HTTPException`` with an operator-readable
+    detail. ``offline_access`` is intentionally not requested — OmniGrid mints
+    its own session and never uses the OIDC refresh token.
     """
-    return _default_redirect_uri(request)
+    provider = _providers.get(provider_id)
+    if provider is None:
+        raise HTTPException(status_code=404, detail=f"Unknown OIDC provider {provider_id!r}")
+    if not provider.supports_registration:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{provider.label} does not support dynamic client registration.",
+        )
+    issuer = (_pget(provider, "issuer_url") or "").strip()
+    if not issuer:
+        raise HTTPException(
+            status_code=400,
+            detail="Set the issuer URL and run Test connection before auto-registering.",
+        )
+    verify = _verify_tls(provider)
+    doc = await _fetch_discovery(issuer, verify)
+    reg_ep = doc.get("registration_endpoint")
+    if not isinstance(reg_ep, str) or not reg_ep:
+        raise HTTPException(
+            status_code=502,
+            detail=("The issuer's discovery document has no registration_endpoint — "
+                    "dynamic client registration isn't enabled on this provider. "
+                    "Register the client manually and paste the client_id / secret."),
+        )
+    redirect_uri = (_pget(provider, "redirect_uri") or "").strip() or _default_redirect_uri(request, provider)
+    scopes = _pget(provider, "scopes") or provider.default_scopes
+    body = {
+        "client_name": "OmniGrid",
+        "redirect_uris": [redirect_uri],
+        "grant_types": ["authorization_code"],
+        "response_types": ["code"],
+        "token_endpoint_auth_method": "client_secret_post",
+        "scope": scopes,
+    }
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    tok = (initial_access_token or "").strip()
+    if tok:
+        headers["Authorization"] = f"Bearer {tok}"
+    async with httpx.AsyncClient(timeout=_http_timeout_seconds(), verify=verify) as client:
+        r = await client.post(reg_ep, json=body, headers=headers)
+    if r.status_code not in (200, 201):
+        raise HTTPException(
+            status_code=502,
+            detail=f"Client registration failed: HTTP {r.status_code} — {r.text[:300]}",
+        )
+    try:
+        data = r.json()
+    except (ValueError, json.JSONDecodeError):
+        raise HTTPException(status_code=502, detail="Client registration returned a non-JSON body")
+    client_id = data.get("client_id")
+    if not client_id:
+        raise HTTPException(status_code=502, detail="Registration response missing client_id")
+    return {
+        "client_id": str(client_id),
+        "client_secret": str(data.get("client_secret") or ""),
+        "registration_access_token": str(data.get("registration_access_token") or ""),
+        "registration_client_uri": str(data.get("registration_client_uri") or ""),
+    }

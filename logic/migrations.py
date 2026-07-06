@@ -593,6 +593,69 @@ def _migration_007_rename_user_location_keys(conn: sqlite3.Connection) -> None:
             )
 
 
+def _migration_008_relax_auth_source_check(conn: sqlite3.Connection) -> None:
+    """Drop the value enumeration from ``users.auth_source``'s CHECK constraint.
+
+    Pre-fix the column was ``auth_source TEXT NOT NULL CHECK (auth_source IN
+    ('local','authentik'))``, which blocks a second OIDC provider (e.g.
+    ``'unifiedsso'``) whose users need a distinct ``auth_source`` value. Relax
+    it to a bare ``auth_source TEXT NOT NULL`` — allowed values are enforced
+    application-side in ``logic.auth.create_user`` against the OIDC provider
+    registry, so adding a third provider never needs another schema migration.
+
+    Table rebuild via SQLite's supported "recover the CREATE SQL, rewrite the
+    constraint, copy rows, swap" recipe. Every OTHER column (including additive
+    ALTER-added ones like ``ui_prefs``) is preserved because the rebuild reads
+    the live table's own CREATE statement from ``sqlite_master`` rather than
+    hardcoding a column list. Idempotent — a ``users`` table whose stored SQL
+    no longer carries the enumeration (fresh install created post-fix, or an
+    already-migrated DB) is left untouched. FKs are not enforced on OmniGrid's
+    connection (no ``PRAGMA foreign_keys=ON``), so the drop/rename is safe —
+    same precedent as migration 002.
+    """
+    import re
+
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='users'"
+    ).fetchone()
+    if not row or not row[0]:
+        return  # users table not created yet — a fresh install already
+        # gets the relaxed schema from init_auth_schema.
+    orig_sql = row[0]
+
+    # `auth_source ... TEXT NOT NULL CHECK ( auth_source IN (...) )` →
+    # `auth_source TEXT NOT NULL`. Whitespace/newline tolerant.
+    check_re = re.compile(
+        r"auth_source\s+TEXT\s+NOT\s+NULL\s+CHECK\s*\(\s*auth_source\s+IN\s*\([^)]*\)\s*\)",
+        re.IGNORECASE | re.DOTALL,
+    )
+    if not check_re.search(orig_sql):
+        return  # already relaxed — nothing to do
+
+    new_sql = check_re.sub("auth_source TEXT NOT NULL", orig_sql)
+    # Repoint the CREATE at a temp table name (SQLite stores the CREATE
+    # without any IF NOT EXISTS, so match the bare `CREATE TABLE users`).
+    new_sql = re.sub(
+        r"^\s*CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?users\b",
+        "CREATE TABLE users_migr008_new",
+        new_sql,
+        count=1,
+        flags=re.IGNORECASE,
+    )
+
+    # Explicit column list (preserves order; avoids SELECT * ordinal drift).
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()]
+    col_list = ", ".join(f'"{c}"' for c in cols)
+
+    conn.execute(new_sql)
+    conn.execute(
+        f"INSERT INTO users_migr008_new ({col_list}) SELECT {col_list} FROM users"
+    )
+    conn.execute("DROP TABLE users")
+    conn.execute("ALTER TABLE users_migr008_new RENAME TO users")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)")
+
+
 MIGRATIONS: List[Tuple[int, str, MigrationFn]] = [
     (1, "flip_ssh_per_host_to_opt_in", _migration_001_flip_ssh_per_host_to_opt_in),
     (2, "split_provider_host_pk", _migration_002_split_provider_host_pk),
@@ -601,4 +664,5 @@ MIGRATIONS: List[Tuple[int, str, MigrationFn]] = [
     (5, "service_samples_port_column", _migration_005_service_samples_port_column),
     (6, "service_catalog_extras_opt_in", _migration_006_service_catalog_extras_opt_in),
     (7, "rename_user_location_keys", _migration_007_rename_user_location_keys),
+    (8, "relax_auth_source_check", _migration_008_relax_auth_source_check),
 ]

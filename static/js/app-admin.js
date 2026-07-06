@@ -2328,28 +2328,10 @@ export default {
       this._hostStatsBaseline = this._hostStatsSnapshot();
       this.endpointId = d.endpoint_id || 1;
 
-      // --- OIDC panel state ---
-      this.oidcStatus = d.oidc || null;
-      if (this.oidcStatus) {
-        this.oidcForm = {
-          enabled: !!this.oidcStatus.enabled,
-          issuer_url: this.oidcStatus.issuer_url || '',
-          client_id: this.oidcStatus.client_id || '',
-          client_secret: '',  // write-only — never prefill
-          redirect_uri: this.oidcStatus.redirect_uri || this.oidcStatus.redirect_uri_default || '',
-          scopes: this.oidcStatus.scopes || 'openid email profile groups',
-          admin_group: this.oidcStatus.admin_group || 'omnigrid-admins',
-          // Default ON when the backend hasn't surfaced it yet (first load
-          // after the migration); otherwise reflect whatever's persisted.
-          verify_tls: this.oidcStatus.verify_tls !== false,
-          // case-insensitive admin-group claim match.
-          // Default true (legacy exact-match contract) so existing
-          // deploys are no-ops; flip false in the form when the IdP
-          // returns mixed-case group names that don't match the
-          // operator-typed value verbatim.
-          group_case_sensitive: this.oidcStatus.group_case_sensitive !== false,
-        };
-      }
+      // --- OIDC panel state (registry-driven multi-provider) ---
+      // Rebuilds the per-provider maps + selects the current provider's
+      // form/status. See _hydrateOidcProviders in app-oidc.js.
+      this._hydrateOidcProviders(d);
 
       // --- Portainer connection panel state ---
       this.portainerStatus = d.portainer || null;
@@ -2414,7 +2396,7 @@ export default {
       }
       this._portainerBaseline = this._portainerSnapshot();
       this._portainerPolicyBaseline = this._portainerPolicySnapshot();
-      this._oidcBaseline = this._oidcSnapshot();
+      // OIDC per-provider baselines are captured inside _hydrateOidcProviders.
       this._debugBaseline = this._debugSnapshot();
       this._totpPolicyBaseline = this._totpPolicySnapshot();
       // Scheduler-timezone dirty baseline (schedulerSettingsDirty() in

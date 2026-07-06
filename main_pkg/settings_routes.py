@@ -73,6 +73,41 @@ from main import (  # noqa: E402,F401 — explicit for IDE; runtime via the * ab
     set_setting,
     tuning,
 )
+from logic import oidc_providers as _oidc_providers
+
+
+def _oidc_provider_block(a: dict, request, p) -> dict:
+    """Shape one OIDC provider's settings block for /api/settings.
+
+    Reads the provider's namespaced keys from the auth-settings dict ``a``.
+    Secrets stay write-only (only a ``client_secret_set`` bool is returned).
+    The admin-mapping fields differ by mode: group-mode exposes
+    ``admin_group`` / ``group_case_sensitive``; role-mode exposes
+    ``admin_role_claim`` / ``admin_role_value``.
+    """
+    sk = _oidc_providers.setting_key
+    block = {
+        "id": p.id,
+        "label": p.label,
+        "icon": p.icon,
+        "admin_mode": p.admin_mode,
+        "supports_registration": p.supports_registration,
+        "enabled": bool(a.get(sk(p, "enabled"))),
+        "issuer_url": a.get(sk(p, "issuer_url")) or "",
+        "client_id": a.get(sk(p, "client_id")) or "",
+        "client_secret_set": bool(a.get(sk(p, "client_secret"))),
+        "redirect_uri": a.get(sk(p, "redirect_uri")) or "",
+        "redirect_uri_default": oidc.public_redirect_uri(request, p.id),
+        "scopes": a.get(sk(p, "scopes")) or p.default_scopes,
+        "verify_tls": bool(a.get(sk(p, "verify_tls"), True)),
+    }
+    if p.admin_mode == "group":
+        block["admin_group"] = a.get(sk(p, "admin_group")) or ""
+        block["group_case_sensitive"] = bool(a.get(sk(p, "group_case_sensitive"), True))
+    else:
+        block["admin_role_claim"] = a.get(sk(p, "admin_role_claim")) or p.admin_role_claim
+        block["admin_role_value"] = a.get(sk(p, "admin_role_value")) or p.admin_role_value
+    return block
 
 # Sibling names that load AFTER settings_routes in the chain — a real
 # import would cycle. TYPE_CHECKING is False at runtime so the IDE
@@ -594,6 +629,13 @@ async def api_get_settings(request: Request):
             "verify_tls": bool(a.get("oidc_verify_tls", True)),
             "group_case_sensitive": bool(a.get("oidc_group_case_sensitive", True)),
         },
+        # Registry-driven per-provider OIDC blocks — the SPA's OIDC / SSO tab
+        # renders a provider selector + adaptive form from this list. The
+        # legacy `oidc` block above stays for back-compat (== the authentik
+        # entry here).
+        "oidc_providers": [
+            _oidc_provider_block(a, request, p) for p in _oidc_providers.all_providers()
+        ],
         # Settings-version int for cheap cross-tab change detection.
         # Bumped on every set_setting call. SPA reads this once on
         # /api/settings load + polls /api/settings/version cheaply.
@@ -1477,6 +1519,8 @@ async def _api_set_settings_inner(s: "SettingsIn", request: Request, _portainer)
         set_setting(Settings.PORTAINER_API_KEY, "")
     if s.clear_oidc_client_secret:
         set_setting(Settings.OIDC_CLIENT_SECRET, "")
+    if s.clear_oidc_unifiedsso_client_secret:
+        set_setting(Settings.OIDC_UNIFIEDSSO_CLIENT_SECRET, "")
     # Custom SSH actions — JSON array replaces the whole list wholesale.
     # Full-replace semantics match how Admin → Hosts saves hosts_config.
     # Shape validation lives here so the runner can trust what it reads.
@@ -1964,6 +2008,40 @@ async def _api_set_settings_inner(s: "SettingsIn", request: Request, _portainer)
         # Client secret: keep-current-if-blank.
         if s.oidc_client_secret is not None and s.oidc_client_secret.strip() != "":
             auth.set_auth_setting(c, "oidc_client_secret", s.oidc_client_secret)
+            auth_changed = True
+
+        # --- OIDC: UnifiedSSO (second provider, role-claim admin mode) -----
+        if s.oidc_unifiedsso_enabled is not None:
+            auth.set_auth_setting(c, "oidc_unifiedsso_enabled",
+                                  "true" if s.oidc_unifiedsso_enabled else "false")
+            auth_changed = True
+        if s.oidc_unifiedsso_issuer_url is not None:
+            auth.set_auth_setting(c, "oidc_unifiedsso_issuer_url", s.oidc_unifiedsso_issuer_url.strip())
+            auth_changed = True
+        if s.oidc_unifiedsso_client_id is not None:
+            auth.set_auth_setting(c, "oidc_unifiedsso_client_id", s.oidc_unifiedsso_client_id.strip())
+            auth_changed = True
+        if s.oidc_unifiedsso_redirect_uri is not None:
+            auth.set_auth_setting(c, "oidc_unifiedsso_redirect_uri", s.oidc_unifiedsso_redirect_uri.strip())
+            auth_changed = True
+        if s.oidc_unifiedsso_scopes is not None:
+            auth.set_auth_setting(c, "oidc_unifiedsso_scopes", s.oidc_unifiedsso_scopes.strip())
+            auth_changed = True
+        if s.oidc_unifiedsso_verify_tls is not None:
+            auth.set_auth_setting(c, "oidc_unifiedsso_verify_tls",
+                                  "true" if s.oidc_unifiedsso_verify_tls else "false")
+            auth_changed = True
+        if s.oidc_unifiedsso_admin_role_claim is not None:
+            auth.set_auth_setting(c, "oidc_unifiedsso_admin_role_claim",
+                                  s.oidc_unifiedsso_admin_role_claim.strip())
+            auth_changed = True
+        if s.oidc_unifiedsso_admin_role_value is not None:
+            auth.set_auth_setting(c, "oidc_unifiedsso_admin_role_value",
+                                  s.oidc_unifiedsso_admin_role_value.strip())
+            auth_changed = True
+        # Client secret: keep-current-if-blank.
+        if s.oidc_unifiedsso_client_secret is not None and s.oidc_unifiedsso_client_secret.strip() != "":
+            auth.set_auth_setting(c, "oidc_unifiedsso_client_secret", s.oidc_unifiedsso_client_secret)
             auth_changed = True
 
     # Tuning knobs. Each field is keep-if-None / clear-if-blank /

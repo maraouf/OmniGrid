@@ -30,6 +30,7 @@ from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from logic.env_keys import EnvKey, env_get
+from logic import oidc_providers as _oidc_providers
 
 # ----------------------------------------------------------------------------
 # Config (read once at import)
@@ -80,30 +81,35 @@ SESSION_SECRET = SESSION_SECRET_ENV.encode()
 # `oidc_admin_group` is shared with local users — a user is an admin in
 # OmniGrid iff they belong to this Authentik group on OIDC login.
 # Local users keep whatever role their admin assigned in the Users UI.
-_AUTH_DEFAULTS = {
-    # Group name whose members become admin when they sign in via OIDC.
-    # Kept editable for homelabs that rename groups.
-    "oidc_admin_group": "omnigrid-admins",
-    # OIDC provider settings. Everything blank by default — the dashboard
-    # works fine without SSO configured; /api/oidc/login just 503s.
-    "oidc_enabled": False,
-    "oidc_issuer_url": "",
-    "oidc_client_id": "",
-    "oidc_client_secret": "",
-    "oidc_redirect_uri": "",
-    "oidc_scopes": "openid email profile groups",
-    # TLS verification for calls OmniGrid makes TO the issuer (discovery,
-    # JWKS, token exchange). Leave on when the issuer has a publicly-trusted
-    # cert; turn OFF for homelab installs behind an internal CA whose root
-    # isn't in certifi's bundle. Mirrors the behaviour of Portainer's
-    # verify_tls setting.
-    "oidc_verify_tls": True,
-    # When True (legacy / default), the admin-group claim must match
-    # `oidc_admin_group` byte-for-byte. When False, both are lowered
-    # before comparison so operators don't have to chase Authentik's
-    # mixed-case group names. .
-    "oidc_group_case_sensitive": True,
-}
+# The OIDC settings key space is GENERATED from the provider registry
+# (logic/oidc_providers.py) so it grows automatically as providers are
+# added — one registry entry pulls in that provider's full set of
+# `oidc_[<id>_]*` keys with sensible defaults. The legacy Authentik
+# provider has an empty key prefix, so its keys stay the bare
+# `oidc_admin_group` / `oidc_enabled` / `oidc_issuer_url` / ... exactly as
+# before (byte-for-byte defaults) — an existing deploy is unaffected.
+#
+# Everything blank / disabled by default — the dashboard works fine without
+# SSO configured; the OIDC routes just 503 until an admin fills a provider in.
+# `verify_tls` defaults on so a public issuer isn't silently downgraded;
+# `admin_group` seeds the historical `omnigrid-admins` for group-mode
+# providers; role-mode providers seed their `role`/`ADMIN` claim mapping.
+def _build_auth_setting_specs() -> tuple[dict, tuple, tuple]:
+    """Generate (defaults, all-keys, bool-keys) from the provider registry."""
+    defaults: dict = {}
+    keys: list = []
+    bool_keys: list = []
+    for _p in _oidc_providers.all_providers():
+        for _name in _oidc_providers.provider_setting_names(_p):
+            _key = _oidc_providers.setting_key(_p, _name)
+            keys.append(_key)
+            defaults[_key] = _oidc_providers.default_for(_p, _name)
+            if _name in _oidc_providers.BOOL_KEYS:
+                bool_keys.append(_key)
+    return defaults, tuple(keys), tuple(bool_keys)
+
+
+_AUTH_DEFAULTS, _AUTH_SETTING_KEYS, _BOOL_AUTH_KEYS = _build_auth_setting_specs()
 
 # In-memory cache for the three auth-setting values. First read after an
 # invalidation hits SQLite; subsequent reads are a plain dict lookup. The
@@ -139,20 +145,10 @@ def is_session_secret_auto_generated() -> bool:
 
 # ----------------------------------------------------------------------------
 # Auth settings (DB-backed, env-seeded)
+#
+# `_AUTH_DEFAULTS`, `_AUTH_SETTING_KEYS`, and `_BOOL_AUTH_KEYS` are all
+# generated from the provider registry above (see `_build_auth_setting_specs`).
 # ----------------------------------------------------------------------------
-_AUTH_SETTING_KEYS = (
-    "oidc_admin_group",
-    "oidc_enabled",
-    "oidc_issuer_url",
-    "oidc_client_id",
-    "oidc_client_secret",
-    "oidc_redirect_uri",
-    "oidc_scopes",
-    "oidc_verify_tls",
-    "oidc_group_case_sensitive",
-)
-
-
 def bootstrap_auth_settings(conn: sqlite3.Connection) -> None:
     """Seed the OIDC / admin-group settings into the ``settings`` table on
     first boot with blank / disabled defaults. No-op for keys that
@@ -172,12 +168,6 @@ def bootstrap_auth_settings(conn: sqlite3.Connection) -> None:
                 "INSERT INTO settings(key, value) VALUES (?, ?)",
                 (key, value),
             )
-
-
-# Bool-typed auth settings — every other key stores its value verbatim as a
-# string. Keep this set in sync when adding new boolean settings so the
-# cache refresh coerces them back from their stringified form.
-_BOOL_AUTH_KEYS = ("oidc_enabled", "oidc_verify_tls", "oidc_group_case_sensitive")
 
 
 def _refresh_auth_settings_cache(conn: sqlite3.Connection) -> None:
@@ -277,14 +267,13 @@ def init_auth_schema(conn: sqlite3.Connection) -> None:
                            'admin',
                            'readonly'
                        )),
-                           auth_source TEXT NOT NULL CHECK
-                       (
-                           auth_source
-                           IN
-                       (
-                           'local',
-                           'authentik'
-                       )),
+                           -- auth_source is 'local' or an OIDC provider id
+                           -- (logic/oidc_providers). No value enumeration in
+                           -- the CHECK so a new provider needs no schema
+                           -- change; valid values are enforced app-side in
+                           -- create_user(). Existing DBs are relaxed by
+                           -- migration 008.
+                           auth_source TEXT NOT NULL,
                            disabled INTEGER NOT NULL DEFAULT 0,
                            created_at INTEGER NOT NULL,
                            last_login_at INTEGER
@@ -564,13 +553,16 @@ def create_user(
 ) -> User:
     """Insert a new user row + return the populated :class:`User`.
     `role` MUST be `"admin"` or `"readonly"`; `auth_source` MUST be
-    `"local"` or `"authentik"` — any other value raises ValueError.
+    `"local"` or a registered OIDC provider id (`oidc_providers`) — any
+    other value raises ValueError. This is the application-side guard now
+    that the DB CHECK constraint no longer enumerates values (migration
+    008 relaxed it so a new provider needs no schema change).
     `password=None` is the canonical "SSO / passkey-only" shape; the
     `password_hash` column stays NULL and `verify_password` returns
     False for that account."""
     if role not in ("admin", "readonly"):
         raise ValueError(f"invalid role: {role}")
-    if auth_source not in ("local", "authentik"):
+    if auth_source not in _oidc_providers.valid_auth_sources():
         raise ValueError(f"invalid auth_source: {auth_source}")
     pw_hash = hash_password(password) if password else None
     now = int(time.time())
@@ -1381,55 +1373,84 @@ def delete_api_token(conn: sqlite3.Connection, token_id: int) -> None:
     conn.execute("DELETE FROM api_tokens WHERE id=?", (token_id,))
 
 
-def auto_provision_authentik(
+def _extract_groups(raw) -> list:
+    """Normalise a ``groups`` claim to a list. Some IdPs emit a list, others a
+    space- or comma-separated string."""
+    if isinstance(raw, str):
+        return [g.strip() for g in raw.replace(",", " ").split() if g.strip()]
+    if isinstance(raw, list):
+        return raw
+    return []
+
+
+def _oidc_target_role(settings: dict, provider, claims: dict) -> str:
+    """Decide ``"admin"`` / ``"readonly"`` for an OIDC user from its claims,
+    per the provider's admin-mapping mode.
+
+    * ``group`` mode — admin iff the configured admin-group name appears in the
+      ``groups`` claim (case sensitivity is per-provider configurable).
+    * ``role`` mode — admin iff the configured role claim equals the configured
+      admin value (case-insensitive; tolerates a list-valued claim). UnifiedSSO
+      emits a single ``role`` claim of ``"USER"`` / ``"ADMIN"``.
+    """
+    sk = _oidc_providers.setting_key
+    if provider.admin_mode == "role":
+        claim_name = settings.get(sk(provider, "admin_role_claim")) or provider.admin_role_claim
+        want = settings.get(sk(provider, "admin_role_value")) or provider.admin_role_value
+        raw = claims.get(claim_name)
+        vals = raw if isinstance(raw, list) else [raw]
+        want_l = str(want).strip().lower()
+        return "admin" if any(
+            v is not None and str(v).strip().lower() == want_l for v in vals
+        ) else "readonly"
+    # group mode
+    admin_group = settings.get(sk(provider, "admin_group"), "")
+    case_sensitive = bool(settings.get(sk(provider, "group_case_sensitive"), True))
+    groups = _extract_groups(claims.get("groups"))
+    if not admin_group:
+        return "readonly"
+    if case_sensitive:
+        in_admin_group = admin_group in groups
+    else:
+        needle = admin_group.lower()
+        in_admin_group = needle in [str(g).lower() for g in groups]
+    return "admin" if in_admin_group else "readonly"
+
+
+def auto_provision_oidc(
     conn: sqlite3.Connection,
+    provider,
     email: str,
     username: Optional[str],
-    groups: list[str],
+    claims: dict,
 ) -> User:
-    """Find or create an SSO user, refreshing role from the group claim.
+    """Find or create an SSO user for ``provider``, refreshing role from its
+    claims on every login (group- or role-based per the provider's admin mode).
 
-    Group membership is authoritative every time: if the user is in the
-    configured admin group they become admin; otherwise readonly. Removing
-    someone from the group in Authentik demotes them on the next OIDC
-    login. Local users aren't touched by this path.
-
-    Name retained for historical reasons — any OIDC IdP fits the same
-    shape (email + username + list-of-groups claim).
+    Group / role membership is authoritative each time — demoting someone in
+    the IdP demotes them on the next OIDC login. Local users are never touched.
+    Each provider's users are keyed by ``auth_source = provider.id`` so a shared
+    email across two IdPs (or a local account) never conflates identities.
     """
     settings = get_auth_settings(conn)
-    admin_group = settings.get("oidc_admin_group", "")
-    case_sensitive = bool(settings.get("oidc_group_case_sensitive", True))
-    if admin_group:
-        if case_sensitive:
-            in_admin_group = admin_group in (groups or [])
-        else:
-            needle = admin_group.lower()
-            in_admin_group = needle in [str(g).lower() for g in (groups or [])]
-    else:
-        in_admin_group = False
-    target_role = "admin" if in_admin_group else "readonly"
-    # Only look up an existing AUTHENTIK-sourced user by this email. Local
-    # accounts sharing the same email MUST NOT be matched here — otherwise
-    # we'd silently flip their auth_source to 'authentik' and the local
-    # username/password login path (which gates on auth_source='local')
-    # would start rejecting correct credentials with "Invalid username or
-    # password". Email is not a unique column in the users table; both a
-    # local and an SSO record can coexist cleanly.
+    target_role = _oidc_target_role(settings, provider, claims)
+    source = provider.id
+    # Only look up an existing user of THIS provider by email. A local account
+    # (or a different provider's account) sharing the same email MUST NOT be
+    # matched — otherwise we'd flip its auth_source and the login path that
+    # gates on it would start rejecting correct credentials. Email is not a
+    # unique column; a local + N SSO records can coexist cleanly.
     row = conn.execute(
-        "SELECT * FROM users WHERE email=? AND auth_source='authentik' LIMIT 1",
-        (email,),
+        "SELECT * FROM users WHERE email=? AND auth_source=? LIMIT 1",
+        (email, source),
     ).fetchone()
     u = _row_to_user(row) if row else None
     if u is None:
-        # Username collisions with a local user get a suffix so we never
-        # conflate identities. Email is the real key for Authentik users.
-        # First check the bare username; on collision use a random 4-digit
-        # suffix instead of linear `#2`/`#3`/... probing.
-        # Linear probing was O(N) — three local users named `alice`,
-        # `alice#2`, `alice#3` cost a fresh Authentik `alice` four DB
-        # round-trips. Random suffix is O(1) in expectation; bounded retry
-        # against the 1-in-9000 collision case.
+        # Username collisions with an existing user get a suffix so we never
+        # conflate identities. Email is the real key for SSO users. Check the
+        # bare username; on collision use a random 4-digit suffix rather than
+        # linear `#2`/`#3`/... probing (O(1) in expectation), falling back to
+        # the linear escape hatch on the ~1-in-9000 collision case.
         uname = username or email
         base = uname
         if get_user_by_username(conn, uname) is not None:
@@ -1440,16 +1461,12 @@ def auto_provision_authentik(
                     uname = candidate
                     break
             else:
-                # Statistically unreachable on homelab fleets, but keep
-                # the linear-probe escape hatch so a fully-saturated
-                # 9000-user namespace still lands somewhere unique.
                 n = 1
                 uname = f"{base}#{n}"
                 while get_user_by_username(conn, uname) is not None:
                     n += 1
                     uname = f"{base}#{n}"
-        u = create_user(conn, uname, email, None, target_role, "authentik")
-        return u
+        return create_user(conn, uname, email, None, target_role, source)
     if u.role != target_role:
         conn.execute(
             "UPDATE users SET role=? WHERE id=?",
@@ -1457,6 +1474,21 @@ def auto_provision_authentik(
         )
         u.role = target_role
     return u
+
+
+def auto_provision_authentik(
+    conn: sqlite3.Connection,
+    email: str,
+    username: Optional[str],
+    groups: list,
+) -> User:
+    """Back-compat wrapper for the legacy Authentik (group-mode) provider.
+
+    Kept so existing callers that pass a pre-extracted ``groups`` list keep
+    working; delegates to the generic :func:`auto_provision_oidc`.
+    """
+    provider = _oidc_providers.require("authentik")
+    return auto_provision_oidc(conn, provider, email, username, {"groups": groups})
 
 
 # ----------------------------------------------------------------------------

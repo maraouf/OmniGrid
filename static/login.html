@@ -42,15 +42,13 @@
 
     <button type="submit" id="btn" data-i18n="login.sign_in">Sign in</button>
 
-    <!-- OIDC SSO button. Hidden by default; unhidden once /api/auth/providers
-         confirms the provider is configured. href is built from the current
-         ?next= so the post-login redirect lands the user where they started. -->
+    <!-- OIDC SSO buttons. Hidden by default; login.js fills #ssoBtns with one
+         button per configured provider from /api/auth/providers and unhides
+         the wrap. Each href carries the current ?next= so the post-login
+         redirect lands the user where they started. -->
     <div class="sso-wrap" id="ssoWrap" hidden>
       <div class="sso-divider"><span data-i18n="login.or">or</span></div>
-      <a class="btn-sso" id="ssoBtn" href="#">
-        <img src="/img/icons/authentik.svg" alt="" class="sso-icon" aria-hidden="true"/>
-        <span data-i18n="login.sso_button">Sign in with Authentik</span>
-      </a>
+      <div id="ssoBtns" class="sso-btns"></div>
     </div>
 
     <div class="err" id="err" role="alert" aria-live="assertive"></div>

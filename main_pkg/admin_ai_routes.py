@@ -1928,6 +1928,21 @@ async def api_oidc_callback(request: Request):
     return await oidc.callback(request)
 
 
+# Per-provider OIDC routes (multi-provider SSO). The bare routes above stay
+# as the legacy default (Authentik) so its registered redirect URI keeps
+# working; every other provider is namespaced under /api/oidc/<id>/*.
+@app.get("/api/oidc/{provider}/login")
+async def api_oidc_login_provider(provider: str, request: Request):
+    """Start the OIDC authorization-code + PKCE flow for a named provider."""
+    return await oidc.login(request, provider_id=provider)
+
+
+@app.get("/api/oidc/{provider}/callback")
+async def api_oidc_callback_provider(provider: str, request: Request):
+    """Complete the OIDC callback for a named provider."""
+    return await oidc.callback(request, provider_id=provider)
+
+
 def _log_provider_test_start(provider: str, target: str = "") -> None:
     """Emit a `[provider_test] START provider=X target=Y` line so
     operators can correlate a Test-button click with subsequent log
@@ -1999,29 +2014,82 @@ def _stamp_test_success(provider: str, result: dict, target: str = "") -> dict:
     return result
 
 
-@app.post("/api/oidc/test")
-async def api_oidc_test(
-    request: Request,
-    _admin: AdminUser,
-):
-    """Admin-only: probe the issuer's discovery endpoint. Used by the
-    "Test connection" button in the Settings panel. No state changes.
-
-    Honours an in-flight ``verify_tls`` from the form when supplied so
-    an admin can flip the checkbox OFF and Test a self-signed issuer
-    before saving. Missing key falls back to the saved DB
-    value via ``oidc._verify_tls()``.
-    """
+async def _do_oidc_test(request: Request, label: str):
+    """Shared body for the OIDC Test-connection routes. Provider-agnostic — the
+    discovery probe only needs the issuer + in-flight verify_tls; ``label`` is
+    just the ``[provider_test]`` log tag. Honours an in-flight ``verify_tls``
+    from the form so an admin can Test a self-signed issuer before saving."""
     body = await request.json()
     issuer = (body.get("issuer_url") or "").strip()
     verify_tls = body.get("verify_tls")
     if verify_tls is not None:
         verify_tls = bool(verify_tls)
-    _log_provider_test_start("oidc", target=issuer or "(unset)")
+    _log_provider_test_start(label, target=issuer or "(unset)")
     return _stamp_test_success(
         "oidc", await oidc.test_discovery(issuer, verify_tls=verify_tls),
         target=issuer,
     )
+
+
+@app.post("/api/oidc/test")
+async def api_oidc_test(
+    request: Request,
+    _admin: AdminUser,
+):
+    """Admin-only: probe the default provider's discovery endpoint (Test button)."""
+    return await _do_oidc_test(request, "oidc")
+
+
+@app.post("/api/oidc/{provider}/test")
+async def api_oidc_test_provider(
+    provider: str,
+    request: Request,
+    _admin: AdminUser,
+):
+    """Admin-only: probe a named provider's discovery endpoint (per-provider Test)."""
+    return await _do_oidc_test(request, f"oidc:{provider}")
+
+
+@app.post("/api/oidc/{provider}/register")
+async def api_oidc_register_provider(
+    provider: str,
+    request: Request,
+    _admin: AdminUser,
+):
+    """Admin-only: RFC 7591 dynamic client registration for a provider.
+
+    Reads an ``initial_access_token`` from the JSON body, POSTs a client
+    registration to the provider's discovery ``registration_endpoint``, and
+    persists the returned client_id / client_secret into that provider's
+    settings so the admin doesn't have to copy-paste. Returns the client_id
+    (and whether a secret was issued) so the SPA fills the form; the secret is
+    stored server-side and never echoed back (write-only secret contract).
+    """
+    from logic import auth as _auth, oidc_providers as _oidc_providers
+    p = _oidc_providers.get(provider)
+    if p is None:
+        raise HTTPException(status_code=404, detail=f"Unknown OIDC provider {provider!r}")
+    body = await request.json()
+    initial_access_token = (body.get("initial_access_token") or "").strip()
+    result = await oidc.register_client(provider, initial_access_token, request)
+    # Persist the issued credentials into the provider's settings block.
+    with db_conn() as c:
+        _auth.set_auth_setting(
+            c, _oidc_providers.setting_key(p, "client_id"), result["client_id"],
+        )
+        if result.get("client_secret"):
+            _auth.set_auth_setting(
+                c, _oidc_providers.setting_key(p, "client_secret"), result["client_secret"],
+            )
+    _auth.invalidate_auth_settings_cache()
+    oidc.invalidate_cache()
+    print(f"[oidc] {p.id} dynamic client registration succeeded — client_id stored")
+    return {
+        "ok": True,
+        "client_id": result["client_id"],
+        "client_secret_set": bool(result.get("client_secret")),
+        "registration_client_uri": result.get("registration_client_uri") or "",
+    }
 
 
 @app.post("/api/portainer/test")

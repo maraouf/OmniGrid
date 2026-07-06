@@ -9,7 +9,7 @@
              from the SVG element itself. Same pattern as every
              other working admin-header sprite consumer. -->
         <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
-          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-authentik"/>
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-shield"/>
         </svg>
         <h3 class="font-semibold fs-md" x-text="t('settings.oidc.title')"></h3>
       </div>
@@ -25,6 +25,20 @@
           x-text="oidcStatus ? (oidcStatus.enabled ? t('settings.oidc.enabled') : t('settings.oidc.disabled')) : ''"></span>
   </div>
   <div x-show="oidcStatus" class="space-y-3">
+    <!-- Provider selector — shown when more than one OIDC provider is
+         registered. Switching preserves each provider's unsaved edits +
+         Test-before-Save gate (per-provider maps in app-oidc.js). -->
+    <div x-show="oidcProviders && oidcProviders.length > 1">
+      <label for="og-oidc-provider" class="block fs-xs text-[var(--text-dim)] mb-1"
+             x-text="t('settings.oidc.provider_label')"></label>
+      <select id="og-oidc-provider" class="w-full fs-sm"
+              @change="selectOidcProvider($event.target.value)"
+              :disabled="isReadonly()">
+        <template x-for="pv in oidcProviders" :key="pv.id">
+          <option :value="pv.id" :selected="pv.id === oidcProviderId" x-text="pv.label"></option>
+        </template>
+      </select>
+    </div>
     <label class="flex items-center gap-2 fs-sm cursor-pointer select-none">
       <input type="checkbox" :checked="oidcForm.enabled"
              @change="oidcForm.enabled = $event.target.checked; markOidcFormDirty()"
@@ -72,6 +86,31 @@
                 x-text="t('settings.host_stats.clear_secret_label')"></button>
       </div>
     </div>
+    <!-- Dynamic client registration (RFC 7591) — only shown for providers
+         that advertise it. The admin pastes an initial-access-token; OmniGrid
+         reads the discovery registration_endpoint, registers itself, and
+         persists client_id / client_secret automatically (no copy-paste).
+         Requires the issuer URL to be saved first. -->
+    <div x-show="oidcSupportsRegistration()"
+         class="bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3 space-y-2">
+      <div class="fs-xs font-medium" x-text="t('settings.oidc.register_title')"></div>
+      <p class="fs-2xs text-[var(--text-faint)] leading-snug" x-text="t('settings.oidc.register_hint')"></p>
+      <label for="og-oidc-reg-token" class="block fs-xs text-[var(--text-dim)]"
+             x-text="t('settings.oidc.register_token_label')"></label>
+      <div class="flex items-stretch gap-2">
+        <input id="og-oidc-reg-token" x-model="oidcAutoReg.token" type="password"
+               :disabled="isReadonly() || !oidcForm.enabled || oidcAutoReg.running"
+               :placeholder="t('settings.oidc.register_token_placeholder')"
+               autocomplete="off"
+               class="w-full mono fs-sm flex-1">
+        <button type="button" @click="oidcAutoRegister()"
+                :disabled="isReadonly() || !oidcForm.enabled || oidcAutoReg.running"
+                class="btn btn-ghost fs-sm whitespace-nowrap">
+          <span x-show="!oidcAutoReg.running" x-text="t('settings.oidc.register_button')"></span>
+          <span x-show="oidcAutoReg.running" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
+        </button>
+      </div>
+    </div>
     <div>
       <label for="og-oidc-redirect-uri" class="block fs-xs text-[var(--text-dim)] mb-1">
         <span x-text="t('settings.oidc.redirect_uri')"></span> <span class="text-[var(--text-faint)]" x-text="t('settings.oidc.redirect_uri_note')"></span>
@@ -95,7 +134,9 @@
                class="w-full mono fs-sm">
         <p class="fs-xs text-[var(--text-faint)] mt-1" x-html="t('settings.oidc.scopes_hint')"></p>
       </div>
-      <div>
+      <!-- Group-mode admin mapping (Authentik): a user is admin iff the
+           configured group name is in the id_token `groups` claim. -->
+      <div x-show="oidcSelectedMode() === 'group'">
         <label for="og-oidc-admin-group" class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('settings.oidc.admin_group')"></label>
         <input id="og-oidc-admin-group" x-model="oidcForm.admin_group" type="text"
                @input="markOidcFormDirty()"
@@ -103,6 +144,28 @@
                :placeholder="t('settings.oidc.admin_group_placeholder')"
                class="w-full mono fs-sm">
         <p class="fs-xs text-[var(--text-faint)] mt-1" x-html="t('settings.oidc.admin_group_hint')"></p>
+      </div>
+    </div>
+    <!-- Role-mode admin mapping (UnifiedSSO): a user is admin iff the
+         configured claim equals the configured value (e.g. role == ADMIN). -->
+    <div x-show="oidcSelectedMode() === 'role'" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div>
+        <label for="og-oidc-role-claim" class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('settings.oidc.admin_role_claim')"></label>
+        <input id="og-oidc-role-claim" x-model="oidcForm.admin_role_claim" type="text"
+               @input="markOidcFormDirty()"
+               :disabled="isReadonly() || !oidcForm.enabled"
+               :placeholder="t('settings.oidc.admin_role_claim_placeholder')"
+               class="w-full mono fs-sm">
+        <p class="fs-xs text-[var(--text-faint)] mt-1" x-text="t('settings.oidc.admin_role_claim_hint')"></p>
+      </div>
+      <div>
+        <label for="og-oidc-role-value" class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('settings.oidc.admin_role_value')"></label>
+        <input id="og-oidc-role-value" x-model="oidcForm.admin_role_value" type="text"
+               @input="markOidcFormDirty()"
+               :disabled="isReadonly() || !oidcForm.enabled"
+               :placeholder="t('settings.oidc.admin_role_value_placeholder')"
+               class="w-full mono fs-sm">
+        <p class="fs-xs text-[var(--text-faint)] mt-1" x-text="t('settings.oidc.admin_role_value_hint')"></p>
       </div>
     </div>
     <!-- Verify TLS toggle — help text BEFORE the checkbox
@@ -119,7 +182,7 @@
         <span class="font-medium" x-text="t('settings.oidc.verify_tls_title')"></span>
       </label>
     </div>
-    <div>
+    <div x-show="oidcSelectedMode() === 'group'">
       <span class="block fs-xs text-[var(--text-faint)] mb-1" x-html="t('settings.oidc.group_case_sensitive_hint')"></span>
       <label class="flex items-center gap-2 fs-sm cursor-pointer">
         <input type="checkbox" :checked="oidcForm.group_case_sensitive"

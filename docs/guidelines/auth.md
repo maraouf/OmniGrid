@@ -21,10 +21,14 @@ walkthrough.
   | `POST` | `/api/local-auth/bootstrap`          | One-shot; works only when `users` is empty.                          |
   | `POST` | `/api/local-auth/change-password`    | Authed; rotates local password, keeps caller session.                |
   | `GET`  | `/api/me`                            | `{authenticated:false}` or `{username,role,source,...}`.             |
-  | `GET`  | `/api/auth/providers`                | Public; login page reads this to decide whether to render SSO button. |
-  | `GET`  | `/api/oidc/login`                    | Begin OIDC Authorization-Code + PKCE flow.                           |
-  | `GET`  | `/api/oidc/callback`                 | IdP callback — validates id_token, mints `og_session`.               |
+  | `GET`  | `/api/auth/providers`                | Public; returns one entry per configured OIDC provider so the login page renders a button each. |
+  | `GET`  | `/api/oidc/login`                    | Begin OIDC flow for the default (Authentik) provider.               |
+  | `GET`  | `/api/oidc/callback`                 | Default-provider callback — validates id_token, mints `og_session`.  |
   | `POST` | `/api/oidc/test`                     | Admin-only; probes `{issuer}/.well-known/openid-configuration`.      |
+  | `GET`  | `/api/oidc/{provider}/login`         | Begin OIDC flow for a named provider (e.g. `unifiedsso`).           |
+  | `GET`  | `/api/oidc/{provider}/callback`      | Named-provider callback.                                             |
+  | `POST` | `/api/oidc/{provider}/test`          | Admin-only; per-provider discovery probe.                           |
+  | `POST` | `/api/oidc/{provider}/register`      | Admin-only; RFC 7591 dynamic client registration (stores client_id / secret). |
   | `GET`  | `/login`                             | Login HTML page (`static/login.html`).                               |
 
 - **Admin routes** (all admin-only — step 5):
@@ -117,9 +121,38 @@ Role-based UI, not just API enforcement. A readonly user sees:
 API-level enforcement (`require_admin` deps) is still the source of truth. UI gating is just
 "don't make them click a button that 403s".
 
+## Multiple OIDC / SSO providers
+
+OmniGrid supports more than one OIDC provider at once, driven by a small provider registry
+(`logic/oidc_providers.py`). Two ship built-in:
+
+- **Authentik** — the legacy default. Keeps the bare `oidc_*` settings and the bare
+  `/api/oidc/login` + `/api/oidc/callback` routes, so an existing deploy is unchanged. Admin
+  rights come from **group membership** (a user in the configured admin group becomes admin).
+- **UnifiedSSO** — a second provider. Its settings are namespaced `oidc_unifiedsso_*` and its
+  routes are `/api/oidc/unifiedsso/login` + `/callback`. Admin rights come from a **role claim**
+  (a user whose configured claim equals the configured value — e.g. `role == ADMIN` — becomes
+  admin, everyone else read-only).
+
+Each provider's users are tracked under a distinct `users.auth_source` (the provider id), so a
+shared email across two IdPs (or a local account) never conflates identities. `GET
+/api/auth/providers` returns one entry per configured provider and the login page renders one
+button each. The **Admin → OIDC / SSO** tab has a provider selector; each provider is configured,
+Test-connection'd, and Saved independently.
+
+**Auto-register (RFC 7591 dynamic client registration).** For providers that advertise a
+`registration_endpoint` in their discovery doc, the admin can paste an initial-access-token and
+`POST /api/oidc/<provider>/register` — OmniGrid registers itself and stores the returned
+`client_id` / `client_secret` automatically (save the issuer URL first). The secret is stored
+server-side and never echoed back to the browser.
+
+Adding a third provider is a registry entry + its settings keys + i18n — no schema migration
+(the `users.auth_source` CHECK constraint was relaxed in migration 008 to drop the value
+enumeration; allowed values are enforced application-side in `create_user`).
+
 ## OIDC + Portainer settings — DB-backed (UI-managed, no env)
 
-Every value in the Admin → Authentik OIDC and Admin → Portainer panels lives in the
+Every value in the Admin → OIDC / SSO and Admin → Portainer panels lives in the
 `settings` table. There are NO env vars for OIDC (no `OIDC_*` keys anywhere). Portainer
 connection env vars (`PORTAINER_URL` etc.) are consulted ONCE on first boot as a transitional
 aid for existing deploys, then ignored — the DB is authoritative after seeding.

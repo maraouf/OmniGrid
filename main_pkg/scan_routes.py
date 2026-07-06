@@ -1091,37 +1091,49 @@ async def api_auth_providers(request: Request):
     page queries this before rendering the SSO button so unconfigured
     deployments don't show a dead button that 503s.
 
-    Multi-URL deployments: OIDC is reported `False` when the request's
-    hostname doesn't match the configured `oidc_redirect_uri`'s host.
-    OmniGrid is often reachable via multiple FQDNs (LAN /
-    Cloudflare-tunnel / VPN), but Authentik will only honour the SSO
-    flow for ONE registered redirect URI — opening the login page from
-    any other URL would show a button that fails the round-trip with a
-    "redirect_uri_mismatch" error. Hiding it on mismatched hostnames
-    saves the operator a confusing trip into Authentik's logs.
-    Hostname comparison is case-insensitive and ignores the port +
-    path; an unparseable redirect URI falls back to "show the button"
-    (defensive — better a useless button than hiding the SSO path on
-    a config typo).
+    Returns one entry per CONFIGURED provider so the login page renders a
+    button each (registry-driven multi-provider SSO).
+
+    Multi-URL deployments: a provider is hidden when the request's hostname
+    doesn't match its configured redirect_uri host. OmniGrid is often reachable
+    via multiple FQDNs (LAN / Cloudflare-tunnel / VPN), but an IdP only honours
+    the flow for its ONE registered redirect URI — a button from a different
+    FQDN would fail the round-trip with a "redirect_uri_mismatch" error. Hiding
+    it on mismatched hostnames saves the operator a confusing trip into the
+    IdP's logs. Hostname comparison is case-insensitive and ignores port +
+    path; an unparseable / blank redirect URI falls back to "show the button"
+    (defensive — better a useless button than hiding the SSO path on a typo).
     """
-    oidc_live = oidc.is_configured()
-    if oidc_live:
+    from logic import oidc_providers as _oidc_providers
+    from urllib.parse import urlparse
+    request_host = (request.url.hostname or "").strip().lower()
+    providers = []
+    for p in _oidc_providers.all_providers():
+        if not oidc.is_configured(p.id):
+            continue
         try:
-            redirect_uri = (get_setting(Settings.OIDC_REDIRECT_URI) or "").strip()
+            redirect_uri = (get_setting(_oidc_providers.setting_key(p, "redirect_uri")) or "").strip()
             if redirect_uri:
-                from urllib.parse import urlparse
                 expected_host = (urlparse(redirect_uri).hostname or "").strip().lower()
-                request_host = (request.url.hostname or "").strip().lower()
                 # Both populated AND mismatched → hide the button.
-                # Either side blank → fall through to "show" (don't lock
-                # operators out on a misconfigured redirect URI).
                 if expected_host and request_host and expected_host != request_host:
-                    oidc_live = False
+                    continue
         except Exception as e:  # noqa: BLE001
-            print(f"[auth] providers redirect_uri host-match check failed: {e}")
+            print(f"[auth] providers redirect_uri host-match check failed for {p.id}: {e}")
+        login_url = ("/api/oidc/login" if p.id == _oidc_providers.DEFAULT_PROVIDER_ID
+                     else f"/api/oidc/{p.id}/login")
+        providers.append({
+            "id": p.id,
+            "label": p.label,
+            "icon": p.icon,
+            "login_url": login_url,
+        })
     return {
         "local": True,
-        "oidc": oidc_live,
+        "providers": providers,
+        # Back-compat: legacy `oidc` boolean = any provider live. Kept so a
+        # stale cached login.js / external caller still sees the SSO signal.
+        "oidc": bool(providers),
     }
 
 

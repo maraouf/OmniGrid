@@ -1202,6 +1202,19 @@ class SettingsIn(BaseModel):
     # case-insensitive admin-group claim match. Default
     # True preserves the legacy exact-match contract.
     oidc_group_case_sensitive: Optional[bool] = None
+    # Second OIDC provider (UnifiedSSO) — role-claim admin mode. Mirrors the
+    # oidc_* block above but namespaced; client_secret uses the same
+    # keep-current-if-blank contract.
+    oidc_unifiedsso_enabled: Optional[bool] = None
+    oidc_unifiedsso_issuer_url: Optional[str] = None
+    oidc_unifiedsso_client_id: Optional[str] = None
+    oidc_unifiedsso_client_secret: Optional[str] = None
+    oidc_unifiedsso_redirect_uri: Optional[str] = None
+    oidc_unifiedsso_scopes: Optional[str] = None
+    oidc_unifiedsso_verify_tls: Optional[bool] = None
+    # Admin-role mapping: a user is admin iff this claim equals this value.
+    oidc_unifiedsso_admin_role_claim: Optional[str] = None
+    oidc_unifiedsso_admin_role_value: Optional[str] = None
     # NOTE: the legacy plain `backup_retention_count` field was removed —
     # the value migrated to TUNABLES (tuning_backup_retention_count). The
     # prune consumer (logic/schedules.py) + the GET both read the tunable;
@@ -1521,6 +1534,7 @@ class SettingsIn(BaseModel):
     clear_webmin_password: Optional[bool] = None
     clear_portainer_api_key: Optional[bool] = None
     clear_oidc_client_secret: Optional[bool] = None
+    clear_oidc_unifiedsso_client_secret: Optional[bool] = None
     # JSON array of SSH custom actions. Each element:
     # {"id": "restart-beszel", "title": "Restart Beszel agent",
     #  "command": "systemctl restart beszel-agent"}

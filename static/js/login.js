@@ -72,7 +72,7 @@ function applyI18nDom() {
   // listener; rebind these so showErr / button mutations still target
   // the visible card.
   const refs = {
-    form: document.getElementById('login'), btn: document.getElementById('btn'), err: document.getElementById('err'), ver: document.getElementById('ver'), ssoWrap: document.getElementById('ssoWrap'), ssoBtn: document.getElementById('ssoBtn'),
+    form: document.getElementById('login'), btn: document.getElementById('btn'), err: document.getElementById('err'), ver: document.getElementById('ver'), ssoWrap: document.getElementById('ssoWrap'), ssoBtns: document.getElementById('ssoBtns'),
   };
 
   // Multi-step state. Holds the payload from the password step
@@ -147,14 +147,45 @@ function applyI18nDom() {
   }).catch(() => {
   });
 
-  // Advertise SSO once we know it's configured.
+  // Advertise SSO once we know which providers are configured. One button
+  // per provider; falls back to a single legacy Authentik button if a stale
+  // server still returns the old {oidc:true} shape.
   fetch('/api/auth/providers').then(r => r.ok ? r.json() : null).then(p => {
-    if (p && p.oidc && refs.ssoBtn && refs.ssoWrap) {
-      refs.ssoBtn.href = '/api/oidc/login?next=' + encodeURIComponent(nextPath());
-      refs.ssoWrap.hidden = false;
+    let provs = (p && Array.isArray(p.providers)) ? p.providers : [];
+    if (!provs.length && p && p.oidc) {
+      provs = [{ id: 'authentik', label: 'Authentik', icon: 'authentik', login_url: '/api/oidc/login' }];
     }
+    renderSsoButtons(provs);
   }).catch(() => {
   });
+
+  // Build one SSO button per provider into #ssoBtns and unhide the wrap.
+  // Hoisted (function declaration) so the fetch .then above can call it.
+  function renderSsoButtons(provs) {
+    const wrap = refs.form.querySelector('#ssoWrap');
+    const box = refs.form.querySelector('#ssoBtns');
+    if (!wrap || !box) return;
+    box.textContent = '';
+    if (!provs.length) { wrap.hidden = true; return; }
+    const next = encodeURIComponent(nextPath());
+    const tmpl = tx('login.sso_button_named', 'Sign in with {name}');
+    provs.forEach((pv) => {
+      const a = document.createElement('a');
+      a.className = 'btn-sso';
+      a.href = (pv.login_url || '/api/oidc/login') + '?next=' + next;
+      const img = document.createElement('img');
+      img.className = 'sso-icon';
+      img.alt = '';
+      img.setAttribute('aria-hidden', 'true');
+      img.src = '/img/icons/' + (pv.icon || 'authentik') + '.svg';
+      const span = document.createElement('span');
+      span.textContent = tmpl.replace('{name}', pv.label || 'SSO');
+      a.appendChild(img);
+      a.appendChild(span);
+      box.appendChild(a);
+    });
+    wrap.hidden = false;
+  }
 
   // Bind the password-step submit. Replaced wholesale on totp/setup
   // step via swapForm().
@@ -261,7 +292,7 @@ function applyI18nDom() {
     refs.btn = fresh.querySelector('#btn');
     refs.err = fresh.querySelector('#err');
     refs.ssoWrap = fresh.querySelector('#ssoWrap');
-    refs.ssoBtn = fresh.querySelector('#ssoBtn');
+    refs.ssoBtns = fresh.querySelector('#ssoBtns');
     refs.ver = fresh.querySelector('#ver');
     fresh.addEventListener('submit', async (e) => {
       e.preventDefault();

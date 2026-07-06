@@ -153,6 +153,12 @@ class Settings(str, Enum):
     NOTIFY_MEDIUM_TELEGRAM = "notify_medium_telegram"
     OIDC_CLIENT_SECRET = "oidc_client_secret"
     OIDC_REDIRECT_URI = "oidc_redirect_uri"
+    # Second OIDC provider (UnifiedSSO) — mirrors the two legacy members
+    # above; used by the clear-secret path + the /api/auth/providers
+    # redirect-URI host-match gate. All other oidc_unifiedsso_* keys live in
+    # logic/auth._AUTH_SETTING_KEYS (registry-generated).
+    OIDC_UNIFIEDSSO_CLIENT_SECRET = "oidc_unifiedsso_client_secret"
+    OIDC_UNIFIEDSSO_REDIRECT_URI = "oidc_unifiedsso_redirect_uri"
     OPEN_METEO_ENABLED = "open_meteo_enabled"
     OPEN_METEO_URL = "open_meteo_url"
     PASSKEYS_ALLOWED = "passkeys_allowed"
