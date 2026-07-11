@@ -340,6 +340,7 @@ export default {
     const cacheKey = hosts.length + '|' + groups.length + '|' + (this.hostGroupsRevision || 0)
       + '|' + (this.hostsSearch || '') + '|' + (this.hostsHideUnconfigured ? '1' : '0')
       + '|' + provFilt + '|' + (this.hostsProblemFilter ? '1' : '0')
+      + '|' + (this.hostsPausedFilter ? '1' : '0')
       // hostsStatusRevision bumps whenever an in-place reconcile FLIPS a
       // host's status. Reading it here (a) busts the cache when a status
       // change doesn't alter hosts.length (e.g. up→down with the Problem
@@ -1521,6 +1522,9 @@ export default {
     // design, not outages.
     if (this.hostsProblemFilter) {
       list = list.filter(h => this.isProblemHost(h));
+    }
+    if (this.hostsPausedFilter) {
+      list = list.filter(h => this.hostIsPaused(h));
     }
     if (q) {
       list = list.filter(h => {

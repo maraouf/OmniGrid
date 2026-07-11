@@ -2626,6 +2626,52 @@ export default {
     } catch { /* private mode / quota — ignore */
     }
   },
+  // True when at least one PER-PROVIDER pause is active on this host
+  // (provider_pause_state[x].paused). Distinct from whole-host
+  // sampling_paused: a host can have e.g. SNMP auto-paused while the rest
+  // of its providers keep reporting.
+  hostHasPausedProvider(h) {
+    const p = h && h.provider_pause_state;
+    if (!p || typeof p !== 'object') {
+      return false;
+    }
+    for (const k in p) {
+      if (p[k] && p[k].paused) {
+        return true;
+      }
+    }
+    return false;
+  },
+  // True when the host is whole-host paused OR has any provider paused —
+  // the set the "Paused (N)" filter + the paused badge key on.
+  hostIsPaused(h) {
+    return !!(h && (h.sampling_paused || this.hostHasPausedProvider(h)));
+  },
+  // Count of hosts with a paused sampler / provider — drives the "Paused (N)"
+  // toolbar chip badge.
+  pausedHostCount() {
+    const list = this.hosts || [];
+    let n = 0;
+    for (const h of list) {
+      if (this.hostIsPaused(h)) {
+        n++;
+      }
+    }
+    return n;
+  },
+  toggleHostsPausedFilter() {
+    this.hostsPausedFilter = !this.hostsPausedFilter;
+    try {
+      if (typeof sessionStorage !== 'undefined') {
+        if (this.hostsPausedFilter) {
+          sessionStorage.setItem('hostsPausedFilter', '1');
+        } else {
+          sessionStorage.removeItem('hostsPausedFilter');
+        }
+      }
+    } catch { /* private mode / quota — ignore */
+    }
+  },
   // Count of curated rows that have NO provider field mapped.
   // Used by the synthetic 'none' chip to surface "how many
   // inventory-only hosts are sitting on the page right now?".

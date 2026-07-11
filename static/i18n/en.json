@@ -4010,6 +4010,7 @@
       "badge_title": "Per-host probe budget exceeded (HTTP 504) — backed off for ~60s before the next attempt",
       "badge_title_full": "Probe took longer than the 30s budget (HTTP 504). Common cause: slow SNMP walk against a chassis with a long iface table, or a Webmin / Beszel hub mid-restart. Auto-retries in ~60s; click row to force a refresh."
     },
+    "provider_paused_badge": "One or more providers are paused on this host — data is frozen until they resume. Open the drawer to see which provider and Resume it.",
     "resuming": {
       "badge_title": "Resuming — sampling was just resumed, collecting fresh probe data. The status will settle to up or down once the next probe lands."
     },
@@ -4045,6 +4046,8 @@
       "none_title": "Show only curated rows without any provider mapped ({count} host(s)). Useful for finding inventory-only entries waiting for an agent.",
       "problem": "Problem",
       "problem_title": "Show only hosts currently in trouble — status is down, paused, or unknown ({count} host(s)). One-click triage filter; clears when clicked again or when no hosts are in trouble.",
+      "paused": "Paused",
+      "paused_title": "Show only hosts with a paused sampler or a paused provider ({count} host(s)) so you can review and Resume them. Click again to clear.",
       "title_error": "{name} error: {error}",
       "title_unmatched": "{name} is enabled but matched no host",
       "title_match_one": "{name} — 1 host",

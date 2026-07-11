@@ -550,6 +550,13 @@ function app() {
     // dashboard "Problem hosts" tile both flip this flag.
     hostsProblemFilter: (typeof sessionStorage !== 'undefined')
       && sessionStorage.getItem('hostsProblemFilter') === '1',
+    // Paused-hosts filter. When TRUE, the Hosts list shows ONLY rows that are
+    // whole-host paused (sampling_paused) OR have at least one PER-PROVIDER
+    // paused provider (provider_pause_state[x].paused) — so the operator can
+    // find auto-paused hosts/providers and resume them. Persisted to
+    // sessionStorage; the toolbar "Paused (N)" chip flips it.
+    hostsPausedFilter: (typeof sessionStorage !== 'undefined')
+      && sessionStorage.getItem('hostsPausedFilter') === '1',
     // Reactive revision bumped whenever an in-place host reconcile FLIPS a
     // row's `status` (up ↔ down/paused/unknown/unconfigured). Read into the
     // `groupedHosts()` cache key so (a) the change busts the table's cached

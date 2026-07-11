@@ -2355,6 +2355,21 @@
               <span x-text="t('hosts_extra.provider_filter.problem')"></span>
               <span class="ms-1" x-text="problemHostCount()"></span>
             </button>
+            <!-- Paused-hosts chip — surfaces when at least one host is
+                 whole-host paused OR has a per-provider pause. Filters to
+                 those rows so the operator can find + resume them. Amber
+                 (paused) to read distinctly from the red Problem chip. -->
+            <button type="button"
+                    x-show="pausedHostCount() > 0"
+                    @click="toggleHostsPausedFilter()"
+                    class="chip fs-2xs cursor-pointer inline-flex items-center"
+                    :class="hostsPausedFilter ? 'chip-active pill-warning' : 'pill-warning'"
+                    :title="t('hosts_extra.provider_filter.paused_title', { count: pausedHostCount() })"
+                    :aria-pressed="!!hostsPausedFilter">
+              <svg width="10" height="10" class="me-1" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-pause"/></svg>
+              <span x-text="t('hosts_extra.provider_filter.paused')"></span>
+              <span class="ms-1" x-text="pausedHostCount()"></span>
+            </button>
           </span>
         </div>
         <!-- Right-side toolbar cluster. `grow` makes this cluster fill
@@ -2646,21 +2661,21 @@
                        renders at a time. Wrapped in <span> so the
                        title attribute fires reliably as a hover
                        tooltip + screen readers announce it. -->
-                        <span x-show="h.sampling_paused"
+                        <span x-show="hostIsPaused(h)"
                               role="img"
                               class="inline-flex flex-shrink-0 cursor-help"
-                              :title="t('hosts_extra.permanent_fail.badge_title_full', { minutes: hostFailureMinutes(h), error: (h.last_error || '—') })"
-                              :aria-label="t('hosts_extra.permanent_fail.badge_title_full', { minutes: hostFailureMinutes(h), error: (h.last_error || '—') })">
+                              :title="h.sampling_paused ? t('hosts_extra.permanent_fail.badge_title_full', { minutes: hostFailureMinutes(h), error: (h.last_error || '—') }) : t('hosts_extra.provider_paused_badge')"
+                              :aria-label="h.sampling_paused ? t('hosts_extra.permanent_fail.badge_title_full', { minutes: hostFailureMinutes(h), error: (h.last_error || '—') }) : t('hosts_extra.provider_paused_badge')">
                     <svg width="13" height="13"
-                         class="text-[var(--danger)]"
-                         aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-alert-triangle"/></svg>
+                         :class="h.sampling_paused ? 'text-[var(--danger)]' : 'text-[var(--warning)]'"
+                         aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-pause"/></svg>
                   </span>
                         <!-- Resuming (blue, spinning) — post-Resume re-probe
                              window. Distinct from the red paused badge so a
                              just-resumed host reads as "collecting data",
                              not "still down". Ranks below paused, above the
                              transient probe-timeout / stale badges. -->
-                        <span x-show="!h.sampling_paused && hostResuming(h)"
+                        <span x-show="!hostIsPaused(h) && hostResuming(h)"
                               role="img"
                               class="inline-flex flex-shrink-0 cursor-help"
                               :title="t('hosts_extra.resuming.badge_title')"
@@ -2669,7 +2684,7 @@
                          class="text-[var(--info)] spin-md"
                          aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-rotate-cw"/></svg>
                   </span>
-                        <span x-show="!h.sampling_paused && !hostResuming(h) && h._probe_timeout"
+                        <span x-show="!hostIsPaused(h) && !hostResuming(h) && h._probe_timeout"
                               role="img"
                               class="inline-flex flex-shrink-0 cursor-help"
                               :title="t('hosts_extra.probe_timeout.badge_title_full')"
@@ -2678,7 +2693,7 @@
                          class="text-[var(--warning)]"
                          aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-zap"/></svg>
                   </span>
-                        <span x-show="!h.sampling_paused && !hostResuming(h) && !h._probe_timeout && isStale(h)"
+                        <span x-show="!hostIsPaused(h) && !hostResuming(h) && !h._probe_timeout && isStale(h)"
                               role="img"
                               class="inline-flex flex-shrink-0 cursor-help"
                               :title="t('hosts_extra.stale_marker.badge_title_full', { age: staleAge(h), fields: ((h._stale_fields || []).join(', ') || '—') })"
@@ -2996,14 +3011,14 @@
                          the host_metrics_sampler has auto-paused the
                          host after consecutive probe failures. Title
                          spells out the elapsed window in minutes. -->
-                          <span x-show="h.sampling_paused"
+                          <span x-show="hostIsPaused(h)"
                                 role="img"
                                 class="inline-flex flex-shrink-0 cursor-help"
-                                :title="t('hosts_extra.permanent_fail.badge_title_full', { minutes: hostFailureMinutes(h), error: (h.last_error || '—') })"
-                                :aria-label="t('hosts_extra.permanent_fail.badge_title_full', { minutes: hostFailureMinutes(h), error: (h.last_error || '—') })">
+                                :title="h.sampling_paused ? t('hosts_extra.permanent_fail.badge_title_full', { minutes: hostFailureMinutes(h), error: (h.last_error || '—') }) : t('hosts_extra.provider_paused_badge')"
+                                :aria-label="h.sampling_paused ? t('hosts_extra.permanent_fail.badge_title_full', { minutes: hostFailureMinutes(h), error: (h.last_error || '—') }) : t('hosts_extra.provider_paused_badge')">
                       <svg width="14" height="14"
-                           class="text-[var(--danger)]"
-                           aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-alert-triangle"/></svg>
+                           :class="h.sampling_paused ? 'text-[var(--danger)]' : 'text-[var(--warning)]'"
+                           aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-pause"/></svg>
                     </span>
                           <!-- Resuming badge (blue, spinning) — the
                          post-Resume re-probe window. Distinct from the
@@ -3011,7 +3026,7 @@
                          "collecting probe data", not "still down". Ranks
                          below paused, above the transient probe-timeout /
                          stale badges. See hostResuming(). -->
-                          <span x-show="!h.sampling_paused && hostResuming(h)"
+                          <span x-show="!hostIsPaused(h) && hostResuming(h)"
                                 role="img"
                                 class="inline-flex flex-shrink-0 cursor-help"
                                 :title="t('hosts_extra.resuming.badge_title')"
@@ -3029,7 +3044,7 @@
                          stale (warning) in priority, with its own
                          hourglass glyph so the operator sees a
                          distinct "actively timing out" signal. -->
-                          <span x-show="!h.sampling_paused && !hostResuming(h) && h._probe_timeout"
+                          <span x-show="!hostIsPaused(h) && !hostResuming(h) && h._probe_timeout"
                                 role="img"
                                 class="inline-flex flex-shrink-0 cursor-help"
                                 :title="t('hosts_extra.probe_timeout.badge_title_full')"
@@ -3046,7 +3061,7 @@
                          (paused = --danger red) — so a host that's
                          BOTH paused and stale leads with the more
                          severe state. -->
-                          <span x-show="!h.sampling_paused && !hostResuming(h) && !h._probe_timeout && isStale(h)"
+                          <span x-show="!hostIsPaused(h) && !hostResuming(h) && !h._probe_timeout && isStale(h)"
                                 role="img"
                                 class="inline-flex flex-shrink-0 cursor-help"
                                 :title="t('hosts_extra.stale_marker.badge_title_full', { age: staleAge(h), fields: ((h._stale_fields || []).join(', ') || '—') })"
