@@ -626,10 +626,34 @@ async def diagnose(node: dict, *, timeout: Optional[float] = None) -> dict:
                  f"The socket forward opened but Docker didn't answer OK at {sock_path}. Check the socket path "
                  "and that the Docker daemon is running on the node.")
     except DockerDirectError as e:
-        _add("socket", "Docker socket over SSH", False, str(e),
-             "Usually `AllowStreamLocalForwarding` (and `AllowTcpForwarding` not 'no') in the node's sshd_config "
-             "— NAS / hardened builds like TrueNAS default these OFF — or the SSH user needs to be root / in the "
-             "`docker` group to read the socket. See the detail for the exact checks.")
+        # The socket forward was refused ("open failed"). That has TWO very
+        # different causes: (a) SSH forwarding is disabled on the server, or
+        # (b) forwarding works but the SOCKET itself is unreachable (the user
+        # can't read it, or Docker isn't running). Distinguish them by probing
+        # a harmless TCP forward to the node's OWN ssh port through the tunnel —
+        # if that succeeds, forwarding is fine and the block is the socket.
+        fwd_ok = False
+        try:
+            _fr, _fw = await asyncio.wait_for(
+                ssh_conn.open_connection("127.0.0.1", port), timeout=min(to, 10.0))
+            _fw.close()
+            fwd_ok = True
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
+        except Exception:  # noqa: BLE001
+            fwd_ok = False
+        if fwd_ok:
+            _hint = (f"SSH forwarding IS enabled (a test forward through this connection succeeded) — so the block "
+                     f"is the SOCKET, not sshd. Either the '{user}' user can't read {sock_path} (use a root SSH user "
+                     f"for this node, or add '{user}' to the 'docker' group), or Docker isn't running / the socket "
+                     f"path is wrong. Check on the node: `ls -l {sock_path}` and `id {user}`.")
+        else:
+            _hint = ("SSH forwarding is BLOCKED (a plain TCP forward through this connection also failed) — set "
+                     "`AllowTcpForwarding yes` (or `local`) AND `AllowStreamLocalForwarding yes` in the node's sshd "
+                     "config and RESTART the SSH service. On TrueNAS: System → Services → SSH → tick 'Allow TCP Port "
+                     "Forwarding' + add those to Auxiliary Parameters, then restart SSH; verify with "
+                     "`sshd -T | grep -i forwarding`.")
+        _add("socket", "Docker socket over SSH", False, str(e), _hint)
     except (asyncio.CancelledError, KeyboardInterrupt):
         raise
     except Exception as e:  # noqa: BLE001
