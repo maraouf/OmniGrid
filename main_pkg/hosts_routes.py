@@ -2033,6 +2033,21 @@ async def api_docker_nodes_test(body: dict, _u: AdminUser):
     return await docker_direct.probe(node)
 
 
+@app.post("/api/docker-nodes/{node_id}/diagnose")
+async def api_docker_nodes_diagnose(node_id: str, _u: AdminUser):
+    """Admin-only: staged connectivity diagnostic for ONE configured Docker node
+    — powers the "Troubleshoot" action on an unreachable Node card. Loads the
+    node by id from the ``docker_nodes`` setting and runs
+    ``logic.docker_direct.diagnose`` (DNS → TCP → SSH auth → Docker socket, each
+    with a pass/fail + a fix). Uses the stored credentials."""
+    node = next((n for n in _load_docker_nodes()
+                 if isinstance(n, dict) and str(n.get("id") or "") == str(node_id)), None)
+    if node is None:
+        raise HTTPException(status_code=404, detail=f"Unknown Docker node {node_id!r}")
+    from logic import docker_direct  # noqa: PLC0415
+    return await docker_direct.diagnose(node)
+
+
 def _sweep_orphan_provider_state_rows(live_ids: set) -> int:
     """Delete `<provider>:<host_id>` rows in `host_failure_state` and
     `host_provider_last_ok` whose suffix isn't in ``live_ids``. Also

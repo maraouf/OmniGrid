@@ -1788,6 +1788,16 @@
                     :title="t('nodes.stats_docker_only_title')">
                 <span x-text="t('nodes.stats_docker_only_chip')"></span>
               </span>
+              <!-- Troubleshoot — staged connectivity diagnostic for an
+                   unreachable direct-Docker node (DNS → TCP → SSH → Docker
+                   socket, each with a fix). Admin-only. -->
+              <button type="button" x-show="node._unreachable && isAdmin()"
+                      @click.stop="diagnoseDockerNode(node)"
+                      class="btn btn-ghost fs-2xs inline-flex items-center gap-1"
+                      :title="t('nodes.troubleshoot_title') || 'Run a connectivity diagnostic to see why this node is unreachable'">
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-activity"/></svg>
+                <span x-text="t('nodes.troubleshoot') || 'Troubleshoot'"></span>
+              </button>
               <span class="fs-xs text-[var(--text-dim)] mx-1">
                 <span x-text="node.total"></span> total
               </span>

@@ -494,3 +494,148 @@ async def probe(node: dict, *, timeout: Optional[float] = None) -> dict:
     return {"ok": False,
             "detail": f"HTTP {status or '?'} from /version: {snippet[:120]}",
             "status": status, "version": ""}
+
+
+async def diagnose(node: dict, *, timeout: Optional[float] = None) -> dict:
+    """Staged connectivity diagnostic for a direct-Docker node — powers the
+    "Troubleshoot" action on an unreachable Node card. Runs each layer
+    INDEPENDENTLY so the operator sees exactly which step fails + the fix for
+    it, instead of one opaque error:
+
+      SSH transport:  config → DNS → TCP(ssh port) → SSH auth → Docker socket (/_ping)
+      TLS transport:  config → TLS + Docker /_ping (single step)
+
+    Later stages are skipped once one fails (they depend on it). Returns
+    ``{ok, transport, target, steps:[{key,label,ok,detail,hint}]}``. Never
+    raises — every failure is captured as a step."""
+    to = float(timeout if timeout is not None else _timeout())
+    transport = node_transport(node)
+    steps: list = []
+
+    def _add(key: str, label: str, ok: bool, detail: str = "", hint: str = "") -> None:
+        steps.append({"key": key, "label": label, "ok": bool(ok),
+                      "detail": detail, "hint": hint})
+
+    # ---- TLS transport: a lighter single-step check (SSH is the common case) ----
+    if transport == "tls":
+        host = str(node.get("address") or "").strip()
+        _add("config", "Configuration", bool(host),
+             "TLS address set" if host else "No address configured",
+             "" if host else "Set the node's Address (host:port, usually :2376) in Admin → Docker Nodes.")
+        if host:
+            res = await probe(node, timeout=to)
+            _add("tls", "TLS handshake + Docker /_ping", bool(res.get("ok")),
+                 str(res.get("detail") or ""),
+                 "" if res.get("ok") else
+                 "Confirm the daemon is listening on tcp://<host>:2376 with TLS enabled, and the pasted CA + "
+                 "client cert/key match the daemon's. A self-signed daemon needs its CA pasted into the node.")
+        return {"ok": all(s["ok"] for s in steps) and bool(steps),
+                "transport": transport, "target": host, "steps": steps}
+
+    # ---- SSH transport ----
+    conn = _resolve_node_conn(node)
+    host, port, user = conn["host"], conn["port"], conn["user"]
+    sock_path = conn["socket_path"]
+    target = f"{user}@{host}:{port}" if host else ""
+
+    def _result() -> dict:
+        return {"ok": all(s["ok"] for s in steps) and bool(steps),
+                "transport": transport, "target": target, "steps": steps}
+
+    # 1. Configuration
+    have_creds = bool(conn["private_key"] or conn["password"])
+    _add("config", "Configuration", bool(host) and have_creds,
+         (f"{target} · socket {sock_path}" if host else "No address configured")
+         + ("" if have_creds else " · no SSH credentials"),
+         (("" if host else "Set the node's Address (host/IP) in Admin → Docker Nodes. ")
+          + ("" if have_creds else "Set a global SSH key/password in Admin → SSH, or a per-node password.")))
+    if not host or not have_creds:
+        return _result()
+
+    # 2. DNS resolution
+    try:
+        loop = asyncio.get_running_loop()
+        infos = await asyncio.wait_for(loop.getaddrinfo(host, port), timeout=min(to, 10.0))
+        addrs = sorted({str(i[4][0]) for i in infos if i and i[4]})
+        _add("dns", "DNS resolution", True, f"{host} → {', '.join(addrs[:4]) or '?'}")
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e:  # noqa: BLE001
+        _add("dns", "DNS resolution", False, f"{type(e).__name__}: {e}",
+             "The OmniGrid container can't resolve this hostname. Use the FQDN or an IP address, or add a "
+             "compose `extra_hosts:` / internal-DNS entry so the container can resolve it.")
+        return _result()
+
+    # 3. TCP connect to the SSH port
+    try:
+        _r, w = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=min(to, 15.0))
+        w.close()
+        try:
+            await asyncio.wait_for(w.wait_closed(), timeout=2.0)
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
+        except Exception:  # noqa: BLE001
+            pass
+        _add("tcp", f"TCP connect to port {port}", True, f"Port {port} is open")
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e:  # noqa: BLE001
+        _add("tcp", f"TCP connect to port {port}", False, f"{type(e).__name__}: {e}",
+             f"Can't reach {host}:{port}. The host may be offline, the SSH service not running, the port wrong, "
+             "or a firewall is blocking the OmniGrid container's network from this host.")
+        return _result()
+
+    # 4. SSH authentication
+    client_keys: Any = None
+    if conn["private_key"]:
+        try:
+            client_keys = [asyncssh.import_private_key(
+                conn["private_key"], passphrase=conn["passphrase"] or None)]
+        except (asyncssh.Error, ValueError, TypeError):
+            client_keys = None
+    ssh_conn = None
+    try:
+        ssh_conn = await asyncio.wait_for(asyncssh.connect(
+            host=host, port=port, username=user, client_keys=client_keys,
+            known_hosts=None, agent_path=None, password=conn["password"] or None,
+            connect_timeout=max(5.0, min(to, 30.0)), login_timeout=max(5.0, min(to, 30.0)),
+        ), timeout=to)
+        _add("ssh", "SSH authentication", True, f"Authenticated as {user}")
+    except asyncssh.PermissionDenied:
+        _add("ssh", "SSH authentication", False, "Permission denied",
+             f"SSH rejected the credentials for {user}@{host}. Check the SSH user + the global key/password "
+             "(Admin → SSH) or the per-node password override.")
+        return _result()
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e:  # noqa: BLE001
+        _add("ssh", "SSH authentication", False, f"{type(e).__name__}: {e}",
+             "The SSH handshake failed (host key, algorithm, or transport). Check the SSH server settings.")
+        return _result()
+
+    # 5. Docker socket over SSH — reuse DockerClient.get so this inherits the
+    #    full AllowStreamLocalForwarding / socket-perms guidance on refusal.
+    try:
+        cli = DockerClient(ssh_conn, sock_path, to)
+        status, _data, snip = await cli.get("/_ping")
+        if status == 200:
+            _add("socket", "Docker socket over SSH", True, "Docker API responded (/_ping → 200 OK)")
+        else:
+            _add("socket", "Docker socket over SSH", False,
+                 f"HTTP {status or '?'} from /_ping: {snip[:120]}",
+                 f"The socket forward opened but Docker didn't answer OK at {sock_path}. Check the socket path "
+                 "and that the Docker daemon is running on the node.")
+    except DockerDirectError as e:
+        _add("socket", "Docker socket over SSH", False, str(e),
+             "Usually `AllowStreamLocalForwarding` (and `AllowTcpForwarding` not 'no') in the node's sshd_config "
+             "— NAS / hardened builds like TrueNAS default these OFF — or the SSH user needs to be root / in the "
+             "`docker` group to read the socket. See the detail for the exact checks.")
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e:  # noqa: BLE001
+        _add("socket", "Docker socket over SSH", False, f"{type(e).__name__}: {e}",
+             f"Couldn't reach the Docker socket at {sock_path} over the SSH tunnel.")
+    finally:
+        if ssh_conn is not None:
+            ssh_conn.close()
+    return _result()

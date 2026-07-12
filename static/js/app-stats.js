@@ -818,6 +818,63 @@ export default {
     return (item && this.stats[item.id]) || {cpu_percent: 0, mem_usage: 0, mem_limit: 0, size_root: 0, size_rw: 0, has_stats: false, has_size: false};
   },
 
+  // Troubleshoot an unreachable direct-Docker node — POST the staged
+  // connectivity diagnostic and show the per-step results (DNS → TCP → SSH →
+  // Docker socket) with the fix for whichever step failed. Admin-only.
+  async diagnoseDockerNode(node) {
+    const id = String((node && node.backend) || '').replace(/^docker:/, '');
+    if (!id) {
+      return;
+    }
+    const Swal = window.Swal;
+    const label = (this.t('nodes.troubleshoot') || 'Troubleshoot');
+    if (Swal) {
+      Swal.fire({
+        title: (this.t('nodes.troubleshoot_running') || 'Running diagnostic…'),
+        didOpen: () => Swal.showLoading(),
+        allowOutsideClick: false,
+      });
+    }
+    const esc = (s) => (this._logEscape ? this._logEscape(String(s == null ? '' : s)) : String(s == null ? '' : s));
+    try {
+      const r = await fetch('/api/docker-nodes/' + encodeURIComponent(id) + '/diagnose', { method: 'POST' });
+      if (!r.ok) {
+        const detail = await this.fmtResponseError(r);
+        if (Swal) {
+          Swal.fire({ icon: 'error', title: label, text: detail || (this.t('toasts.save_failed') || 'Failed') });
+        }
+        return;
+      }
+      const j = await r.json();
+      const rows = (j.steps || []).map((st) => {
+        const mark = st.ok ? '✓' : '✗';
+        const color = st.ok ? 'var(--success)' : 'var(--danger)';
+        let h = '<div style="margin:.55rem 0;text-align:start">'
+          + '<div style="font-weight:600;color:' + color + '">' + mark + ' ' + esc(st.label) + '</div>';
+        if (st.detail) {
+          h += '<div style="font-size:.8rem;color:var(--text-dim);margin-top:.15rem;word-break:break-word">' + esc(st.detail) + '</div>';
+        }
+        if (!st.ok && st.hint) {
+          h += '<div style="font-size:.8rem;color:var(--warning);margin-top:.2rem">💡 ' + esc(st.hint) + '</div>';
+        }
+        return h + '</div>';
+      }).join('');
+      const head = (j.target ? '<div style="font-size:.75rem;color:var(--text-faint);margin-bottom:.4rem">' + esc(j.target) + '</div>' : '');
+      if (Swal) {
+        Swal.fire({
+          icon: j.ok ? 'success' : 'warning',
+          title: (j.ok ? '✓ ' : '') + label,
+          html: head + (rows || esc(this.t('nodes.troubleshoot_none') || 'No diagnostic steps ran.')),
+          width: 640,
+        });
+      }
+    } catch (_) {
+      if (Swal) {
+        Swal.fire({ icon: 'error', title: label, text: (this.t('toasts.network_error') || 'Network error') });
+      }
+    }
+  },
+
   nodeStats(host) {
     // Per-flush memo — see _nodeStatsFlushCache at module scope. The Nodes
     // view reads nodeStats ~15x per node card; this collapses it to one
