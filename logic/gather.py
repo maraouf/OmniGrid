@@ -1468,6 +1468,32 @@ async def merge_docker_nodes_into_cache() -> None:
             except Exception as e:  # noqa: BLE001
                 print(f"[docker] gather node {node.get('id')!r} failed: "
                       f"{type(e).__name__}: {e}")
+                # Keep a configured-but-unreachable direct node VISIBLE with an
+                # offline placeholder card instead of hiding it. The operator
+                # added it on purpose and needs to see it (+ WHY it's down)
+                # rather than have it silently vanish until the SSH/TLS
+                # connection succeeds. `_unreachable` + `last_error` drive the
+                # SPA's offline pill / tooltip; the capacity fields are 0
+                # because we couldn't reach the daemon to read them.
+                _label = (str(node.get("label") or "").strip()
+                          or str(node.get("address") or "").strip()
+                          or str(node.get("id") or "").strip()
+                          or "docker-node")
+                nodes_info.setdefault(_label, {
+                    "id": str(node.get("id") or _label),
+                    "role": "standalone",
+                    "state": "down",
+                    "availability": "active",
+                    "cpu_cores": 0, "nano_cpus": 0, "mem_bytes": 0,
+                    "os": "", "arch": "", "engine": "",
+                    "ip": str(node.get("address") or "").strip(),
+                    "docker_disk_bytes": 0,
+                    "backend": f"docker:{node.get('id') or ''}",
+                    "icon": str(node.get("icon") or "").strip(),
+                    "containers_total": 0, "containers_running": 0,
+                    "_unreachable": True,
+                    "last_error": f"{type(e).__name__}: {e}",
+                })
                 continue
             await asyncio.gather(*(_classify_item_status(reg_client, it) for it in node_items))
             new_items.extend(node_items)

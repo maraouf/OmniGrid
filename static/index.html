@@ -1720,6 +1720,12 @@
                   <span x-show="node.is_direct" class="pill pill-info fs-3xs shrink-0"
                         :title="t('nodes.direct_managed_title') || 'Managed directly over SSH (no Portainer)'"
                         x-text="t('nodes.direct_badge') || 'Direct'"></span>
+                  <!-- Offline pill — the direct node's Docker daemon couldn't be
+                       reached this gather (still connecting / SSH down / offline).
+                       Shows WHY on hover so the operator isn't left guessing. -->
+                  <span x-show="node._unreachable" class="pill pill-error fs-3xs shrink-0 cursor-help"
+                        :title="(t('nodes.unreachable_title') || 'Cannot reach this node right now') + (node.last_error ? ' — ' + node.last_error : '')"
+                        x-text="t('nodes.unreachable_badge') || 'Unreachable'"></span>
                 </span>
                 <span class="fs-xs text-[var(--text-faint)]">
                   <span x-text="node.services"></span> svc ·

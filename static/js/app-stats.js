@@ -244,6 +244,20 @@ export default {
       }
     }
 
+    // Inject direct-Docker nodes that produced NO items so they still render.
+    // The grouping above is item-driven, so a configured-but-unreachable direct
+    // node (offline placeholder card in nodes_info, zero containers) would be
+    // hidden — the operator set it up and needs to see it (+ its error), not
+    // have it vanish until the SSH/TLS connection succeeds. Scoped to direct
+    // nodes (backend "docker:<id>") so Portainer-node behaviour is unchanged.
+    for (const nm of Object.keys(this.nodesInfo || {})) {
+      const _dni = (this.nodesInfo || {})[nm] || {};
+      const _isDirect = String(_dni.backend || '').indexOf('docker:') === 0;
+      if (nm && nm !== '__unpinned__' && _isDirect && !byNode.has(nm)) {
+        byNode.set(nm, { name: nm, items: [], stacks: {}, is_unpinned: false });
+      }
+    }
+
     // Finalise each group: counts + sorted stack list + sorted items.
     const out = [];
     for (const [key, g] of byNode) {
@@ -265,6 +279,12 @@ export default {
         is_unpinned: !!g.is_unpinned,
         backend: _backend,
         is_direct: _backend.indexOf('docker:') === 0,
+        // Offline direct-Docker node — the daemon couldn't be reached this
+        // gather (SSH/TLS down, connecting, or genuinely offline). Drives the
+        // header "Unreachable" pill + tooltip so it reads distinctly from an
+        // idle-but-connected node.
+        _unreachable: !!_ni._unreachable,
+        last_error: String(_ni.last_error || ''),
         icon: String(_ni.icon || ''),
         total: its.length,
         services: its.filter(i => i.type === 'service').length,
