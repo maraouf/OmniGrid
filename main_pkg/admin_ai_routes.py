@@ -722,6 +722,52 @@ class AiFeedbackIn(BaseModel):
     rating: str = "up"
 
 
+def _resolve_action_host_ids(tokens: list[str]) -> list[str]:
+    """Resolve AI-emitted ``ACTION_HOSTS`` tokens to curated host ids, validated
+    against the FULL curated host config — NOT the SPA palette-context slice.
+
+    The palette context ships at most 30 hosts (``_buildAiPaletteContext`` caps
+    ``allHosts.slice(0, 30)``), so validating ACTION_HOSTS against that slice
+    silently DROPPED a valid reboot target whenever the (often stale / paused)
+    host had sorted out of the top 30 — the web reboot then fired with no host
+    and aborted "No host selected", while the Telegram path (which matches
+    ACTION_HOSTS against the full ``hosts_config`` with no slice filter) rebooted
+    fine. This is the web-vs-Telegram divergence for host-targeting actions.
+
+    Resolves each token (curated id, label, or any provider-name alias the model
+    might emit) to the curated ``id`` the reboot endpoint matches on, so an
+    alias like ``dns01`` / ``debian13dns01`` still targets ``adguard1``. Unknown
+    tokens are dropped (the model can't plant a target that isn't curated).
+    """
+    if not tokens:
+        return []
+    idmap: dict[str, str] = {}
+    try:
+        hosts = _load_hosts_config()
+    except Exception:  # noqa: BLE001
+        hosts = []
+    for h in hosts:
+        if not isinstance(h, dict):
+            continue
+        cid = str(h.get("id") or "").strip()
+        if not cid:
+            continue
+        # id first so it wins over a colliding alias/label on another host.
+        for cand in (cid, h.get("label"), h.get("beszel_name"), h.get("pulse_name"),
+                     h.get("webmin_name"), h.get("snmp_name")):
+            key = str(cand or "").strip().lower()
+            if key and key not in idmap:
+                idmap[key] = cid
+    resolved: list[str] = []
+    seen: set[str] = set()
+    for tok in tokens:
+        cid = idmap.get(str(tok).strip().lower())
+        if cid and cid not in seen:
+            seen.add(cid)
+            resolved.append(cid)
+    return resolved
+
+
 @app.post("/api/ai/palette")
 async def api_ai_palette(
     body: AiPaletteIn,
@@ -1072,11 +1118,21 @@ async def api_ai_palette(
     # disk-projection chart channel. So `ACTION: scan_ports` paired
     # with `ACTION_HOSTS: opnsense` fires a scan against opnsense
     # without rendering an unrelated chart.
-    action_host_ids, cleaned_text = _ai.parse_palette_action_hosts(text, known_host_ids or None)
-    if action_host_ids:
+    # NOTE: no `known_host_ids` slice-filter here (unlike HOSTS: above). The
+    # SPA context caps hosts at 30, so filtering ACTION_HOSTS against it dropped
+    # valid reboot targets that had sorted out of the top 30 — the web reboot
+    # then aborted "No host selected" while Telegram (no filter, full-config
+    # match) worked. Parse the raw tokens, then resolve them to curated ids
+    # against the FULL curated config (ids + aliases + labels) via the helper.
+    raw_action_hosts, cleaned_text = _ai.parse_palette_action_hosts(text)
+    if cleaned_text != text:
+        # The ACTION_HOSTS line was present — strip it from the visible prose
+        # regardless of whether every token resolved.
         out["text"] = cleaned_text
-        out["action_hosts"] = action_host_ids
-    text = cleaned_text
+        text = cleaned_text
+    resolved_action_hosts = _resolve_action_host_ids(raw_action_hosts)
+    if resolved_action_hosts:
+        out["action_hosts"] = resolved_action_hosts
 
     # Parse the optional `ACTION_TAG: <new_tag>` trailer — used by
     # `ACTION: retag_image` to carry the destination tag (e.g. `2`,
