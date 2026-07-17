@@ -4354,6 +4354,7 @@
     },
     "reboot": {
       "no_target_toast": "No host selected — open a host drawer or name the host to reboot.",
+      "no_match_toast": "No host matches \"{name}\" — check the name in Admin → Hosts.",
       "sent": "Reboot command sent."
     },
     "port_scan": {

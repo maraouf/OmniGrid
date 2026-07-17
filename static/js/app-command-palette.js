@@ -1061,6 +1061,13 @@ export default {
     if (!sel) {
       return;
     }
+    // Capture the trailing argument the operator typed after the verb BEFORE
+    // closing the palette (close clears commandPaletteQuery). For a verb-first
+    // command like "/reboot dns01" this is "dns01" — host-targeting actions
+    // (reboot-host) resolve it to a curated host id so the operator doesn't
+    // have to open that host's drawer first.
+    const _rawQ = String(this.commandPaletteQuery || '').trim().replace(/^\//, '').trim();
+    const _queryArg = _rawQ.includes(' ') ? _rawQ.slice(_rawQ.indexOf(' ') + 1).trim() : '';
     this.closeCommandPalette();
     switch (sel.kind) {
       case 'host':
@@ -1100,7 +1107,7 @@ export default {
         // Verb commands — `payload` is the descriptor returned by
         // `_commandActions()`. Destructive actions (logout, etc.)
         // confirm via the existing SweetAlert helper before running.
-        this._runCommandPaletteAction(sel.payload);
+        this._runCommandPaletteAction(sel.payload, {queryArg: _queryArg});
         break;
       case 'ai':
         // AI assistant — opens a SweetAlert with a loading spinner,
@@ -1145,6 +1152,10 @@ export default {
     const actionHosts = (opts && (opts.actionHosts || opts.action_hosts)) || null;
     const actionHostId = (Array.isArray(actionHosts) && actionHosts.length)
       ? String(actionHosts[0]) : '';
+    // Trailing argument the operator typed after the verb in the Cmd-K palette
+    // (e.g. "dns01" from "/reboot dns01"). Forwarded so host-targeting actions
+    // resolve it to a curated host id instead of aborting "No host selected".
+    const queryArg = (opts && opts.queryArg) || '';
     // Tracks whether the operator has confirmed THIS (destructive) action,
     // forwarded to run(opts) as `confirm` so per-app skill dispatch can pass
     // it to the backend's destructive-skill gate. Non-destructive actions are
@@ -1247,6 +1258,7 @@ export default {
         skipConfirm: skipConfirm, tag: actionTag, actionItem: actionItem,
         data: actionData, surface: fromSidebar ? 'sidebar' : 'modal',
         confirm: actionConfirmed, host_id: actionHostId, actionHosts: actionHosts,
+        queryArg: queryArg,
       });
       // Sidebar: flip the most-recent assistant turn's `action_ran`
       // to true so the green "Ran:" chip surfaces. Skip when this

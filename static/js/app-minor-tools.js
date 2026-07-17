@@ -381,10 +381,46 @@ export default {
   // BEFORE this runs — no inner confirm here. Requires SSH enabled on the host;
   // a read-only-monitored host returns the route's clear "SSH not enabled"
   // error string.
+  _resolveHostToken(token) {
+    // Resolve a free-typed host token (curated id, label, or any provider-name
+    // alias / kernel hostname) to the curated host id the reboot endpoint
+    // matches on. Mirrors the backend _resolve_action_host_ids so the Cmd-K
+    // "/reboot dns01" arg targets the same host the AI path would. Returns ''
+    // when nothing matches (caller falls through to its next target source).
+    const t = String(token || '').trim().toLowerCase();
+    if (!t) {
+      return '';
+    }
+    const hosts = Array.isArray(this.hosts) ? this.hosts : [];
+    // Exact curated-id match wins over an alias/label collision on another host.
+    for (const h of hosts) {
+      if (h && String(h.id || '').trim().toLowerCase() === t) {
+        return String(h.id);
+      }
+    }
+    for (const h of hosts) {
+      if (!h) {
+        continue;
+      }
+      const cands = [h.label, h.beszel_name, h.pulse_name, h.webmin_name,
+        h.snmp_name, h.host_hostname];
+      for (const c of cands) {
+        if (c && String(c).trim().toLowerCase() === t) {
+          return String(h.id);
+        }
+      }
+    }
+    return '';
+  },
   async rebootHostAction(opts) {
     opts = opts || {};
     const sidebar = opts.surface === 'sidebar';
     let hostId = (opts.host_id || opts.actionItem || opts.item || '').toString().trim();
+    // Cmd-K palette "/reboot <host>" — resolve the typed argument to a curated
+    // host id so the operator doesn't have to open that host's drawer first.
+    if (!hostId && opts.queryArg) {
+      hostId = this._resolveHostToken(opts.queryArg);
+    }
     if (!hostId && this.drawerHost && this.drawerHost.id) {
       hostId = String(this.drawerHost.id);
     }
@@ -399,8 +435,14 @@ export default {
       }
     }
     if (!hostId) {
-      const msg = this.t('host_drawer.reboot.no_target_toast')
-        || 'No host selected — open a host drawer or name the host to reboot.';
+      // A name WAS typed (e.g. "/reboot dns01") but matched no curated host —
+      // say so, instead of the generic "open a drawer" hint.
+      const typed = String(opts.queryArg || '').trim();
+      const msg = typed
+        ? (this.t('host_drawer.reboot.no_match_toast', {name: typed})
+          || ('No host matches "' + typed + '" — check the name in Admin → Hosts.'))
+        : (this.t('host_drawer.reboot.no_target_toast')
+          || 'No host selected — open a host drawer or name the host to reboot.');
       if (!sidebar && typeof this.showToast === 'function') {
         this.showToast(msg, 'error');
       }
