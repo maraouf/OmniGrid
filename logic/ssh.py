@@ -224,6 +224,48 @@ def get_global_ssh_settings() -> dict:
 # user, and it also works when the SSH user IS root.
 DEFAULT_RESTART_COMMAND = "sudo reboot"
 
+# OS package-update script run by :func:`update_host`. Auto-detects the package
+# manager (apt-get vs yum), then also refreshes Pi-hole + snap when present, and
+# optionally the Raspberry Pi firmware (gated on the `-firmware` arg passed as
+# $1). The REBOOT is deliberately NOT in this script — update_host runs it as a
+# separate step via reboot_host() so update-success and reboot are decoupled
+# (and the reboot reuses the device-aware verb). Every command keeps its own
+# `sudo` prefix (matching a bare-user SSH login with password-less sudo — the
+# same assumption reboot_host's `sudo reboot` already makes); on a root SSH
+# login the sudo is a harmless no-op. Delivered to the host base64-encoded +
+# piped into `bash -s` so no quoting/escaping of this multi-line body crosses
+# the wire. `set -u` only — NOT `set -e`, so one failing optional step (e.g. a
+# transient mirror error) doesn't abort the whole run.
+UPDATE_SCRIPT = r"""set -u
+FIRMWARE="${1:-}"
+echo "==== OmniGrid host update ===="
+if command -v apt-get >/dev/null 2>&1; then
+  echo "-------- apt-get update --------";       sudo apt-get -y update
+  echo "-------- apt-get upgrade --------";      sudo apt-get -y upgrade
+  echo "-------- apt-get dist-upgrade --------"; sudo apt-get -y dist-upgrade
+  echo "-------- apt-get autoremove --------";   sudo apt-get -y autoremove --purge
+elif command -v yum >/dev/null 2>&1; then
+  echo "-------- yum update --------";  sudo yum -y update
+  echo "-------- yum upgrade --------"; sudo yum -y upgrade
+else
+  echo "!! no supported package manager (apt-get / yum) found"
+fi
+if command -v pihole >/dev/null 2>&1; then
+  echo "-------- pihole -up --------"; sudo PIHOLE_SKIP_OS_CHECK=true pihole -up
+fi
+if command -v snap >/dev/null 2>&1; then
+  echo "-------- snap refresh --------"; sudo snap refresh
+fi
+if [ "$FIRMWARE" = "-firmware" ]; then
+  if command -v rpi-update >/dev/null 2>&1; then
+    echo "-------- rpi-update (firmware) --------"; uname -a; sudo SKIP_WARNING=1 rpi-update
+  else
+    echo "-------- firmware requested but rpi-update not present — skipping --------"
+  fi
+fi
+echo "==== host update complete ===="
+"""
+
 # Phrases a device prints once it has ACCEPTED a reboot and started going
 # down. Matching any of these in the shell transcript means the reboot
 # fired — even if the SSH session hasn't dropped yet (a Cisco SG300 prints
@@ -1358,6 +1400,56 @@ def write_reboot_audit(host_id: str, label: str, result: dict, actor: str) -> No
             )
     except Exception as e:  # noqa: BLE001
         print(f"[ssh] reboot audit-row write failed for {host_id}: {e}")
+
+
+async def update_host(host_id: str, hosts_config: list[dict], *,
+                      firmware: bool = False, reboot: bool = False,
+                      timeout: float = 1800.0) -> dict:
+    """Run the OS package-update script (:data:`UPDATE_SCRIPT`) on ``host_id``
+    over SSH, then optionally reboot.
+
+    LONG-RUNNING (minutes) — callers MUST run this in the background (an
+    Operation / lifespan task), never inline on a request that a proxy would
+    time out. The script is delivered base64-encoded + piped into ``bash -s``
+    (no wire-side quoting of the multi-line body), executed via the forced-PTY
+    exec path so ``sudo`` behaves. ``exit_code == 0`` is success (unlike
+    reboot_host, an update does NOT drop the session).
+
+    ``firmware`` passes ``-firmware`` so the script runs ``rpi-update`` on a
+    Raspberry Pi (no-op elsewhere). ``reboot`` reboots the host AFTER a
+    successful update via :func:`reboot_host` (decoupled from update success,
+    and device-aware). Returns ``{ok, output, error, rebooted, reboot_error,
+    command, duration_ms, firmware, reboot}``. Never raises (mirrors
+    run_command's contract)."""
+    import base64  # noqa: PLC0415
+    b64 = base64.b64encode(UPDATE_SCRIPT.encode()).decode("ascii")
+    flag = "-firmware" if firmware else ""
+    # base64 alphabet is single-quote-safe; the flag is a fixed literal.
+    cmd = f"echo '{b64}' | base64 -d | bash -s -- {flag}".strip()
+    t0 = time.time()
+    result = await run_command(host_id, cmd, hosts_config, timeout=timeout)
+    duration_ms = (time.time() - t0) * 1000.0
+    ok = bool(result.get("ok")) and result.get("exit_code") == 0
+    out = {
+        "ok": ok,
+        "output": str(result.get("stdout") or "").strip(),
+        "error": "" if ok else (result.get("error")
+                                 or f"update exited {result.get('exit_code')}"),
+        "rebooted": False,
+        "reboot_error": "",
+        "command": "os-update"
+        + (" -firmware" if firmware else "") + (" -reboot" if reboot else ""),
+        "duration_ms": duration_ms,
+        "firmware": firmware,
+        "reboot": reboot,
+    }
+    # Reboot only AFTER a clean update — never reboot a box whose update failed.
+    if ok and reboot:
+        rb = await reboot_host(host_id, hosts_config)
+        out["rebooted"] = bool(rb.get("ok"))
+        if not rb.get("ok"):
+            out["reboot_error"] = rb.get("error") or "reboot did not fire"
+    return out
 
 
 async def test_connection(host_id: str, hosts_config: list[dict]) -> dict:

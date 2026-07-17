@@ -1840,6 +1840,7 @@
         "swarm_agent_unhealthy": "Swarm agent unhealthy",
         "swarm_agent_recovered": "Swarm agent recovered",
         "prune": "Prune operations",
+        "host_update": "Host OS updates",
         "health_section": "Health events",
         "enable_all": "Enable all",
         "disable_all": "Disable all",
@@ -2773,6 +2774,10 @@
           "label": "SSH terminal login timeout (seconds)",
           "help": "Wall-clock cap on the post-connect SSH authentication phase (PubKey attempts, password prompt, banner exchange). Distinct from the connect timeout above. Same trade-off — raise for slow-auth servers (LDAP-backed sshd, PAM password lookups), lower for tighter failure detection. Default 20s. Range 5..120s. Takes effect on the next terminal-open click."
         },
+        "tuning_ssh_update_timeout_seconds": {
+          "label": "Host OS-update SSH timeout (seconds)",
+          "help": "Wall-clock cap on the OS package-update command (osupdate_host / /osupdate) over SSH — an apt/yum update + upgrade + dist-upgrade (+ optional rpi-update firmware) can run many minutes on a slow box or a saturated mirror. The update runs as a background Operation, so this only bounds a single host's run, not a web request. Raise for very slow / large hosts; lower only if you want a stuck update to fail faster. Default 1800s (30 min). Range 60..14400s. Takes effect on the next update."
+        },
         "tuning_ssh_close_timeout_seconds": {
           "label": "SSH connection-close wait timeout (seconds)",
           "help": "Wall-clock cap on `conn.wait_closed()` after a terminal session ends. Default 5s. Lower on flaky networks where the FIN never arrives (close blocks forever, audit row stays open); raise if you genuinely care about clean teardown and tolerate longer audit-close delays. Range 1..60. Takes effect on the next session-close."
@@ -3390,6 +3395,8 @@
       "scan_ports_sub": "On-demand TCP-connect scan against the open host drawer",
       "reboot_host": "Reboot a host",
       "reboot_host_sub": "Reboot the open host (or AI-named host) over SSH — device-aware (reload / sudo reboot)",
+      "osupdate_host": "Update a host (OS packages)",
+      "osupdate_host_sub": "Run apt/yum upgrade over SSH on a host — add \"reboot\" and/or \"firmware\" (e.g. /osupdate dns01 reboot)",
       "discover_apps": "Discover apps on a host",
       "discover_apps_sub": "Open the Apps discovery wizard to match a host’s open ports against catalog templates",
       "retag_image": "Switch image tag",
@@ -3831,6 +3838,7 @@
     "restart_container": "restart container",
     "remove_container": "remove container",
     "host_reboot": "host reboot",
+    "host_update": "host OS update",
     "prune_node": "prune node",
     "prune_all_nodes": "prune all nodes",
     "ssh_run": "ssh run",
@@ -4356,6 +4364,11 @@
       "no_target_toast": "No host selected — open a host drawer or name the host to reboot.",
       "no_match_toast": "No host matches \"{name}\" — check the name in Admin → Hosts.",
       "sent": "Reboot command sent."
+    },
+    "osupdate": {
+      "no_target_toast": "No host selected — open a host drawer or name the host to update.",
+      "no_match_toast": "No host matches \"{name}\" — check the name in Admin → Hosts.",
+      "started": "OS update started."
     },
     "port_scan": {
       "heading": "Port Scan",

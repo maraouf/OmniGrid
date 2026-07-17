@@ -1367,15 +1367,7 @@ async def api_host_reboot(
     typed-confirm before calling. Lands a ``host_reboot`` row in history.
     """
     from logic import ssh as _ssh
-    hosts = _load_hosts_config()
-    matched = next(
-        (h for h in hosts
-         if isinstance(h, dict) and str(h.get("id") or "") == str(host_id)),
-        None,
-    )
-    if matched is None:
-        raise HTTPException(404, f"host {host_id!r} not found")
-    label = str(matched.get("label") or host_id)
+    hosts, _matched, label = _resolve_curated_host_or_404(host_id)
     result = await _ssh.reboot_host(host_id, hosts, timeout=15.0)
     actor = getattr(request.state, "user", None)
     actor_name = getattr(actor, "username", None) or "unknown"
@@ -1394,6 +1386,60 @@ async def api_host_reboot(
         "transcript": (result.get("transcript") or "")[-2000:],
         "label": label,
     }
+
+
+class HostUpdateIn(BaseModel):
+    """Body for POST /api/hosts/{id}/os-update — optional firmware + reboot flags."""
+    firmware: bool = False
+    reboot: bool = False
+
+
+def _resolve_curated_host_or_404(host_id: str) -> tuple[list, dict, str]:
+    """Load the curated host list, find the record for ``host_id`` (or raise
+    404), and return ``(hosts, matched_record, label)``. Shared by the SSH
+    host-action routes so the match preamble lives in one place."""
+    hosts = _load_hosts_config()
+    matched = next(
+        (h for h in hosts
+         if isinstance(h, dict) and str(h.get("id") or "") == str(host_id)),
+        None,
+    )
+    if matched is None:
+        raise HTTPException(404, f"host {host_id!r} not found")
+    return hosts, matched, str(matched.get("label") or host_id)
+
+
+@app.post("/api/hosts/{host_id}/os-update")
+async def api_host_os_update(
+    host_id: str, body: HostUpdateIn, bg: BackgroundTasks, request: Request,
+    _admin: AdminUser,
+):
+    """Admin-only: run the OS package-update script on a curated host over SSH.
+
+    LONG-RUNNING (minutes), so — unlike the synchronous /reboot — this spawns a
+    background Operation and returns an ``op_id`` immediately; the SPA tracks it
+    over the op SSE stream and a ``host_update_success`` / ``_failure``
+    notification fires on completion. Shares :func:`logic.ssh.update_host` with
+    the Telegram ``/osupdate`` command + the Telegram-AI ``osupdate_host``
+    action. ``firmware`` runs ``rpi-update`` on a Pi; ``reboot`` reboots the
+    host after a clean update. Destructive: the SPA gates it behind the same
+    inline-confirm as reboot before calling. Lands a ``host_update`` history row.
+    """
+    from logic.ops import new_op as _new_op  # noqa: PLC0415
+    from logic.ops_extras import do_host_update as _do_host_update  # noqa: PLC0415
+    hosts, _matched, label = _resolve_curated_host_or_404(host_id)
+    op = _new_op("host_update", host_id, label,
+                 actor=_actor_from(request))
+    bg.add_task(_do_host_update, op, host_id, hosts,
+                firmware=bool(body.firmware), reboot=bool(body.reboot))
+    detail = f"OS update started on {label}"
+    if body.firmware:
+        detail += " (+firmware)"
+    if body.reboot:
+        detail += " (+reboot after)"
+    detail += " — you'll get a notification when it finishes."
+    return {"op_id": op.id, "label": label, "detail": detail,
+            "firmware": bool(body.firmware), "reboot": bool(body.reboot)}
 
 
 # ----------------------------------------------------------------------------

@@ -728,6 +728,7 @@ class AiFeedbackIn(BaseModel):
 # text instead (see _resolve_hosts_from_query).
 _HOST_TARGETING_ACTIONS = frozenset({
     "reboot_host", "reboot_switch", "restart_host", "scan_ports",
+    "osupdate_host",
 })
 
 
@@ -799,15 +800,27 @@ def _resolve_hosts_from_query(query: str, idmap: dict[str, str]) -> list[str]:
     if not query or not idmap:
         return []
     import re  # noqa: PLC0415
-    toks = re.split(r"[\s,;/]+", query.strip().lower())
+    toks = [t.strip(".:'\"`") for t in re.split(r"[\s,;/]+", query.strip().lower())]
     resolved: list[str] = []
     seen: set[str] = set()
     for tok in toks:
-        cid = idmap.get(tok.strip(".:'\"`"))
+        cid = idmap.get(tok)
         if cid and cid not in seen:
             seen.add(cid)
             resolved.append(cid)
-    return resolved
+    if resolved:
+        return resolved
+    # Unambiguous substring fallback — a query token (>= 4 chars) that is a
+    # substring of exactly ONE curated host's tokens (e.g. "dns01" inside the
+    # "debian13dns01" alias). Mirrors the SPA _resolveHostToken tier-3 match, so
+    # a fuzzy name the operator typed still resolves when it can't be wrong.
+    for tok in toks:
+        if len(tok) < 4:
+            continue
+        hits = {cid for key, cid in idmap.items() if tok in key}
+        if len(hits) == 1:
+            return [next(iter(hits))]
+    return []
 
 
 @app.post("/api/ai/palette")
@@ -1192,6 +1205,53 @@ async def api_ai_palette(
                      or _resolve_hosts_from_query(text, _host_idmap))
         if recovered:
             resolved_action_hosts = recovered[:1]
+    # Gemini is INCONSISTENT about emitting `ACTION: reboot_host` at all — it
+    # frequently just narrates "I will trigger a reboot for X" with NO machine
+    # directive, so nothing dispatches (the recovery above only runs once the
+    # action IS parsed). When the OPERATOR'S QUERY is an unambiguous host-reboot
+    # COMMAND (imperative verb first) that resolves to a curated host, SYNTHESIZE
+    # the reboot_host action so the reboot flow runs regardless of the model's
+    # directive discipline. Safe: the SPA still gates it behind the destructive
+    # inline-confirm, and the reboot endpoint still enforces SSH-enabled — this
+    # only ensures the confirm appears; it can never silently reboot.
+    if "reboot_host" not in action_ids:
+        import re as _re_rb  # noqa: PLC0415
+        if _re_rb.match(r"^\s*(?:reboot|reload|power[\s_-]*cycle)\b", query, _re_rb.IGNORECASE):
+            rb_syn = (_resolve_hosts_from_query(query, _host_idmap)
+                      or _resolve_hosts_from_query(text, _host_idmap))
+            if rb_syn:
+                action_ids = ["reboot_host", *(a for a in action_ids if a != "reboot_host")]
+                out["actions"] = action_ids
+                out["action"] = "reboot_host"
+                resolved_action_hosts = rb_syn[:1]
+    # OS host-update synthesis — same rationale as the reboot synthesis. The
+    # query "update <host>" / "osupdate <host>" / "patch <host>" / "upgrade
+    # <host>" where <host> resolves to a curated HOST (a Docker "update all
+    # containers" resolves NO host, so it's never hijacked → the Docker path is
+    # untouched). Parses the reboot / firmware flags out of the query into
+    # ACTION_DATA. Skipped when the model already emitted osupdate_host (its own
+    # ACTION_DATA is then honoured by the parse below).
+    if "osupdate_host" not in action_ids:
+        import re as _re_up  # noqa: PLC0415
+        if _re_up.match(r"^\s*(?:osupdate|os-update|patch|upgrade|update)\b",
+                        query, _re_up.IGNORECASE):
+            up_syn = (_resolve_hosts_from_query(query, _host_idmap)
+                      or _resolve_hosts_from_query(text, _host_idmap))
+            if up_syn:
+                _ql = query.lower()
+                action_ids = ["osupdate_host",
+                              *(a for a in action_ids if a != "osupdate_host")]
+                out["actions"] = action_ids
+                out["action"] = "osupdate_host"
+                resolved_action_hosts = up_syn[:1]
+                # Flags from the query. The parse_palette_action_data block below
+                # only overwrites out["action_data"] when the AI ACTUALLY emitted
+                # an ACTION_DATA line — which, in this synthesis (pure-narration)
+                # case, it didn't — so these survive.
+                out["action_data"] = {
+                    "reboot": bool(_re_up.search(r"\breboot\b", _ql)),
+                    "firmware": bool(_re_up.search(r"\bfirmware\b", _ql)),
+                }
     if resolved_action_hosts:
         out["action_hosts"] = resolved_action_hosts
 

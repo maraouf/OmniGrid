@@ -1005,6 +1005,17 @@ ALLOWED_PALETTE_ACTIONS: frozenset[str] = frozenset({
     # it behind the inline-confirm chip (sidebar) / typed-confirm. SPA
     # descriptor id is `reboot-host` (hyphen form).
     "reboot_host",
+    # OS package-update ONE host over SSH. Operator phrase: "update dns01" /
+    # "osupdate the pihole box" / "patch web01 and reboot". Emits `ACTION:
+    # osupdate_host` + `ACTION_HOSTS: <host_id>` + optional `ACTION_DATA:
+    # {"firmware": bool, "reboot": bool}`. Runs apt/yum upgrade + pihole/snap
+    # refresh (+ optional rpi-update firmware) then optionally reboots. Reuses
+    # logic.ssh.update_host as a BACKGROUND Operation (updates take minutes) —
+    # the same path the Telegram /osupdate command uses. DESTRUCTIVE — the SPA
+    # gates it behind the inline-confirm chip. SPA descriptor id is
+    # `osupdate-host` (hyphen form). Distinct from `update_all_updatable`
+    # (Docker image updates) — this updates the HOST's OS packages.
+    "osupdate_host",
     # On-demand backup snapshot via AI palette. Non-destructive
     # (creates a new zip; retention prune fires under the existing
     # `tuning_backup_retention_count` knob).
@@ -1366,6 +1377,21 @@ PALETTE_SYSTEM_PROMPT: str = (
     "reboot_host\\nACTION_HOSTS: switch52mp01'. Do NOT confuse with "
     "restart_service / restart_container (those bounce a Docker "
     "workload, not the host).\n"
+    " - \"update <host>\" / \"osupdate <host>\" / \"patch <host>\" / "
+    "\"upgrade the packages on <host>\" (a whole HOST / machine, NOT a "
+    "Docker container or stack) → `ACTION: osupdate_host` + a SEPARATE "
+    "`ACTION_HOSTS: <host_id>` line, plus an OPTIONAL `ACTION_DATA: "
+    "{\"firmware\": true/false, \"reboot\": true/false}` line — set "
+    "`reboot` true when the operator says \"with reboot\" / \"and reboot\" / "
+    "\"then reboot\", and `firmware` true when they say \"firmware\" / "
+    "\"with firmware\". This runs apt/yum upgrade (+ pihole/snap refresh, + "
+    "rpi-update on a Pi if firmware) over SSH as a background job that takes "
+    "MINUTES — the operator gets a notification when it finishes. DESTRUCTIVE "
+    "— the operator confirms before it fires. Example reply: 'Updating dns01 "
+    "and rebooting after.\\nACTION: osupdate_host\\nACTION_HOSTS: dns01\\n"
+    "ACTION_DATA: {\"reboot\": true}'. Do NOT confuse with "
+    "`update_all_updatable` (that pulls new DOCKER IMAGES for containers/"
+    "stacks — this updates the HOST's OS packages).\n"
     " - \"pause every host in <group>\" / \"suspend the <group> "
     "hosts\" → `ACTION: hosts_bulk_pause` (operator picks the group "
     "from the selection chip strip)\n"

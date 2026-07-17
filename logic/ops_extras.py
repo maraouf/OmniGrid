@@ -710,6 +710,74 @@ async def do_update_stack(
         gather.invalidate_cache()
 
 
+async def do_host_update(
+    op: Operation,
+    host_id: str,
+    hosts_config: list,
+    *,
+    firmware: bool = False,
+    reboot: bool = False,
+) -> None:
+    """Run the OS package-update script on ``host_id`` over SSH as a background
+    Operation, then optionally reboot. Long-running (minutes) — spawned via
+    ``bg.add_task`` (web) or ``_spawn_background_task`` (Telegram) so nothing
+    blocks a request. Logs the update transcript tail to the Operation and
+    fires a ``host_update_success`` / ``host_update_failure`` notification on
+    completion so the operator learns the outcome without watching. The
+    Operation IS the audit (persist_history writes the ``host_update`` row) —
+    there is no separate audit helper."""
+    from logic import ssh as _ssh  # noqa: PLC0415
+    from logic.tuning import tuning_int, Tunable  # noqa: PLC0415
+    label = op.target_name or host_id
+    try:
+        op.log(f"Starting OS update on {label}"
+               + (" (+firmware)" if firmware else "")
+               + (" (+reboot)" if reboot else ""))
+        timeout = float(tuning_int(Tunable.SSH_UPDATE_TIMEOUT_SECONDS))
+        result = await _ssh.update_host(
+            host_id, hosts_config, firmware=firmware, reboot=reboot, timeout=timeout,
+        )
+        # Transcript tail — last 40 lines is plenty to see what happened without
+        # bloating the op-event log with a full apt run.
+        out = str(result.get("output") or "").strip()
+        if out:
+            for line in out.splitlines()[-40:]:
+                op.log(line)
+        if result.get("ok"):
+            detail = f"Duration: {format_duration(op.to_dict()['duration'])}"
+            if reboot:
+                detail += ("; reboot dispatched" if result.get("rebooted")
+                           else f"; reboot FAILED: {result.get('reboot_error') or 'unknown'}")
+            op.log("Host update complete", "success")
+            op.done("success")
+            await notify(
+                f"✅ Host update complete: {label}", detail, "success",
+                event="host_update_success", actor_username=op.actor,
+                target_kind="host", target_id=str(host_id),
+            )
+        else:
+            err = result.get("error") or "update did not complete"
+            op.log(err, "error")
+            op.done("error", err)
+            await notify(
+                f"❌ Host update failed: {label}", str(err)[:500], "error",
+                event="host_update_failure", actor_username=op.actor,
+                target_kind="host", target_id=str(host_id),
+            )
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e:  # noqa: BLE001
+        op.log(str(e), "error")
+        op.done("error", str(e))
+        await notify(
+            f"❌ Host update failed: {label}", str(e)[:500], "error",
+            event="host_update_failure", actor_username=op.actor,
+            target_kind="host", target_id=str(host_id),
+        )
+    finally:
+        persist_history(op)
+
+
 async def do_update_stack_direct(op: Operation, node_id: str, project: str) -> None:
     """Pull + recreate a ``docker compose`` project on a direct-Docker
     (Portainer-less) node over SSH — runs ``docker compose -p <project> -f

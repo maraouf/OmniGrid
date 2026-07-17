@@ -1161,6 +1161,7 @@ from logic.telegram_handlers import (  # noqa: E402
     _cmd_moon,
     _cmd_prayer,
     _cmd_restart,
+    _cmd_osupdate,
     _cmd_skills,
     _cmd_time,
     _cmd_unlink,
@@ -1296,6 +1297,24 @@ _COMMANDS: dict[str, dict[str, Any]] = {
         "handler": _cmd_restart,
         "usage": "/reboot <target>",
         "description": "Alias of /restart — reboot a host via SSH (destructive — requires confirm)",
+        "category": "ops",
+        "access": "admin",
+    },
+    "/osupdate": {
+        # OS package-update a host over SSH (apt/yum upgrade + pihole/snap,
+        # optional firmware + reboot). DISTINCT from /update (Docker stacks).
+        # Long-running background job — replies "started", notifies on finish.
+        "handler": _cmd_osupdate,
+        "usage": "/osupdate <host> [reboot] [firmware]",
+        "description": "OS-update a host via SSH (apt/yum upgrade; destructive — requires confirm)",
+        "category": "ops",
+        "access": "admin",
+    },
+    "/patch": {
+        # Alias for /osupdate — same handler / gate. Operators say "patch the box".
+        "handler": _cmd_osupdate,
+        "usage": "/patch <host> [reboot] [firmware]",
+        "description": "Alias of /osupdate — OS-update a host via SSH (destructive — requires confirm)",
         "category": "ops",
         "access": "admin",
     },

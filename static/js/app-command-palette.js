@@ -308,6 +308,22 @@ export default {
         run: (opts) => this.rebootHostAction(opts || {}),
       }] : []),
 
+      // OS package-update a whole HOST over SSH (apt/yum upgrade + pihole/snap,
+      // optional firmware + reboot). DISTINCT from 'update all containers'
+      // (Docker images) — hence the /osupdate verb, not /update. Admin-only +
+      // DESTRUCTIVE (inline-confirm / SweetAlert). Long-running background job:
+      // dispatches + returns "started", notifies on completion. Flags parsed
+      // from the typed arg (`/osupdate dns01 reboot firmware`) or ACTION_DATA.
+      ...((typeof this.isAdmin === 'function' && this.isAdmin()
+        && typeof this.osUpdateHostAction === 'function') ? [{
+        id: 'osupdate-host',
+        label: t('command_palette.action.osupdate_host', 'Update a host (OS packages)'),
+        sub: t('command_palette.action.osupdate_host_sub', 'Run apt/yum upgrade over SSH on a host — add "reboot" and/or "firmware" (e.g. /osupdate dns01 reboot)'),
+        verbs: ['osupdate', 'os-update', 'patch', 'upgrade', 'os', 'packages', 'apt', 'yum'],
+        destructive: true,
+        run: (opts) => this.osUpdateHostAction(opts || {}),
+      }] : []),
+
       // Apps discovery wizard — the one Apps write-flow surfaced to the
       // palette. Admin-only (the discovery endpoint + wizard are). `run`
       // navigates to Admin → Apps and opens the wizard for operator
@@ -1407,6 +1423,12 @@ export default {
       reboot_host: 'reboot-host',
       restart_host: 'reboot-host',
       reboot_switch: 'reboot-host',
+      // OS host-update synonyms — the AI may emit any of these ids.
+      osupdate_host: 'osupdate-host',
+      os_update_host: 'osupdate-host',
+      update_host: 'osupdate-host',
+      patch_host: 'osupdate-host',
+      upgrade_host: 'osupdate-host',
       hosts_bulk_pause: 'hosts-bulk-pause',
       pause_hosts: 'hosts-bulk-pause',
       // bulk_pause_hosts / bulk_resume_hosts — operator-natural

@@ -163,6 +163,9 @@ OP_TYPES: frozenset[str] = frozenset({
     "ssh_terminal",
     # Host reboot over SSH (web AI / Cmd-K / Telegram reboot_host + /restart).
     "host_reboot",
+    # Host OS package update over SSH (web AI / Cmd-K / Telegram osupdate_host
+    # + /osupdate). Long-running background Operation.
+    "host_update",
     # Port-scan provider.
     "port_scan",
     # Schedule kinds (each `_run_<kind>` runner stamps history with the
@@ -540,6 +543,12 @@ NOTIFY_EVENT_NAMES = (
     # opt-in in Admin → Notifications, like user_login) so it never fires
     # until an admin enables it. Requires Prayer Times to be enabled.
     "prayer_reminder",
+    # Host OS package update (osupdate_host / /osupdate) — long-running
+    # background job, so its outcome is delivered by a notification when it
+    # finishes (the dispatch call returns immediately). Default ON: the
+    # operator explicitly asked for the update and wants to know it finished.
+    "host_update_success",
+    "host_update_failure",
 )
 NOTIFY_EVENT_DEFAULTS: dict[str, bool] = {
     name: (False if name in ("user_login", "port_scan_new_port", "http_probe_failure", "service_probe_failure", "prayer_reminder") else True)
@@ -824,6 +833,14 @@ NOTIFY_TEMPLATE_DEFAULTS: dict = {
     "prayer_reminder": {
         "title": "🕌 {name} prayer reminder",
         "body": "{message}",
+    },
+    "host_update_success": {
+        "title": "✅ Host update complete: {name}",
+        "body": "{message}",
+    },
+    "host_update_failure": {
+        "title": "❌ Host update failed: {name}",
+        "body": "{error}",
     },
 }
 

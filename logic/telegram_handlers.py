@@ -48,6 +48,21 @@ def _listener() -> Any:
     return _TL_CACHE
 
 
+# Strong references for fire-and-forget background Operations spawned from
+# Telegram commands (e.g. /osupdate runs a multi-minute update via do_host_update).
+# asyncio only keeps a WEAK ref to a task, so without holding it here the GC can
+# collect a running task mid-flight; the done-callback discards it on completion.
+_bg_tasks: set = set()
+
+
+def _spawn_bg(coro, *, label: str = "") -> None:
+    """Spawn a detached background coroutine, holding a strong ref until it
+    completes (see :data:`_bg_tasks`)."""
+    t = asyncio.create_task(coro, name=label or None)
+    _bg_tasks.add(t)
+    t.add_done_callback(_bg_tasks.discard)
+
+
 # ----------------------------------------------------------------------------
 # Shared handler primitives — extracted to dedupe boilerplate that
 # multiple `_cmd_*` handlers would otherwise repeat verbatim.
@@ -1626,6 +1641,68 @@ async def _cmd_restart(client: httpx.AsyncClient, args: list[str], msg: dict) ->
         if out_tail:
             reply += f"\n\nDevice output:\n<pre>{_listener()._escape(out_tail)}</pre>"
         await _listener()._send_reply(client, reply)
+
+
+# noinspection DuplicatedCode
+async def _cmd_osupdate(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+    """``/osupdate <host> [reboot] [firmware]`` — OS package-update a host over SSH.
+
+    Runs apt/yum upgrade (+ pihole/snap refresh, + rpi-update on a Pi if
+    ``firmware``), then optionally reboots. LONG-RUNNING (minutes) — dispatches a
+    BACKGROUND Operation and replies immediately; a ``host_update`` notification
+    fires on completion. Same two-step destructive-gate flow as ``/restart``.
+    DISTINCT from ``/update`` (which updates Docker stacks). Alias: ``/patch``."""
+    if not args:
+        await _listener()._send_reply(
+            client, "Usage: <code>/osupdate &lt;host&gt; [reboot] [firmware]</code>")
+        return
+    is_confirm = (args[0].lower() == "confirm")
+    rest = args[1:] if is_confirm else args
+    # Split flags from the target tokens.
+    flag_words = {"reboot", "-reboot", "firmware", "-firmware", "with", "and", "then"}
+    reboot = any(a.lower() in ("reboot", "-reboot") for a in rest)
+    firmware = any(a.lower() in ("firmware", "-firmware") for a in rest)
+    target = " ".join(a for a in rest if a.lower() not in flag_words)
+    if not target:
+        await _listener()._send_reply(
+            client, "Usage: <code>/osupdate &lt;host&gt; [reboot] [firmware]</code>")
+        return
+    matched, candidates = _listener()._resolve_target(target)
+    if await _listener()._reply_no_match_or_candidates(client, target, matched, candidates):
+        return
+    assert matched is not None  # narrowed by the helper's False branch
+    host_id = matched.get("id") or ""
+    label = matched.get("label") or host_id
+    extras = ([("firmware")] if firmware else []) + (["reboot after"] if reboot else [])
+    extra_html = (" (+" + ", ".join(extras) + ")") if extras else ""
+    # Preserve the flags in the typed-confirm command so re-sending keeps them.
+    flag_suffix = ("".join([" firmware"] if firmware else []) + "".join([" reboot"] if reboot else ""))
+    if await _gate_destructive(
+        client, msg,
+        command="osupdate",
+        confirm_command=f"/osupdate confirm {_listener()._escape(host_id)}{flag_suffix}",
+        confirm_action_html=f"OS-update <b>{_listener()._escape(label)}</b>{extra_html}",
+        is_confirm=is_confirm,
+    ):
+        return
+    # Dispatch as a background Operation (the update runs for minutes).
+    from logic.ops import new_op as _new_op
+    from logic.ops_extras import do_host_update as _do_host_update
+    _tl = _listener()
+    sender_id = (msg.get("from") or {}).get("id")
+    linked_user = _tl._lookup_omnigrid_user(sender_id) if sender_id is not None else None
+    actor = f"telegram:{linked_user}" if linked_user else "telegram"
+    hosts = _tl._load_hosts_config()
+    op = _new_op("host_update", host_id, label, actor=actor)
+    _spawn_bg(
+        _do_host_update(op, host_id, hosts, firmware=firmware, reboot=reboot),
+        label=f"telegram-osupdate:{host_id}",
+    )
+    await _listener()._send_reply(
+        client,
+        f"⏳ OS update started on <b>{_listener()._escape(label)}</b>{extra_html} — "
+        f"I'll notify you when it finishes.",
+    )
 
 
 # (Imports for the handlers below live in the top-of-file block —

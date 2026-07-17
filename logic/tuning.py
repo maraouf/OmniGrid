@@ -260,6 +260,7 @@ class Tunable(str, Enum):
     SSH_DEFAULT_PORT = "tuning_ssh_default_port"
     SSH_TERMINAL_CONNECT_TIMEOUT_SECONDS = "tuning_ssh_terminal_connect_timeout_seconds"
     SSH_TERMINAL_LOGIN_TIMEOUT_SECONDS = "tuning_ssh_terminal_login_timeout_seconds"
+    SSH_UPDATE_TIMEOUT_SECONDS = "tuning_ssh_update_timeout_seconds"
     SSH_WS_HEARTBEAT_SECONDS = "tuning_ssh_ws_heartbeat_seconds"
     STACK_UPDATE_OBSERVE_POLL_SECONDS = "tuning_stack_update_observe_poll_seconds"
     STACK_UPDATE_OBSERVE_TIMEOUT_SECONDS = "tuning_stack_update_observe_timeout_seconds"
@@ -1749,6 +1750,13 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # auth handshake (post-connect, pre-shell). Same operator
     # trade-off as the connect timeout above. Default 20s.
     "tuning_ssh_terminal_login_timeout_seconds": ("SSH_TERMINAL_LOGIN_TIMEOUT_SECONDS", 20, 5, 120),
+
+    # Host OS-update (osupdate_host) SSH command wall-clock timeout (seconds).
+    # An apt/yum dist-upgrade on a slow box (Raspberry Pi, saturated mirror,
+    # firmware step) can run many minutes, so the default is generous (30 min).
+    # Raise for very large / slow fleets; the update runs as a background
+    # Operation so this cap only bounds a single host's run, not a request.
+    "tuning_ssh_update_timeout_seconds": ("SSH_UPDATE_TIMEOUT_SECONDS", 1800, 60, 14400),
 
     # SSH terminal connection-close wait timeout (seconds) — wall-clock
     # cap on `conn.wait_closed()` after a terminal session ends. Default

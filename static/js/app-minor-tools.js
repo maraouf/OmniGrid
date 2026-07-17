@@ -488,6 +488,93 @@ export default {
       return {ok: false, detail: msg};
     }
   },
+  async osUpdateHostAction(opts) {
+    // OS package-update a host over SSH (apt/yum upgrade + pihole/snap, optional
+    // firmware + reboot). Long-running BACKGROUND op on the backend — this POST
+    // returns "started" immediately and a notification fires on completion.
+    // DESTRUCTIVE: the dispatcher already gated it behind the inline-confirm /
+    // SweetAlert before calling here.
+    opts = opts || {};
+    const sidebar = opts.surface === 'sidebar';
+    // Flags — from the AI's ACTION_DATA (opts.data) first, else parsed from the
+    // typed arg ("/osupdate dns01 reboot firmware").
+    const data = (opts.data && typeof opts.data === 'object') ? opts.data : {};
+    const argToks = String(opts.queryArg || '').trim().toLowerCase()
+      .split(/[\s,]+/).filter(Boolean);
+    const FLAG_WORDS = ['reboot', 'firmware', 'with', 'and', 'then', '-reboot', '-firmware'];
+    const reboot = !!data.reboot || argToks.includes('reboot') || argToks.includes('-reboot');
+    const firmware = !!data.firmware || argToks.includes('firmware') || argToks.includes('-firmware');
+    // Host: explicit id (AI actionHosts / drawer) → first arg token that isn't a
+    // flag word and resolves to a curated host → open drawer → last AI turn.
+    let hostId = (opts.host_id || opts.actionItem || opts.item || '').toString().trim();
+    if (!hostId && argToks.length) {
+      for (const tok of argToks) {
+        if (FLAG_WORDS.includes(tok)) {
+          continue;
+        }
+        const r = this._resolveHostToken(tok);
+        if (r) {
+          hostId = r;
+          break;
+        }
+      }
+    }
+    if (!hostId && this.drawerHost && this.drawerHost.id) {
+      hostId = String(this.drawerHost.id);
+    }
+    if (!hostId) {
+      const turns = Array.isArray(this.aiConversation) ? this.aiConversation : [];
+      for (let i = turns.length - 1; i >= 0; i--) {
+        const t = turns[i];
+        if (t && t.role === 'assistant' && Array.isArray(t.host_ids) && t.host_ids.length) {
+          hostId = String(t.host_ids[0]);
+          break;
+        }
+      }
+    }
+    if (!hostId) {
+      const typed = String(opts.queryArg || '').trim();
+      const msg = typed
+        ? (this.t('host_drawer.osupdate.no_match_toast', {name: typed})
+          || ('No host matches "' + typed + '" — check the name in Admin → Hosts.'))
+        : (this.t('host_drawer.osupdate.no_target_toast')
+          || 'No host selected — open a host drawer or name the host to update.');
+      if (!sidebar && typeof this.showToast === 'function') {
+        this.showToast(msg, 'error');
+      }
+      return {ok: false, detail: msg};
+    }
+    try {
+      const r = await fetch('/api/hosts/' + encodeURIComponent(hostId) + '/os-update',
+        {method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({firmware: firmware, reboot: reboot})});
+      let j = {};
+      try {
+        j = await r.json();
+      } catch (_e) {
+        j = {};
+      }
+      if (!r.ok) {
+        const detail = (j && j.detail) || ('HTTP ' + r.status);
+        if (!sidebar && typeof this.showToast === 'function') {
+          this.showToast(detail, 'error');
+        }
+        return {ok: false, detail: detail};
+      }
+      const detail = j.detail
+        || (this.t('host_drawer.osupdate.started') || 'OS update started.');
+      if (!sidebar && typeof this.showToast === 'function') {
+        this.showToast(detail, 'success');
+      }
+      return {ok: true, detail: detail};
+    } catch (e) {
+      const msg = (this.t('toasts.failed') || 'Failed') + ': ' + e.message;
+      if (!sidebar && typeof this.showToast === 'function') {
+        this.showToast(msg, 'error');
+      }
+      return {ok: false, detail: msg};
+    }
+  },
   // POST /api/hosts/{id}/port-scan — runs an on-demand TCP-connect
   // scan against the host. Stamps `_port_scan_running` while the
   // call is in flight so the button spinner ticks; refreshes the

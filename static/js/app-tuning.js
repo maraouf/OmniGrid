@@ -634,6 +634,8 @@ export default {
     // SSH terminal connect / login wall-clocks.
     'tuning_ssh_terminal_connect_timeout_seconds',
     'tuning_ssh_terminal_login_timeout_seconds',
+    // Host OS-update (osupdate_host) SSH command wall-clock (default 30m).
+    'tuning_ssh_update_timeout_seconds',
     // SSH terminal connection-close wait timeout — caps how long
     // `conn.wait_closed()` blocks after a terminal session ends.
     'tuning_ssh_close_timeout_seconds',

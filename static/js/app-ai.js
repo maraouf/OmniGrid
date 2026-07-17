@@ -630,6 +630,7 @@ export default {
       action_item: (t.action_item || '').toString(),
       action_data: (t.action_data && typeof t.action_data === 'object') ? t.action_data : null,
       action_hosts: Array.isArray(t.action_hosts) ? t.action_hosts.slice() : [],
+      action_query: (t.action_query || '').toString(),
       pending_confirm: !!t.pending_confirm,
       pending_action: t.pending_action || null,
       cancelled: !!t.cancelled,
@@ -725,6 +726,7 @@ export default {
       action_item: (t.action_item || '').toString(),
       action_data: (t.action_data && typeof t.action_data === 'object') ? t.action_data : null,
       action_hosts: Array.isArray(t.action_hosts) ? t.action_hosts.slice() : [],
+      action_query: (t.action_query || '').toString(),
       pending_confirm: !!t.pending_confirm,
       pending_action: t.pending_action || null,
       cancelled: !!t.cancelled,
@@ -943,6 +945,8 @@ export default {
             action_item: (t.action_item || '').toString(),
             action_data: (t.action_data && typeof t.action_data === 'object') ? t.action_data : null,
             action_hosts: Array.isArray(t.action_hosts) ? t.action_hosts.slice() : [],
+            action_query: (t.action_query || '').toString(),
+      action_query: (t.action_query || '').toString(),
             feedback: t.feedback || null,
             error: t.error || null,
             cancelled: !!t.cancelled,
@@ -1998,6 +2002,18 @@ export default {
     if (!result) {
       return;
     }
+    // Capture the trailing argument the operator typed after the verb ("dns01"
+    // from "/reboot dns01") BEFORE the query is cleared, and resolve it to a
+    // curated host id. Host-targeting actions (reboot-host) fired from the
+    // sidebar slash picker previously lost this arg entirely — dispatch passed
+    // no target, so the reboot aborted "No host selected". Stamping the
+    // resolved id on the turn + forwarding it covers BOTH autonomous (fires
+    // now) and approval (inline-confirm re-fire) modes.
+    const _rawSlashQ = String(this.aiSidebarQuery || '').trim().replace(/^\//, '').trim();
+    const _slashArg = _rawSlashQ.includes(' ')
+      ? _rawSlashQ.slice(_rawSlashQ.indexOf(' ') + 1).trim() : '';
+    const _slashHostId = (_slashArg && typeof this._resolveHostToken === 'function')
+      ? this._resolveHostToken(_slashArg) : '';
     this._setAiSidebarQuery('');
     this.aiSidebarSlashIdx = 0;
     const kind = result.kind;
@@ -2014,7 +2030,25 @@ export default {
         // branch in `_runCommandPaletteAction`. Non-destructive
         // actions fire immediately.
         this._appendActionChatTurn(result.payload, /* slash= */ true);
-        this._runCommandPaletteAction(result.payload, {surface: 'sidebar'});
+        // Stamp the resolved host AND the raw typed arg on the just-appended
+        // turn so the approval-mode inline-confirm re-fire (confirmInlineAction)
+        // targets it too, not just the autonomous path. action_query carries
+        // the full arg ("dns01 reboot firmware") so multi-token commands like
+        // /osupdate keep their host + flags through the confirm.
+        {
+          const _slashTurn = this.aiConversation[this.aiConversation.length - 1];
+          if (_slashTurn) {
+            if (_slashHostId) {
+              _slashTurn.action_hosts = [_slashHostId];
+            }
+            _slashTurn.action_query = _slashArg;
+          }
+        }
+        this._runCommandPaletteAction(result.payload, {
+          surface: 'sidebar',
+          queryArg: _slashArg,
+          actionHosts: _slashHostId ? [_slashHostId] : null,
+        });
         // Record into recents AFTER dispatch — only ACTION kinds,
         // not navigation. Cancelled destructive confirms still
         // count: the operator clearly intended to use the action.

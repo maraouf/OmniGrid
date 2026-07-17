@@ -1297,7 +1297,19 @@ async def _ai_reply(
           "for Docker containers/services (that's the forbidden restart_* — "
           "redirect those to the SPA). Example: operator says 'reboot "
           "switch52' → write 'Rebooting switch52.' then ACTION: reboot_host "
-          "and ACTION_HOSTS: switch52mp01. For these THREE wired actions, "
+          "and ACTION_HOSTS: switch52mp01. "
+          "(4) ACTION: osupdate_host + ACTION_HOSTS: <host_id> to OS-package-"
+          "UPDATE a whole host over SSH (apt/yum upgrade + pihole/snap, "
+          "optionally rpi-update firmware + reboot). Add ACTION_DATA: "
+          "{\"reboot\": true} when they say 'with reboot' / 'and reboot', and "
+          "{\"firmware\": true} when they say 'firmware'. Long-running (minutes) "
+          "— the operator gets a notification when it finishes. DESTRUCTIVE: "
+          "same gate as reboot_host (points at /osupdate when destructive "
+          "commands are off). This updates the HOST's OS packages — NOT Docker "
+          "images (that's the forbidden update_* — redirect to the SPA). "
+          "Example: 'update dns01 and reboot' → write 'Updating dns01, will "
+          "reboot after.' then ACTION: osupdate_host, ACTION_HOSTS: dns01, "
+          "ACTION_DATA: {\"reboot\": true}. For these FOUR wired actions, "
           "emit the ACTION (+ ACTION_DATA / ACTION_HOSTS) lines (they are "
           "stripped from the visible text but dispatched) and write a short "
           "natural-language sentence framing what you did. "
@@ -1659,6 +1671,64 @@ async def _ai_reply(
                     )
                     if _tail:
                         action_outcome_line += f"\n<pre>{_listener()._escape(_tail)}</pre>"
+        elif "osupdate_host" in actions:
+            # OS package-update a WHOLE host over SSH from free-text AI — the
+            # Telegram-AI twin of the web osupdate_host action + the /osupdate
+            # command, all sharing logic.ssh.update_host via the do_host_update
+            # background Operation. Host from ACTION_HOSTS (preferred) or
+            # ACTION_DATA.host_id; reboot / firmware flags from ACTION_DATA.
+            # DESTRUCTIVE — only fires when telegram_allow_destructive is on;
+            # otherwise points at the explicit /osupdate command. Long-running:
+            # spawns a background op + replies "started" (notifies on finish).
+            _hosts_cfg = _listener()._load_hosts_config()
+            _up_hosts, _ = ai.parse_palette_action_hosts(raw_text)
+            up_host = (_up_hosts[0] if _up_hosts
+                       else str((action_data or {}).get("host_id") or "").strip())
+            _ad = action_data if isinstance(action_data, dict) else {}
+            _up_reboot = bool(_ad.get("reboot"))
+            _up_firmware = bool(_ad.get("firmware"))
+            matched = next(
+                (h for h in _hosts_cfg
+                 if isinstance(h, dict) and str(h.get("id") or "") == up_host),
+                None,
+            )
+            try:
+                from logic.db import get_setting_bool as _gsb
+                _up_allowed = _gsb(Settings.TELEGRAM_ALLOW_DESTRUCTIVE)
+            except (ImportError, RuntimeError, ValueError, TypeError):
+                _up_allowed = False
+            if matched is None:
+                action_outcome_line = (
+                    "\n\n⚠️ <i>Couldn't update — no curated host matched "
+                    f"<code>{_listener()._escape(up_host or '?')}</code>.</i>"
+                )
+            elif not _up_allowed:
+                action_outcome_line = (
+                    "\n\n🛑 Updating a host is destructive. Run the explicit "
+                    f"<code>/osupdate {_listener()._escape(up_host)}</code> command "
+                    "(it asks you to confirm first), or enable “Allow destructive "
+                    "commands” in Admin → Notifications → Telegram."
+                )
+            else:
+                _label = str(matched.get("label") or up_host)
+                from logic.ops import new_op as _new_op
+                from logic.ops_extras import do_host_update as _do_host_update
+                from logic.telegram_handlers import _spawn_bg as _spawn_bg
+                _actor = (f"telegram-ai:{omnigrid_username}"
+                          if omnigrid_username else "telegram-ai")
+                op = _new_op("host_update", up_host, _label, actor=_actor)
+                _spawn_bg(
+                    _do_host_update(op, up_host, _hosts_cfg,
+                                    firmware=_up_firmware, reboot=_up_reboot),
+                    label=f"telegram-ai-osupdate:{up_host}",
+                )
+                _extras = (["firmware"] if _up_firmware else []) + (
+                    ["reboot after"] if _up_reboot else [])
+                _extra_html = (" (+" + ", ".join(_extras) + ")") if _extras else ""
+                action_outcome_line = (
+                    f"\n\n⏳ OS update started on <b>{_listener()._escape(_label)}</b>"
+                    f"{_extra_html} — I'll notify you when it finishes."
+                )
         elif "run_app_skill" in actions and isinstance(action_data, dict):
             # Per-app SKILL invocation from Telegram (e.g. Speedtest's
             # run_speedtest). Resolve the chip server-side + dispatch via the

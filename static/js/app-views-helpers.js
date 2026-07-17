@@ -729,6 +729,9 @@ export default {
         // or the reboot handler aborts "No host selected" post-confirm.
         host_id: (_confirmHosts && _confirmHosts.length) ? String(_confirmHosts[0]) : '',
         actionHosts: _confirmHosts,
+        // Raw typed arg ("dns01 reboot firmware") for multi-token slash commands
+        // (/osupdate) so the host + flags survive the confirm re-fire.
+        queryArg: (turn.action_query || '').toString(),
       });
       // Surface a per-app skill's output inline in the chat (parity with the
       // non-destructive _aiSidebarRunSkill path) — e.g. a confirmed

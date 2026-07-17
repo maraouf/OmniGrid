@@ -272,6 +272,8 @@ export default {
     'notify_event_overlay_cleanup_success',
     'notify_event_overlay_cleanup_failure',
     'notify_event_prayer_reminder',
+    'notify_event_host_update_success',
+    'notify_event_host_update_failure',
   ],
   // Per-medium master switches. Mirrors `NOTIFY_MEDIUM_NAMES` in
   // logic/ops.py. Adding a third medium adds one entry here +
@@ -293,6 +295,7 @@ export default {
     {label: 'service_restart', success: 'notify_event_service_restart_success', failure: 'notify_event_service_restart_failure'},
     {label: 'swarm_agent_restart', success: 'notify_event_swarm_agent_restart_success', failure: 'notify_event_swarm_agent_restart_failure'},
     {label: 'prune', success: 'notify_event_prune_success', failure: 'notify_event_prune_failure'},
+    {label: 'host_update', success: 'notify_event_host_update_success', failure: 'notify_event_host_update_failure'},
   ],
   // Sampler-style events that don't have a paired success/failure
   // shape but DO surface an unhealthy state. The
