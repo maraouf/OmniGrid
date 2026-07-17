@@ -722,7 +722,42 @@ class AiFeedbackIn(BaseModel):
     rating: str = "up"
 
 
-def _resolve_action_host_ids(tokens: list[str]) -> list[str]:
+# Actions that target a whole host via ACTION_HOSTS. When the model emits one
+# of these but omits (or misformats) the ACTION_HOSTS line — a known Gemini
+# directive-omission failure — the target is recovered from the user's query
+# text instead (see _resolve_hosts_from_query).
+_HOST_TARGETING_ACTIONS = frozenset({
+    "reboot_host", "reboot_switch", "restart_host", "scan_ports",
+})
+
+
+def _build_host_idmap() -> dict[str, str]:
+    """Build a lowercase ``token -> curated host id`` map from the FULL curated
+    host config (every id + label + provider-name alias). Id wins over a
+    colliding alias/label on another host. Used to resolve both AI-emitted
+    ACTION_HOSTS tokens and query-text host mentions to the curated id the
+    reboot endpoint matches on."""
+    idmap: dict[str, str] = {}
+    try:
+        hosts = _load_hosts_config()
+    except Exception:  # noqa: BLE001
+        hosts = []
+    for h in hosts:
+        if not isinstance(h, dict):
+            continue
+        cid = str(h.get("id") or "").strip()
+        if not cid:
+            continue
+        for cand in (cid, h.get("label"), h.get("beszel_name"), h.get("pulse_name"),
+                     h.get("webmin_name"), h.get("snmp_name")):
+            key = str(cand or "").strip().lower()
+            if key and key not in idmap:
+                idmap[key] = cid
+    return idmap
+
+
+def _resolve_action_host_ids(tokens: list[str],
+                             idmap: dict[str, str] | None = None) -> list[str]:
     """Resolve AI-emitted ``ACTION_HOSTS`` tokens to curated host ids, validated
     against the FULL curated host config — NOT the SPA palette-context slice.
 
@@ -741,27 +776,34 @@ def _resolve_action_host_ids(tokens: list[str]) -> list[str]:
     """
     if not tokens:
         return []
-    idmap: dict[str, str] = {}
-    try:
-        hosts = _load_hosts_config()
-    except Exception:  # noqa: BLE001
-        hosts = []
-    for h in hosts:
-        if not isinstance(h, dict):
-            continue
-        cid = str(h.get("id") or "").strip()
-        if not cid:
-            continue
-        # id first so it wins over a colliding alias/label on another host.
-        for cand in (cid, h.get("label"), h.get("beszel_name"), h.get("pulse_name"),
-                     h.get("webmin_name"), h.get("snmp_name")):
-            key = str(cand or "").strip().lower()
-            if key and key not in idmap:
-                idmap[key] = cid
+    if idmap is None:
+        idmap = _build_host_idmap()
     resolved: list[str] = []
     seen: set[str] = set()
     for tok in tokens:
         cid = idmap.get(str(tok).strip().lower())
+        if cid and cid not in seen:
+            seen.add(cid)
+            resolved.append(cid)
+    return resolved
+
+
+def _resolve_hosts_from_query(query: str, idmap: dict[str, str]) -> list[str]:
+    """Recover host target(s) from the operator's raw query when the model
+    emitted a host-targeting ACTION but no usable ACTION_HOSTS line (Gemini
+    routinely narrates the host — "reboot adguard1" — without emitting the
+    machine directive). Tokenises the query and matches each token against the
+    curated id-map, so "reboot dns01" resolves to ``adguard1``. Only exact
+    token matches count, so ordinary words ("reboot", "the", "box") can't
+    accidentally target a host."""
+    if not query or not idmap:
+        return []
+    import re  # noqa: PLC0415
+    toks = re.split(r"[\s,;/]+", query.strip().lower())
+    resolved: list[str] = []
+    seen: set[str] = set()
+    for tok in toks:
+        cid = idmap.get(tok.strip(".:'\"`"))
         if cid and cid not in seen:
             seen.add(cid)
             resolved.append(cid)
@@ -1130,7 +1172,26 @@ async def api_ai_palette(
         # regardless of whether every token resolved.
         out["text"] = cleaned_text
         text = cleaned_text
-    resolved_action_hosts = _resolve_action_host_ids(raw_action_hosts)
+    _host_idmap = _build_host_idmap()
+    resolved_action_hosts = _resolve_action_host_ids(raw_action_hosts, _host_idmap)
+    # Gemini frequently emits `ACTION: reboot_host` but OMITS the paired
+    # `ACTION_HOSTS: <id>` line — it names the host only in prose ("rebooting
+    # adguard1 …"). When a host-targeting action fired with no resolvable
+    # target, recover it from the operator's raw query ("reboot dns01" ->
+    # adguard1) so the reboot doesn't abort "No host selected". Exact token
+    # matches only, so ordinary words can't accidentally target a host.
+    if not resolved_action_hosts and any(a in _HOST_TARGETING_ACTIONS for a in action_ids):
+        # First the operator's query ("reboot dns01"); if the typed name was a
+        # fuzzy match the model resolved (so it isn't an exact curated token),
+        # fall back to the AI's own reply prose, which reliably NAMES the
+        # resolved host + alias ("… reboot command for adguard1 matched via
+        # alias debian13dns01 …") — both are exact curated tokens. Cap to a
+        # single target: this recovery path is a last resort for a destructive
+        # reboot, so never let incidental host mentions in prose fan out.
+        recovered = (_resolve_hosts_from_query(query, _host_idmap)
+                     or _resolve_hosts_from_query(text, _host_idmap))
+        if recovered:
+            resolved_action_hosts = recovered[:1]
     if resolved_action_hosts:
         out["action_hosts"] = resolved_action_hosts
 

@@ -392,23 +392,29 @@ export default {
       return '';
     }
     const hosts = Array.isArray(this.hosts) ? this.hosts : [];
-    // Exact curated-id match wins over an alias/label collision on another host.
+    const fieldsOf = (h) => [h.id, h.label, h.beszel_name, h.pulse_name,
+      h.webmin_name, h.snmp_name, h.host_hostname]
+      .filter(Boolean).map((x) => String(x).trim().toLowerCase());
+    // 1. Exact curated-id match wins over an alias/label collision elsewhere.
     for (const h of hosts) {
       if (h && String(h.id || '').trim().toLowerCase() === t) {
         return String(h.id);
       }
     }
+    // 2. Exact match on any label / provider alias / kernel hostname.
     for (const h of hosts) {
-      if (!h) {
-        continue;
+      if (h && fieldsOf(h).includes(t)) {
+        return String(h.id);
       }
-      const cands = [h.label, h.beszel_name, h.pulse_name, h.webmin_name,
-        h.snmp_name, h.host_hostname];
-      for (const c of cands) {
-        if (c && String(c).trim().toLowerCase() === t) {
-          return String(h.id);
-        }
-      }
+    }
+    // 3. UNAMBIGUOUS substring match — the operator typed a partial name the
+    // AI would fuzzy-match (e.g. "torrents" when the curated id is
+    // "torrents01" or only the label says "Torrents Main Downloader"). Only
+    // used when exactly ONE host contains the token, so it can never target
+    // the wrong host.
+    const partial = hosts.filter((h) => h && fieldsOf(h).some((f) => f.includes(t)));
+    if (partial.length === 1) {
+      return String(partial[0].id);
     }
     return '';
   },
