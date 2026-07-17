@@ -575,6 +575,32 @@ _background_gather_task: "asyncio.Task | None" = None
 _background_stats_task: "asyncio.Task | None" = None
 
 
+def _on_background_gather_done(task: "asyncio.Task") -> None:
+    """Done-callback for the background gather. When it finishes rebuilding the
+    cache, tell live SPA clients fresh items are READY via a ``cache:refreshed``
+    SSE event so they re-fetch IMMEDIATELY instead of waiting for the next poll
+    (or the ~30s Live-mode keepalive). Without this, the instant-paint design
+    served the OLD cache on the click + refreshed in the background with no
+    signal on completion — so the view lagged a full poll cycle after every
+    refresh / write-op / restart. The SPA handles ``cache:refreshed`` with a
+    NON-force refetch, so it reads the now-fresh cache WITHOUT kicking another
+    gather (no loop). Only fires on SUCCESS — a failed/cancelled gather stays
+    silent so we don't claim stale data is fresh."""
+    try:
+        if task.cancelled():
+            return
+        exc = task.exception()
+    except (asyncio.CancelledError, asyncio.InvalidStateError):
+        return
+    if exc is not None:
+        return
+    try:
+        from logic import events as _events  # noqa: PLC0415
+        _events.publish("cache:refreshed", {})
+    except Exception as e:  # noqa: BLE001
+        print(f"[events] cache:refreshed publish failed: {e}")
+
+
 def _kick_background_gather() -> "asyncio.Task | None":
     """Schedule ``_gather`` as a background task if none is running.
 
@@ -601,6 +627,10 @@ def _kick_background_gather() -> "asyncio.Task | None":
         # name kwarg adds diagnostic parity without dragging in the full
         # `spawn_background_task` wrapper.
         _background_gather_task = loop.create_task(_gather(), name="apps-kick-background-gather")
+        # Notify live SPA clients the moment the gather lands (see the
+        # callback) so the view catches up promptly instead of lagging a
+        # poll cycle after every refresh / write-op / restart.
+        _background_gather_task.add_done_callback(_on_background_gather_done)
         return _background_gather_task
     except RuntimeError:
         # No running event loop (called from a sync context that isn't

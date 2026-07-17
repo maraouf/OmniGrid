@@ -183,6 +183,19 @@ export default {
       // button without the operator refreshing each tab by hand.
       this._scheduleCacheInvalidatedRefresh();
     });
+    es.addEventListener('cache:refreshed', (e) => {
+      onAny();
+      // A BACKGROUND gather just finished rebuilding the items cache. Re-fetch
+      // NON-force so this tab picks up the fresh data IMMEDIATELY — instead of
+      // lagging until the next poll / the ~30s Live keepalive, which is the
+      // "refresh doesn't update / takes ages after a restart" complaint. A
+      // plain GET /api/items serves the now-fresh cache and, because it's
+      // fresh + non-force, the backend does NOT schedule another gather (no
+      // loop). Debounced so multiple back-to-back gathers coalesce to one
+      // refetch. Not self-filtered — the event is server-published (no
+      // client_id), so every open tab catches up.
+      this._scheduleCacheRefreshedRefetch();
+    });
     es.addEventListener('stats:refreshed', (e) => {
       onAny();
       if (this._isSelfEvent(e)) {
@@ -1068,6 +1081,26 @@ export default {
         }
       });
     }
+  },
+
+  // Trailing-debounced NON-force items refetch for `cache:refreshed` (a
+  // background gather just landed). Distinct from
+  // `_scheduleCacheInvalidatedRefresh`, which forces a NEW gather — this one
+  // re-reads the freshly-rebuilt cache (plain GET, no ?force) so the view
+  // catches up the moment the gather finishes WITHOUT triggering another
+  // gather. 250ms so it feels instant while still coalescing a burst of
+  // back-to-back gathers into one refetch.
+  _scheduleCacheRefreshedRefetch() {
+    if (this._cacheRefreshedRefetchTimer) {
+      clearTimeout(this._cacheRefreshedRefetchTimer);
+    }
+    this._cacheRefreshedRefetchTimer = setTimeout(() => {
+      this._cacheRefreshedRefetchTimer = null;
+      try {
+        this.refresh(false);
+      } catch (_) {
+      }
+    }, 250);
   },
 
   // Backend-unreachable banner watcher. Polls every 5s (cheap — one

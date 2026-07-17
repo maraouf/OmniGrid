@@ -475,6 +475,23 @@ def init_db():
             ts REAL NOT NULL,
             data TEXT NOT NULL
         );
+        -- Persisted registry digest RESULT cache. Mirrors the in-memory
+        -- ``logic.registry._digest_cache`` so a container restart boots
+        -- WARM — the first post-restart gather reuses recently-resolved
+        -- manifest digests instead of re-HEADing every image (the cold-
+        -- cache slow-first-gather problem). One row per (registry|repo|tag)
+        -- cache key; ``ts`` is WALL-CLOCK epoch seconds (NOT monotonic —
+        -- monotonic resets on restart and can't survive persistence, so the
+        -- in-memory cache also moved to wall-clock). Seeded at boot by
+        -- registry.seed_digest_cache_from_db(), flushed at the end of every
+        -- successful gather by registry.persist_digest_cache_to_db() (which
+        -- also prunes rows older than the TTL). SUCCESS-ONLY, same as the
+        -- in-memory cache — a transient registry failure never lands here.
+        CREATE TABLE IF NOT EXISTS registry_digest_cache (
+            cache_key TEXT PRIMARY KEY,
+            digest    TEXT NOT NULL,
+            ts        INTEGER NOT NULL
+        );
         -- Permanent-fail tracking. One row per (host, provider) whose
         -- sampler has hit consecutive probe failures. When ``paused`` flips
         -- to 1, the sampler short-circuits subsequent ticks (no probe

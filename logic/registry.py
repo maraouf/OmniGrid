@@ -77,6 +77,12 @@ _token_cache: dict[str, tuple[str, float]] = {}
 # "update available" signal can lag by up to the TTL). A re-tag is still picked
 # up because the tag is part of the key. TTL is the
 # tuning_registry_digest_cache_ttl_seconds TUNABLE (0 disables the cache).
+# Each entry is (digest, ts_wallclock). WALL-CLOCK (time.time()), not
+# monotonic: the cache is PERSISTED to the ``registry_digest_cache`` table so
+# a restart boots warm (seed_digest_cache_from_db / persist_digest_cache_to_db),
+# and a monotonic timestamp is process-relative so it can't survive a restart.
+# A wall-clock TTL is fine here — a backward NTP jump merely extends cache life
+# slightly, a forward jump expires it slightly early; both re-HEAD cheaply.
 _digest_cache: dict[str, tuple[str, float]] = {}
 
 
@@ -665,7 +671,7 @@ async def get_remote_digest(client: httpx.AsyncClient, image: str) -> Optional[s
     _ck = f"{reg}|{repo}|{tag}"
     if _ttl > 0:
         _hit = _digest_cache.get(_ck)
-        if _hit is not None and (time.monotonic() - _hit[1]) < _ttl:
+        if _hit is not None and (time.time() - _hit[1]) < _ttl:
             return _hit[0]
     _t0 = time.monotonic()
     digest: Optional[str] = None
@@ -694,7 +700,7 @@ async def get_remote_digest(client: httpx.AsyncClient, image: str) -> Optional[s
             metrics.REGISTRY_ERRORS.labels(registry=_classify_registry(reg)).inc()
         elif _ttl > 0:
             # Cache SUCCESS only — never store a None (transient failure).
-            _digest_cache[_ck] = (digest, time.monotonic())
+            _digest_cache[_ck] = (digest, time.time())
         return digest
     except (asyncio.CancelledError, KeyboardInterrupt):
         raise
@@ -704,3 +710,78 @@ async def get_remote_digest(client: httpx.AsyncClient, image: str) -> Optional[s
         return None
     finally:
         metrics.REGISTRY_LATENCY.labels(registry=_classify_registry(reg)).observe(time.monotonic() - _t0)
+
+
+def _digest_cache_ttl() -> int:
+    """Resolve the digest-cache TTL tunable (0 disables the cache). Per-use read
+    (no module-import caching) per the no-static-config contract."""
+    from logic.tuning import tuning_int, Tunable # noqa: PLC0415
+    return tuning_int(Tunable.REGISTRY_DIGEST_CACHE_TTL_SECONDS)
+
+
+def _prune_digest_cache_inmem(ttl: int) -> None:
+    """Evict in-memory ``_digest_cache`` entries older than ``ttl`` so the dict
+    stays bounded (it never self-evicts on lookup — a stale entry just misses).
+    Called before a persist flush so the DB mirrors only live entries."""
+    if ttl <= 0:
+        return
+    now = time.time()
+    stale = [k for k, (_d, ts) in _digest_cache.items() if (now - ts) >= ttl]
+    for k in stale:
+        _digest_cache.pop(k, None)
+
+
+def seed_digest_cache_from_db() -> int:
+    """Warm the in-memory digest result cache from the ``registry_digest_cache``
+    table at boot so the FIRST post-restart gather reuses recently-resolved
+    manifest digests instead of re-HEADing every image. Returns the count
+    loaded. Synchronous (small table) — call from the lifespan boot-seed path.
+    Rows older than the current TTL are skipped (they would miss anyway)."""
+    ttl = _digest_cache_ttl()
+    if ttl <= 0:
+        return 0
+    from logic.db import db_conn # noqa: PLC0415
+    now = time.time()
+    loaded = 0
+    try:
+        with db_conn() as c:
+            cur = c.execute("SELECT cache_key, digest, ts FROM registry_digest_cache")
+            for key, digest, ts in cur.fetchall():
+                if digest and (now - float(ts)) < ttl:
+                    _digest_cache[key] = (digest, float(ts))
+                    loaded += 1
+    except Exception as e: # noqa: BLE001
+        print(f"[digest] seed_digest_cache_from_db failed: {e}")
+    return loaded
+
+
+def persist_digest_cache_to_db() -> int:
+    """Flush the in-memory digest result cache to the ``registry_digest_cache``
+    table so a restart boots warm. UPSERTs every live entry + prunes rows older
+    than the TTL. Returns the number of rows written. Synchronous (small table)
+    — call via ``asyncio.to_thread`` at the end of a successful gather so a
+    slow SQLite write never blocks the event loop."""
+    ttl = _digest_cache_ttl()
+    if ttl <= 0:
+        return 0
+    from logic.db import db_conn, prune_rows_older_than # noqa: PLC0415
+    _prune_digest_cache_inmem(ttl)
+    now = int(time.time())
+    rows = [(k, d, int(ts)) for k, (d, ts) in _digest_cache.items()]
+    try:
+        if rows:
+            with db_conn() as c:
+                c.executemany(
+                    "INSERT INTO registry_digest_cache (cache_key, digest, ts) "
+                    "VALUES (?, ?, ?) "
+                    "ON CONFLICT(cache_key) DO UPDATE SET "
+                    "digest=excluded.digest, ts=excluded.ts",
+                    rows,
+                )
+        # Prune stale rows via the chunked helper (per-chunk commit releases
+        # the writer lock so a large prune never stalls other writers).
+        prune_rows_older_than("registry_digest_cache", now - ttl)
+    except Exception as e: # noqa: BLE001
+        print(f"[digest] persist_digest_cache_to_db failed: {e}")
+        return 0
+    return len(rows)

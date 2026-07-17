@@ -625,6 +625,18 @@ async def _lifespan(_app: FastAPI):
                 print(f"[boot] seeded {n_items} items from items_snapshot")
         except (ImportError, OSError, RuntimeError) as boot_err:
             print(f"[boot] seed_items_cache_from_snapshot failed: {boot_err}")
+        # Warm the registry digest RESULT cache from `registry_digest_cache`
+        # so the FIRST post-restart gather reuses recently-resolved manifest
+        # digests instead of re-HEADing every image (the cold-cache
+        # slow-first-gather problem). Success-only, TTL-bounded — stale rows
+        # are skipped on load. First-ever boot (empty table) returns 0.
+        try:
+            from logic import registry as _registry_local
+            n_dig = _registry_local.seed_digest_cache_from_db()
+            if n_dig:
+                print(f"[boot] seeded {n_dig} registry digests from registry_digest_cache")
+        except (ImportError, OSError, RuntimeError) as boot_err:
+            print(f"[boot] seed_digest_cache_from_db failed: {boot_err}")
         # Orphan sweep on startup. Cleans stale `<provider>:<host_id>`
         # rows from `host_failure_state` + `host_provider_last_ok` where the
         # host has been deleted OR no longer has that provider configured.

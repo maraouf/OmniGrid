@@ -2942,3 +2942,14 @@ async def _gather_impl() -> None:
             save_items_snapshot()
         except Exception as e:  # noqa: BLE001
             print(f"[gather] save_items_snapshot failed: {e}")
+        # Flush the registry digest RESULT cache to SQLite so a container
+        # restart boots WARM — the first post-restart gather reuses the
+        # digests resolved this cycle instead of re-HEADing every image.
+        # Offloaded to a thread so the (small, infrequent) SQLite write never
+        # stalls the event loop. Failures are logged + swallowed inside the
+        # helper; the gather must never break on a cache flush.
+        try:
+            from logic import registry as _registry # noqa: PLC0415
+            await asyncio.to_thread(_registry.persist_digest_cache_to_db)
+        except Exception as e:  # noqa: BLE001
+            print(f"[gather] persist_digest_cache_to_db failed: {e}")
