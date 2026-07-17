@@ -567,10 +567,14 @@ export default {
         // responsive while the action chain executes. `void` makes the
         // discard-the-promise intent explicit; the inner loop awaits
         // each action so the operator sees confirm popups in order.
+        // ACTION_HOSTS target list (reboot_host) — forward so the reboot
+        // handler gets the AI-named host instead of aborting "No host
+        // selected". Only reboot_host reads it; other descs ignore it.
+        const _actionHosts = Array.isArray(j.action_hosts) ? j.action_hosts : null;
         void (async () => {
           for (const desc of actionDescs) {
             try {
-              await this._runCommandPaletteAction(desc);
+              await this._runCommandPaletteAction(desc, {actionHosts: _actionHosts});
             } catch (e) {
               if (typeof this.showToast === 'function') {
                 this.showToast(this.t('toasts.failed_with_error',

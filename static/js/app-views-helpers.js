@@ -716,6 +716,7 @@ export default {
       // ignore them. `surface: 'sidebar'` + `confirm: true` let a
       // per-app skill run silently + pass the backend destructive gate
       // (the operator just clicked Yes — that IS the confirmation).
+      const _confirmHosts = Array.isArray(turn.action_hosts) ? turn.action_hosts : null;
       const _runRet = await action.run({
         skipConfirm: true,
         tag: (turn.action_tag || '').toString(),
@@ -723,6 +724,11 @@ export default {
         data: (turn.action_data && typeof turn.action_data === 'object') ? turn.action_data : null,
         surface: 'sidebar',
         confirm: true,
+        // ACTION_HOSTS target (reboot_host) — the inline-confirm "Yes" re-fires
+        // the stashed descriptor, so the AI-named host must ride along here too
+        // or the reboot handler aborts "No host selected" post-confirm.
+        host_id: (_confirmHosts && _confirmHosts.length) ? String(_confirmHosts[0]) : '',
+        actionHosts: _confirmHosts,
       });
       // Surface a per-app skill's output inline in the chat (parity with the
       // non-destructive _aiSidebarRunSkill path) — e.g. a confirmed

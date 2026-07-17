@@ -629,6 +629,7 @@ export default {
       action_tag: (t.action_tag || '').toString(),
       action_item: (t.action_item || '').toString(),
       action_data: (t.action_data && typeof t.action_data === 'object') ? t.action_data : null,
+      action_hosts: Array.isArray(t.action_hosts) ? t.action_hosts.slice() : [],
       pending_confirm: !!t.pending_confirm,
       pending_action: t.pending_action || null,
       cancelled: !!t.cancelled,
@@ -723,6 +724,7 @@ export default {
       action_tag: (t.action_tag || '').toString(),
       action_item: (t.action_item || '').toString(),
       action_data: (t.action_data && typeof t.action_data === 'object') ? t.action_data : null,
+      action_hosts: Array.isArray(t.action_hosts) ? t.action_hosts.slice() : [],
       pending_confirm: !!t.pending_confirm,
       pending_action: t.pending_action || null,
       cancelled: !!t.cancelled,
@@ -940,6 +942,7 @@ export default {
             action_tag: (t.action_tag || '').toString(),
             action_item: (t.action_item || '').toString(),
             action_data: (t.action_data && typeof t.action_data === 'object') ? t.action_data : null,
+            action_hosts: Array.isArray(t.action_hosts) ? t.action_hosts.slice() : [],
             feedback: t.feedback || null,
             error: t.error || null,
             cancelled: !!t.cancelled,
@@ -1390,6 +1393,13 @@ export default {
         action_tag: (j.action_tag || '').toString(),
         action_item: (j.action_item || '').toString(),
         action_data: (j.action_data && typeof j.action_data === 'object') ? j.action_data : null,
+        // ACTION_HOSTS target list (e.g. reboot_host) parsed server-side into
+        // j.action_hosts. Plumbed onto the turn so the sidebar dispatch AND
+        // the inline-confirm re-fire pass the AI-named host into
+        // rebootHostAction — without this the web reboot handler gets no
+        // target and aborts with "No host selected" (the Telegram path runs
+        // reboot server-side, which is why it works there but not on web).
+        action_hosts: Array.isArray(j.action_hosts) ? j.action_hosts.slice(0, 8) : [],
         // Persisted on the turn so re-hydration after a reload
         // (loadAiConversation walks each saved turn and re-fires
         // the populator) picks the right chart kind without a
@@ -1521,6 +1531,7 @@ export default {
             tag: turn.action_tag,
             actionItem: turn.action_item,
             data: turn.action_data,
+            actionHosts: turn.action_hosts,
           });
         }
       }

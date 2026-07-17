@@ -1139,6 +1139,12 @@ export default {
     // directive — currently consumed by schedule_create /
     // schedule_update / schedule_delete. Pass-through verbatim.
     const actionData = (opts && opts.data) || (opts && opts.actionData) || null;
+    // ACTION_HOSTS target list (reboot_host) — forward the array plus the
+    // first id as `host_id` so rebootHostAction has an explicit AI-named
+    // target instead of falling back to whatever host drawer is open.
+    const actionHosts = (opts && (opts.actionHosts || opts.action_hosts)) || null;
+    const actionHostId = (Array.isArray(actionHosts) && actionHosts.length)
+      ? String(actionHosts[0]) : '';
     // Tracks whether the operator has confirmed THIS (destructive) action,
     // forwarded to run(opts) as `confirm` so per-app skill dispatch can pass
     // it to the backend's destructive-skill gate. Non-destructive actions are
@@ -1240,7 +1246,7 @@ export default {
       const _runRet = await action.run({
         skipConfirm: skipConfirm, tag: actionTag, actionItem: actionItem,
         data: actionData, surface: fromSidebar ? 'sidebar' : 'modal',
-        confirm: actionConfirmed,
+        confirm: actionConfirmed, host_id: actionHostId, actionHosts: actionHosts,
       });
       // Sidebar: flip the most-recent assistant turn's `action_ran`
       // to true so the green "Ran:" chip surfaces. Skip when this
