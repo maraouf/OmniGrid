@@ -74,6 +74,12 @@ from main import (  # noqa: E402,F401,F811
     tuning,
     Tunable,
     _ops_mod,
+    # Underscore-prefixed: `from main import *` DROPS these, so a bare reference
+    # in a function body NameErrors at request time (the cross-module
+    # LOAD_GLOBAL-leak rule). _actor_from is used by api_host_os_update; the
+    # star-imported non-underscore names (HTTPException / BackgroundTasks /
+    # BaseModel) resolve fine and stay star-only.
+    _actor_from,
 )
 # `_load_hosts_config` is defined in main_pkg.hosts_routes which loads
 # BEFORE this module in main's tail chain, so a direct import resolves
