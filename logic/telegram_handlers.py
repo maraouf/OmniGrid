@@ -1644,6 +1644,69 @@ async def _cmd_restart(client: httpx.AsyncClient, args: list[str], msg: dict) ->
 
 
 # noinspection DuplicatedCode
+async def _cmd_resume(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+    """``/resume <host> [provider]`` — clear auto-paused sampling for a host.
+
+    With a provider it resumes just that provider's probe; without one it clears
+    the whole-host pause, which also clears every paused provider on that host.
+    NOT destructive (it re-enables probing), so there is no typed-confirm gate —
+    unlike ``/restart`` / ``/osupdate``. Shares :mod:`logic.host_resume` with the
+    Telegram-AI ``resume_host_sampling`` action so both behave identically."""
+    from logic import host_resume as _hr
+    if not args:
+        await _listener()._send_reply(
+            client, "Usage: <code>/resume &lt;host&gt; [provider]</code>")
+        return
+    # Split a trailing provider token off the target.
+    provider = ""
+    rest = list(args)
+    for i, a in enumerate(rest):
+        if _hr.normalize_provider(a):
+            provider = _hr.normalize_provider(a)
+            rest = rest[:i] + rest[i + 1:]
+            break
+    target = " ".join(rest).strip()
+    if not target:
+        await _listener()._send_reply(
+            client, "Usage: <code>/resume &lt;host&gt; [provider]</code>")
+        return
+    matched, candidates = _listener()._resolve_target(target)
+    if await _listener()._reply_no_match_or_candidates(client, target, matched, candidates):
+        return
+    assert matched is not None  # narrowed by the helper's False branch
+    host_id = matched.get("id") or ""
+    label = matched.get("label") or host_id
+    _tl = _listener()
+    sender_id = (msg.get("from") or {}).get("id")
+    linked_user = _tl._lookup_omnigrid_user(sender_id) if sender_id is not None else None
+    result = _hr.resume(
+        host_id, provider,
+        actor=(f"telegram:{linked_user}" if linked_user else "telegram"),
+    )
+    if not result.get("ok"):
+        await _listener()._send_reply(
+            client,
+            f"❌ Resume failed for <b>{_listener()._escape(label)}</b>: "
+            f"<code>{_listener()._escape(result.get('error') or 'unknown error')}</code>",
+        )
+        return
+    scope = (f"<code>{_listener()._escape(provider)}</code> sampling"
+             if provider else "sampling")
+    if result.get("cleared"):
+        await _listener()._send_reply(
+            client,
+            f"✅ Resumed {scope} on <b>{_listener()._escape(label)}</b> — "
+            "the next probe runs on the upcoming sampler tick.",
+        )
+    else:
+        await _listener()._send_reply(
+            client,
+            f"ℹ️ Nothing to resume — {scope} on "
+            f"<b>{_listener()._escape(label)}</b> wasn't paused.",
+        )
+
+
+# noinspection DuplicatedCode
 async def _cmd_osupdate(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
     """``/osupdate <host> [reboot] [firmware]`` — OS package-update a host over SSH.
 

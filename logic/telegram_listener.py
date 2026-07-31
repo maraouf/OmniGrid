@@ -1162,6 +1162,7 @@ from logic.telegram_handlers import (  # noqa: E402
     _cmd_prayer,
     _cmd_restart,
     _cmd_osupdate,
+    _cmd_resume,
     _cmd_skills,
     _cmd_time,
     _cmd_unlink,
@@ -1307,6 +1308,17 @@ _COMMANDS: dict[str, dict[str, Any]] = {
         "handler": _cmd_osupdate,
         "usage": "/osupdate <host> [reboot] [firmware]",
         "description": "OS-update a host via SSH (apt/yum upgrade; destructive — requires confirm)",
+        "category": "ops",
+        "access": "admin",
+    },
+    "/resume": {
+        # Clear auto-paused sampling for a host (optionally one provider).
+        # NOT destructive — re-enabling a probe is restorative — so unlike
+        # /restart and /osupdate there is no typed-confirm gate. This is the
+        # command the bot's own "Host sampling paused" alert asks for.
+        "handler": _cmd_resume,
+        "usage": "/resume <host> [provider]",
+        "description": "Resume auto-paused sampling for a host (optionally one provider)",
         "category": "ops",
         "access": "admin",
     },

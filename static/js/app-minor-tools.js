@@ -575,6 +575,99 @@ export default {
       return {ok: false, detail: msg};
     }
   },
+  async resumeHostSamplingAction(opts) {
+    // Resume auto-paused sampling for ONE host — the single-host counterpart to
+    // the bulk pause/resume actions. With a provider (from the AI's ACTION_DATA
+    // or the typed arg) it clears just that provider's pause; without one it
+    // clears the whole-host pause, which cascades to every paused provider.
+    // NOT destructive — re-enabling a probe is restorative — so there is no
+    // confirm gate. Delegates to the drawer helpers so the chips clear
+    // optimistically and the post-resume "re-probing" badge behaves the same as
+    // clicking Resume in the UI.
+    opts = opts || {};
+    const sidebar = opts.surface === 'sidebar';
+    const data = (opts.data && typeof opts.data === 'object') ? opts.data : {};
+    const KNOWN = ['node_exporter', 'beszel', 'pulse', 'webmin',
+      'ping', 'snmp', 'http_probe', 'service_probe'];
+    const argToks = String(opts.queryArg || '').trim().toLowerCase()
+      .split(/[\s,]+/).filter(Boolean);
+    const norm = (v) => String(v || '').trim().toLowerCase().replace(/-/g, '_');
+    let provider = KNOWN.includes(norm(data.provider)) ? norm(data.provider) : '';
+    if (!provider) {
+      provider = argToks.map(norm).find(t => KNOWN.includes(t)) || '';
+    }
+    // Host: explicit id (AI actionHosts) → first non-provider arg token that
+    // resolves → open drawer → most-recent AI turn's host.
+    let hostId = (opts.host_id || opts.actionItem || opts.item || '').toString().trim();
+    if (!hostId && argToks.length) {
+      for (const tok of argToks) {
+        if (KNOWN.includes(norm(tok))) {
+          continue;
+        }
+        const r = this._resolveHostToken(tok);
+        if (r) {
+          hostId = r;
+          break;
+        }
+      }
+    }
+    if (!hostId && this.drawerHost && this.drawerHost.id) {
+      hostId = String(this.drawerHost.id);
+    }
+    if (!hostId) {
+      const turns = Array.isArray(this.aiConversation) ? this.aiConversation : [];
+      for (let i = turns.length - 1; i >= 0; i--) {
+        const t = turns[i];
+        if (t && t.role === 'assistant' && Array.isArray(t.host_ids) && t.host_ids.length) {
+          hostId = String(t.host_ids[0]);
+          break;
+        }
+      }
+    }
+    if (!hostId) {
+      const typed = String(opts.queryArg || '').trim();
+      const msg = typed
+        ? (this.t('host_drawer.resume.no_match_toast', {name: typed})
+          || ('No host matches "' + typed + '" — check the name in Admin → Hosts.'))
+        : (this.t('host_drawer.resume.no_target_toast')
+          || 'No host selected — open a host drawer or name the host to resume.');
+      if (!sidebar && typeof this.showToast === 'function') {
+        this.showToast(msg, 'error');
+      }
+      return {ok: false, detail: msg};
+    }
+    const host = (this.hosts || []).find(h => h && String(h.id) === hostId);
+    if (!host) {
+      const msg = this.t('host_drawer.resume.no_match_toast', {name: hostId})
+        || ('No host matches "' + hostId + '" — check the name in Admin → Hosts.');
+      if (!sidebar && typeof this.showToast === 'function') {
+        this.showToast(msg, 'error');
+      }
+      return {ok: false, detail: msg};
+    }
+    try {
+      if (provider) {
+        await this.resumeProvider(host, provider);
+        return {
+          ok: true,
+          detail: this.t('host_drawer.resume.provider_done', {provider: provider, host: hostId})
+            || ('Resumed ' + provider + ' sampling on ' + hostId + '.'),
+        };
+      }
+      await this.resumeHostSampling(host);
+      return {
+        ok: true,
+        detail: this.t('host_drawer.resume.host_done', {host: hostId})
+          || ('Resumed sampling on ' + hostId + '.'),
+      };
+    } catch (e) {
+      const msg = (this.t('toasts.failed') || 'Failed') + ': ' + e.message;
+      if (!sidebar && typeof this.showToast === 'function') {
+        this.showToast(msg, 'error');
+      }
+      return {ok: false, detail: msg};
+    }
+  },
   // POST /api/hosts/{id}/port-scan — runs an on-demand TCP-connect
   // scan against the host. Stamps `_port_scan_running` while the
   // call is in flight so the button spinner ticks; refreshes the

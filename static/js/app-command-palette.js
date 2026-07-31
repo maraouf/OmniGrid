@@ -324,6 +324,19 @@ export default {
         run: (opts) => this.osUpdateHostAction(opts || {}),
       }] : []),
 
+      // Resume auto-paused sampling for ONE host (optionally just one
+      // provider) — the single-host counterpart to the bulk pause/resume DSL.
+      // Admin-only but NOT destructive: re-enabling a probe is restorative, so
+      // no confirm gate. `/resume dns01 http_probe` or plain `/resume dns01`.
+      ...((typeof this.isAdmin === 'function' && this.isAdmin()
+        && typeof this.resumeHostSamplingAction === 'function') ? [{
+        id: 'resume-host-sampling',
+        label: t('command_palette.action.resume_host_sampling', 'Resume sampling for a host'),
+        sub: t('command_palette.action.resume_host_sampling_sub', 'Clear an auto-paused host or provider — add a provider name to resume just that one (e.g. /resume dns01 http_probe)'),
+        verbs: ['resume', 'unpause', 'sampling', 'paused', 'reenable', 'enable'],
+        run: (opts) => this.resumeHostSamplingAction(opts || {}),
+      }] : []),
+
       // Apps discovery wizard — the one Apps write-flow surfaced to the
       // palette. Admin-only (the discovery endpoint + wizard are). `run`
       // navigates to Admin → Apps and opens the wizard for operator
@@ -1423,6 +1436,13 @@ export default {
       reboot_host: 'reboot-host',
       restart_host: 'reboot-host',
       reboot_switch: 'reboot-host',
+      // Single-host resume-sampling synonyms (distinct from the FLEET-wide
+      // hosts_bulk_resume below, which the operator gets for "resume everything").
+      resume_host_sampling: 'resume-host-sampling',
+      resume_host: 'resume-host-sampling',
+      resume_sampling: 'resume-host-sampling',
+      unpause_host: 'resume-host-sampling',
+      resume_provider: 'resume-host-sampling',
       // OS host-update synonyms — the AI may emit any of these ids.
       osupdate_host: 'osupdate-host',
       os_update_host: 'osupdate-host',

@@ -3397,6 +3397,8 @@
       "scan_ports_sub": "On-demand TCP-connect scan against the open host drawer",
       "reboot_host": "Reboot a host",
       "reboot_host_sub": "Reboot the open host (or AI-named host) over SSH — device-aware (reload / sudo reboot)",
+      "resume_host_sampling": "Resume sampling for a host",
+      "resume_host_sampling_sub": "Clear an auto-paused host or provider — add a provider name to resume just that one (e.g. /resume dns01 http_probe)",
       "osupdate_host": "Update a host (OS packages)",
       "osupdate_host_sub": "Run apt/yum upgrade over SSH on a host — add \"reboot\" and/or \"firmware\" (e.g. /osupdate dns01 reboot)",
       "discover_apps": "Discover apps on a host",
@@ -4371,6 +4373,12 @@
       "no_target_toast": "No host selected — open a host drawer or name the host to update.",
       "no_match_toast": "No host matches \"{name}\" — check the name in Admin → Hosts.",
       "started": "OS update started."
+    },
+    "resume": {
+      "no_target_toast": "No host selected — open a host drawer or name the host to resume.",
+      "no_match_toast": "No host matches \"{name}\" — check the name in Admin → Hosts.",
+      "host_done": "Resumed sampling on {host}.",
+      "provider_done": "Resumed {provider} sampling on {host}."
     },
     "port_scan": {
       "heading": "Port Scan",

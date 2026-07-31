@@ -1309,7 +1309,23 @@ async def _ai_reply(
           "images (that's the forbidden update_* — redirect to the SPA). "
           "Example: 'update dns01 and reboot' → write 'Updating dns01, will "
           "reboot after.' then ACTION: osupdate_host, ACTION_HOSTS: dns01, "
-          "ACTION_DATA: {\"reboot\": true}. For these FOUR wired actions, "
+          "ACTION_DATA: {\"reboot\": true}. "
+          "(5) ACTION: resume_host_sampling + ACTION_HOSTS: <host_id> to RESUME "
+          "auto-paused sampling for ONE host, plus optional ACTION_DATA: "
+          "{\"provider\": \"<name>\"} (node_exporter / beszel / pulse / webmin / "
+          "ping / snmp / http_probe / service_probe) to resume just that "
+          "provider; omit it to clear the whole-host pause, which also clears "
+          "every paused provider there. This is NOT destructive and needs NO "
+          "confirmation — it just re-enables probing. The operator will often "
+          "REPLY TO ONE OF YOUR OWN 'Host sampling paused: <host> (<provider>)' "
+          "alerts saying 'resume sampling for this' — that quoted alert names "
+          "both the host and the provider, so read them out of it. NEVER reply "
+          "that fleet-state changes can't be made from this chat and NEVER tell "
+          "them to go click a chip in the web drawer; you can do this here. "
+          "Example: 'resume sampling for HP654C46 (http_probe)' → write "
+          "'Resuming http_probe on HP654C46.' then ACTION: resume_host_sampling, "
+          "ACTION_HOSTS: HP654C46, ACTION_DATA: {\"provider\": \"http_probe\"}. "
+          "For these FIVE wired actions, "
           "emit the ACTION (+ ACTION_DATA / ACTION_HOSTS) lines (they are "
           "stripped from the visible text but dispatched) and write a short "
           "natural-language sentence framing what you did. "
@@ -1729,6 +1745,52 @@ async def _ai_reply(
                     f"\n\n⏳ OS update started on <b>{_listener()._escape(_label)}</b>"
                     f"{_extra_html} — I'll notify you when it finishes."
                 )
+        elif "resume_host_sampling" in actions:
+            # Resume auto-paused sampling for ONE host (optionally one provider)
+            # straight from the chat — the Telegram-AI twin of the web
+            # resume_host_sampling action + the /resume command. This is the
+            # natural reply to the bot's own "Host sampling paused: <host>
+            # (<provider>)" alert, which pre-fix the AI refused with "fleet-state
+            # modifications cannot be triggered from this chat channel".
+            # NOT destructive (it re-enables a probe), so there is no
+            # allow-destructive gate — unlike reboot_host / osupdate_host.
+            _hosts_cfg = _listener()._load_hosts_config()
+            _rs_hosts, _ = ai.parse_palette_action_hosts(raw_text)
+            rs_host = (_rs_hosts[0] if _rs_hosts
+                       else str((action_data or {}).get("host_id") or "").strip())
+            from logic import host_resume as _host_resume
+            _rs_ad = action_data if isinstance(action_data, dict) else {}
+            rs_provider = _host_resume.normalize_provider(_rs_ad.get("provider"))
+            matched = next(
+                (h for h in _hosts_cfg
+                 if isinstance(h, dict) and str(h.get("id") or "") == rs_host),
+                None,
+            )
+            if matched is None:
+                action_outcome_line = (
+                    "\n\n⚠️ <i>Couldn't resume — no curated host matched "
+                    f"<code>{_listener()._escape(rs_host or '?')}</code>.</i>"
+                )
+            else:
+                _label = str(matched.get("label") or rs_host)
+                rs_result = _host_resume.resume(
+                    rs_host, rs_provider,
+                    actor=(f"telegram-ai:{omnigrid_username}"
+                           if omnigrid_username else "telegram-ai"),
+                )
+                if rs_result.get("ok"):
+                    _scope = (f"<code>{_listener()._escape(rs_provider)}</code> sampling"
+                              if rs_provider else "sampling")
+                    action_outcome_line = (
+                        f"\n\n✅ Resumed {_scope} on "
+                        f"<b>{_listener()._escape(_label)}</b> — the next probe "
+                        "runs on the upcoming sampler tick."
+                    )
+                else:
+                    action_outcome_line = (
+                        f"\n\n❌ Resume failed for <b>{_listener()._escape(_label)}</b>: "
+                        f"<code>{_listener()._escape(rs_result.get('error') or 'unknown error')}</code>"
+                    )
         elif "run_app_skill" in actions and isinstance(action_data, dict):
             # Per-app SKILL invocation from Telegram (e.g. Speedtest's
             # run_speedtest). Resolve the chip server-side + dispatch via the

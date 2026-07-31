@@ -995,6 +995,15 @@ ALLOWED_PALETTE_ACTIONS: frozenset[str] = frozenset({
     # consistent for sidebar dispatching.
     "hosts_bulk_pause",
     "hosts_bulk_resume",
+    # Resume sampling for ONE host — the single-host / per-provider counterpart
+    # to hosts_bulk_resume above. Emits `ACTION: resume_host_sampling` +
+    # `ACTION_HOSTS: <host_id>` + optional `ACTION_DATA: {"provider": "<name>"}`.
+    # This is what a "Host sampling paused: <host> (<provider>)" notification
+    # asks for: with a provider it clears that provider's pause, without one it
+    # clears the whole-host pause (which cascades to every paused provider on
+    # that host). NOT destructive — resuming a probe is restorative, so it runs
+    # without a confirm gate. SPA descriptor id is `resume-host-sampling`.
+    "resume_host_sampling",
     # Reboot ONE host over SSH. Operator phrase: "reboot switch52" / "restart
     # the opnsense box". Emits `ACTION: reboot_host` + `ACTION_HOSTS: <host_id>`
     # (the target host id; the SPA also falls back to the open host drawer).
@@ -1397,6 +1406,23 @@ PALETTE_SYSTEM_PROMPT: str = (
     "from the selection chip strip)\n"
     " - \"resume every host\" / \"unpause hosts\" → "
     "`ACTION: hosts_bulk_resume`\n"
+    " - \"resume sampling for <host>\" / \"unpause <host>\" / \"resume "
+    "<provider> on <host>\" / \"resume it\" in reply to a \"Host sampling "
+    "paused\" alert (ONE host, not the whole fleet) → `ACTION: "
+    "resume_host_sampling` + a SEPARATE `ACTION_HOSTS: <host_id>` line, "
+    "plus an OPTIONAL `ACTION_DATA: {\"provider\": \"<name>\"}` when a "
+    "SPECIFIC provider is named (one of: node_exporter, beszel, pulse, "
+    "webmin, ping, snmp, http_probe, service_probe). Omit `provider` to "
+    "clear the whole-host pause, which also clears every paused provider "
+    "on that host. A pause alert names both, e.g. \"Host sampling paused: "
+    "HP654C46 (10.0.9.2) (http_probe)\" → host_id HP654C46, provider "
+    "http_probe. This is NOT destructive (it just re-enables probing) so "
+    "it runs immediately — do NOT tell the operator to go click a chip in "
+    "the web UI, and do NOT claim you cannot change fleet state. Example "
+    "reply: 'Resuming http_probe on HP654C46.\\nACTION: "
+    "resume_host_sampling\\nACTION_HOSTS: HP654C46\\nACTION_DATA: "
+    "{\"provider\": \"http_probe\"}'. Use `hosts_bulk_resume` instead only "
+    "when they mean EVERY paused host.\n"
     " - \"back up the database now\" / \"create a backup\" / "
     "\"snapshot\" → `ACTION: backup_create`\n"
     " - \"remember that <X>\" / \"add a memory: <X>\" → "

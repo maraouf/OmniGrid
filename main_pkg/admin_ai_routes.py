@@ -728,8 +728,16 @@ class AiFeedbackIn(BaseModel):
 # text instead (see _resolve_hosts_from_query).
 _HOST_TARGETING_ACTIONS = frozenset({
     "reboot_host", "reboot_switch", "restart_host", "scan_ports",
-    "osupdate_host",
+    "osupdate_host", "resume_host_sampling",
 })
+
+# Providers that can be individually auto-paused / resumed. Mirrors
+# logic.host_metrics_sampler._PROVIDER_PREFIXES — used to pull a provider name
+# out of a free-text "resume http_probe on web01" query.
+_RESUMABLE_PROVIDERS = (
+    "node_exporter", "beszel", "pulse", "webmin",
+    "ping", "snmp", "http_probe", "service_probe",
+)
 
 
 def _build_host_idmap() -> dict[str, str]:
@@ -1252,6 +1260,31 @@ async def api_ai_palette(
                     "reboot": bool(_re_up.search(r"\breboot\b", _ql)),
                     "firmware": bool(_re_up.search(r"\bfirmware\b", _ql)),
                 }
+    # Resume-sampling synthesis — same rationale as the reboot / osupdate
+    # synthesis above. A pause NOTIFICATION is the usual trigger ("resume
+    # sampling for <the quoted alert>"), and the model reliably narrates it but
+    # inconsistently emits the directive; it also used to refuse outright. The
+    # host is recovered from the query (which quotes the alert, so it carries
+    # both the host and the provider) and the provider is pulled out too.
+    # Non-destructive, so synthesising it can't cause anything worse than a
+    # probe being re-enabled.
+    if "resume_host_sampling" not in action_ids and "hosts_bulk_resume" not in action_ids:
+        import re as _re_rs  # noqa: PLC0415
+        if _re_rs.search(r"\b(?:resume|unpause|un-pause)\b", query, _re_rs.IGNORECASE):
+            rs_syn = (_resolve_hosts_from_query(query, _host_idmap)
+                      or _resolve_hosts_from_query(text, _host_idmap))
+            if rs_syn:
+                action_ids = ["resume_host_sampling",
+                              *(a for a in action_ids if a != "resume_host_sampling")]
+                out["actions"] = action_ids
+                out["action"] = "resume_host_sampling"
+                resolved_action_hosts = rs_syn[:1]
+                # Provider is optional — omitting it clears the whole-host
+                # pause, which cascades to every paused provider anyway.
+                _hay = f"{query}\n{text}".lower()
+                _prov = next((p for p in _RESUMABLE_PROVIDERS if p in _hay), "")
+                if _prov:
+                    out["action_data"] = {"provider": _prov}
     if resolved_action_hosts:
         out["action_hosts"] = resolved_action_hosts
 
