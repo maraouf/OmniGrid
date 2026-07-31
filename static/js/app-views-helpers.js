@@ -251,9 +251,22 @@ export default {
   collapseAllStacks() {
     this.expanded = [];
   },
+  // True when every selectable row CURRENTLY VISIBLE is selected. Single source
+  // of truth for the header select-all checkbox + toggleSelectAll, which both
+  // used to compare `selected.length === selectable.length` — a length test
+  // says "all selected" for any equal-sized selection of DIFFERENT items, so
+  // selecting rows and then switching filters left the header checkbox ticked
+  // and made select-all clear instead of select. Reachable now that the filter
+  // chips actually narrow the table.
+  allVisibleSelected() {
+    const selectable = this.filteredItems.filter(i => this.isSelectable(i));
+    return selectable.length > 0 && selectable.every(i => this.selected.includes(i.id));
+  },
   toggleSelectAll() {
     const selectable = this.filteredItems.filter(i => this.isSelectable(i));
-    if (this.selected.length === selectable.length) {
+    const allSelected = selectable.length > 0
+      && selectable.every(i => this.selected.includes(i.id));
+    if (allSelected) {
       this.selected = [];
     } else {
       this.selected = selectable.map(i => i.id);
@@ -989,11 +1002,26 @@ export default {
     this.persistAiConversation();
   },
 
+  // Bulk-action scope. These three are the single choke point for the bulk bar:
+  // every executor (bulkUpdate / bulkRestart / bulkRemove), the hotkeys, the
+  // button enablement AND selectionSummary's counts all route through them, so
+  // what is DISPLAYED, what is ENABLED and what actually RUNS can't drift.
+  //
+  // They filter over `filteredItems`, NOT `items` — a bulk action must never
+  // touch a row the operator can't currently see. Selecting rows and then
+  // filtering used to leave the bar offering "Remove (5)" while the table
+  // showed 3 unrelated rows; bulk update recreates containers and bulk remove
+  // deletes them, so acting on invisible rows is a real incident risk.
+  // The stored `selected` list is deliberately NOT pruned when the filter
+  // changes: `search` feeds the same filter pipeline, so pruning would destroy
+  // the selection one keystroke at a time as the operator types. Selection
+  // survives; only the ACTION SCOPE narrows, and `selectionHiddenCount()`
+  // surfaces how many selected rows the current filter is hiding.
   selectionUpdatable() {
-    return this.items.filter(i => this.selected.includes(i.id) && i.status === 'update' && this.canUpdate(i));
+    return this.filteredItems.filter(i => this.selected.includes(i.id) && i.status === 'update' && this.canUpdate(i));
   },
   selectionRemovable() {
-    return this.items.filter(i => this.selected.includes(i.id) && i.removable);
+    return this.filteredItems.filter(i => this.selected.includes(i.id) && i.removable);
   },
   removableAll() {
     // Everything currently removable, regardless of selection. Drives the
@@ -1006,7 +1034,18 @@ export default {
     return this.items.filter(i => i.status === 'update' && this.canUpdate(i));
   },
   selectionRestartable() {
-    return this.items.filter(i => this.selected.includes(i.id) && this.isRestartable(i));
+    return this.filteredItems.filter(i => this.selected.includes(i.id) && this.isRestartable(i));
+  },
+  // How many selected rows the CURRENT filter is hiding. Without this the bulk
+  // bar's counts just silently shrink when a filter is applied and the operator
+  // is left wondering where the selection went — the bar says "N hidden by
+  // filter" instead. 0 when everything selected is visible.
+  selectionHiddenCount() {
+    if (!this.selected.length) {
+      return 0;
+    }
+    const visible = new Set(this.filteredItems.map(i => i.id));
+    return this.selected.filter(id => !visible.has(id)).length;
   },
   selectionSummary() {
     const upd = this.selectionUpdatable().length;

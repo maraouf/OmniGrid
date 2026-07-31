@@ -57,34 +57,26 @@ function _clearNodeItemsIndexCache() {
 // cleared on the next microtask (zero staleness, same contract as the
 // filteredHosts memo). `undefined` is the not-cached sentinel.
 //
-// IMPORTANT — these three are safe to memo BECAUSE their dominant consumer is a
-// heavy x-for (the Stacks / Services table) that reads the getter granularly
-// every flush, so Alpine's fine-grained reactivity re-subscribes the render
-// effect to this.items on every flush. `counts` is DELIBERATELY excluded: all
-// its consumers are lightweight (nav badge x-show, filter-chip x-text, title)
-// and never iterate this.items, so a cache-hit early-return would return before
-// touching this.items and Alpine would never register the dependency for those
-// effects — the badge would FREEZE at its last value after an in-place items
-// reconcile. `counts` therefore always-computes (see its getter).
-const _stacksFlushCache = {
-  filteredStacks: undefined,
-  filteredItems: undefined,
-  sortedFiltered: undefined,
-};
-let _stacksFlushScheduled = false;
-
-function _scheduleStacksFlushClear() {
-  if (_stacksFlushScheduled) {
-    return;
-  }
-  _stacksFlushScheduled = true;
-  queueMicrotask(() => {
-    _stacksFlushCache.filteredStacks = undefined;
-    _stacksFlushCache.filteredItems = undefined;
-    _stacksFlushCache.sortedFiltered = undefined;
-    _stacksFlushScheduled = false;
-  });
-}
+// NOTE — `filteredStacks` / `filteredItems` / `sortedFiltered` are DELIBERATELY
+// NOT flush-memoized, for the same reason `counts` isn't (see its getter).
+//
+// A per-flush memo returns the cached array BEFORE touching `this.items` /
+// `this.statusFilter` / `this.healthFilter`, so whichever effect gets the cache
+// HIT never subscribes to them and FREEZES. Which effect that is depends on DOM
+// order, so the breakage is invisible until a new consumer lands. It bit three
+// times: an x-show on `filteredStacks.length` froze the Stacks table empty; the
+// same on `filteredItems.length` froze Services; and finally the Services
+// header's select-all `:checked` binding (a lightweight consumer that renders
+// ABOVE the row x-for) stole the subscription so the status / health filter
+// chips silently stopped filtering the table — the chip highlighted, the rows
+// never changed.
+//
+// The memo only ever saved a second filter pass (plus one sort) per flush on a
+// list the operator is already looking at. That is not worth a filter that
+// silently doesn't filter, so these always compute. If a large fleet ever makes
+// this measurably slow, the fix is NOT a flush cache — it is to make each
+// consumer read the SAME dependencies the computation reads (or to hoist the
+// derivation into a single Alpine effect), never an early return that skips them.
 
 export default {
   // ===================================================================
@@ -751,32 +743,21 @@ export default {
     return c;
   },
   get filteredStacks() {
-    if (_stacksFlushCache.filteredStacks !== undefined) {
-      return _stacksFlushCache.filteredStacks;
-    }
     const q = this.search.toLowerCase();
-    const out = this.stacks
+    return this.stacks
       .map(s => ({...s, items: s.items.filter(i => this.matches(i, q))}))
       .filter(s => s.items.length > 0);
-    _stacksFlushCache.filteredStacks = out;
-    _scheduleStacksFlushClear();
-    return out;
   },
   get filteredItems() {
-    if (_stacksFlushCache.filteredItems !== undefined) {
-      return _stacksFlushCache.filteredItems;
-    }
     const q = this.search.toLowerCase();
-    const out = this.items.filter(i => this.matches(i, q));
-    _stacksFlushCache.filteredItems = out;
-    _scheduleStacksFlushClear();
-    return out;
+    return this.items.filter(i => this.matches(i, q));
   },
   get sortedFiltered() {
-    if (_stacksFlushCache.sortedFiltered !== undefined) {
-      return _stacksFlushCache.sortedFiltered;
-    }
-    const arr = [...this.filteredItems];
+    // Own filter pass (NOT `[...this.filteredItems]`) so this getter's reader —
+    // the row x-for — always reads this.items + the filter state itself and
+    // stays subscribed to them, independent of any other consumer.
+    const q = this.search.toLowerCase();
+    const arr = this.items.filter(i => this.matches(i, q));
     const f = this.sortField, dir = this.sortDir === 'asc' ? 1 : -1;
     const statusRank = {update: 0, error: 1, unknown: 2, 'up-to-date': 3, ignored: 4};
     arr.sort((a, b) => {
@@ -813,8 +794,6 @@ export default {
       }
       return 0;
     });
-    _stacksFlushCache.sortedFiltered = arr;
-    _scheduleStacksFlushClear();
     return arr;
   },
   matches(item, q) {
@@ -825,6 +804,15 @@ export default {
       }
     }
     if (this.statusFilter && item.status !== this.statusFilter) {
+      return false;
+    }
+    // The "Updates N" chip (and the nav badge) show `counts.update`, which
+    // DELIBERATELY excludes offline / orphan items whose digest is stale — the
+    // Update button can't act on them anyway. The filter has to honour the same
+    // definition or the chip lies: with an exited orphan holding a stale digest
+    // the chip read "Updates 0" while clicking it revealed that row. Those items
+    // are still reachable under All / Offline.
+    if (this.statusFilter === 'update' && item.health === 'offline') {
       return false;
     }
     if (this.healthFilter && item.health !== this.healthFilter) {

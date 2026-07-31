@@ -798,7 +798,9 @@
     "clear": "Clear",
     "summary_updatable": "{count} updatable",
     "summary_restartable": "{count} restartable",
-    "summary_removable": "{count} removable"
+    "summary_removable": "{count} removable",
+    "hidden_by_filter": "{count} hidden by filter",
+    "hidden_by_filter_title": "Some selected rows are hidden by the current filter. Bulk actions only apply to the rows you can see — clear the filter to include them."
   },
   "columns": {
     "resource": "Resource",

@@ -984,6 +984,15 @@
       <span class="font-semibold fs-md" x-text="t('bulk.selected', { count: selected.length })"></span>
       <span class="fs-xs text-[var(--text-faint)]"
             x-text="selectionSummary()"></span>
+      <!-- Bulk actions are scoped to the VISIBLE rows (selectionUpdatable /
+           Restartable / Removable filter over filteredItems) so nothing runs
+           against a row the current filter hides. Without this note the counts
+           would just silently shrink and the operator would think the
+           selection was lost — say so instead. -->
+      <span x-show="selectionHiddenCount() > 0"
+            class="fs-xs text-[var(--warning)]"
+            :title="t('bulk.hidden_by_filter_title')"
+            x-text="t('bulk.hidden_by_filter', { count: selectionHiddenCount() })"></span>
       <span class="flex-1"></span>
       <button type="button" x-show="selectionUpdatable().length > 0" @click="bulkUpdate()" class="btn btn-warning fs-sm">
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
@@ -1120,11 +1129,10 @@
     <!-- ===== STACKS GROUPED VIEW ===== -->
     <div x-show="view==='stacks'" class="fleet-section bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
       <!-- Empty header-only table is hidden via the CSS `.ptable:not(:has(tbody tr))`
-           rule (no-empty-table) — NOT an x-show on this wrapper. An x-show
-           reading the MEMOIZED `filteredStacks` getter added a third
-           lightweight consumer that stole the per-flush memo subscription
-           from the row x-for (caveat-6), freezing the table empty. CSS
-           `:has()` hides the bare header with zero JS reactivity. -->
+           rule (no-empty-table) — NOT an x-show on this wrapper. `:has()`
+           reacts to the rendered rows with zero JS reactivity, so it can never
+           interfere with the row x-for's subscriptions (an x-show reading a
+           list getter once froze this table empty). Keep it CSS-side. -->
       <div class="overflow-x-auto scrollbar">
         <table class="ptable ptable-fleet">
           <thead>
@@ -1453,15 +1461,16 @@
     <!-- ===== SERVICES FLAT LIST ===== -->
     <div x-show="view==='services'" class="fleet-section bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
       <!-- Empty header-only table hidden via the CSS `.ptable:not(:has(tbody tr))`
-           rule (no-empty-table), NOT an x-show on the memoized filteredItems
-           getter (that froze the rows — caveat-6, same as Stacks above). -->
+           rule (no-empty-table), NOT an x-show on a list getter (that froze the
+           rows — same as Stacks above). The select-all `:checked` below reads
+           `filteredItems`; that is safe now the list getters always compute. -->
       <div class="overflow-x-auto scrollbar">
         <table class="ptable ptable-fleet">
           <thead>
           <tr>
             <th class="col-checkbox">
               <input aria-label="Select all" :aria-label="t('common.select_all') || 'Select all'" type="checkbox"
-                     :checked="selected.length>0 && selected.length===filteredItems.filter(i=>isSelectable(i)).length"
+                     :checked="allVisibleSelected()"
                      @click="toggleSelectAll()"
                      class="w-[13px] h-[13px] accent-[var(--primary)]">
             </th>

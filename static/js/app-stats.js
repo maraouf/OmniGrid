@@ -177,17 +177,16 @@ export default {
   // plain containers / orphans appear under their single node.
   // -----------------------------------------------------------------
   nodeGroups() {
-    // Touch the filter inputs DIRECTLY so the Nodes x-for effect
-    // subscribes to them. `this.filteredItems` (read below) is a
-    // per-flush memo: if another visible-via-x-show view (Services'
-    // sortedFiltered / counts) populated its cache earlier in the same
-    // flush, the call here returns a cache HIT that never reads the
-    // filter props — so the Nodes effect wouldn't subscribe and a filter
-    // change left the expanded nodes showing the PREVIOUS filter's
-    // containers (the caveat-6 memo-subscription trap, same class as the
-    // groupedHosts filter bug). Reading them as args to the no-op
-    // `_touchReactiveDeps` registers the dependency without a `void` /
-    // always-false-guard / unused-expression lint flag.
+    // Touch the filter inputs DIRECTLY so the Nodes x-for effect subscribes to
+    // them. This was originally a workaround for `filteredItems` being a
+    // per-flush memo — a cache HIT populated by another view returned without
+    // reading the filter props, so a filter change left the expanded nodes
+    // showing the PREVIOUS filter's containers. That memo has since been
+    // REMOVED (it broke the Stacks/Services filter chips the same way), so the
+    // read below now always subscribes on its own; this stays as cheap
+    // defence-in-depth and as the explicit statement of what this view depends
+    // on. Passing them to the no-op `_touchReactiveDeps` registers the
+    // dependency without a `void` / unused-expression lint flag.
     _touchReactiveDeps(this.search, this.statusFilter, this.healthFilter);
     // Seed with every known node so a node with zero items still
     // renders (helps spot "this worker is empty" at a glance).
