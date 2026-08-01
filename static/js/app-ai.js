@@ -2570,7 +2570,21 @@ export default {
       return out;
     };
     const allHosts = Array.isArray(this.hosts) ? this.hosts : [];
-    const hostsCtx = allHosts.slice(0, 30).map(fmtHost).filter(h => h.id);
+    // The detail block is capped for token budget, but the cap USED to slice
+    // `this.hosts` in raw curated order — so on a fleet larger than the cap the
+    // tail was invisible to the AI, and asking about one of those hosts got a
+    // refusal or a guess. Two fixes: (1) sort PROBLEM hosts first so the ones
+    // worth asking about always survive the cap (mirrors the Telegram builder's
+    // ordering); (2) ship a compact id+status roster for EVERY host below, so
+    // the AI always knows a host exists and can pull its full record on demand
+    // via the get_host_detail tool.
+    const _rank = (s) => ({down: 0, unknown: 1, paused: 2, up: 3}[
+      String(s || '').toLowerCase()] ?? 4);
+    const hostsSorted = allHosts.slice().sort((a, b) => {
+      const d = _rank(a && a.status) - _rank(b && b.status);
+      return d !== 0 ? d : String((a && a.id) || '').localeCompare(String((b && b.id) || ''));
+    });
+    const hostsCtx = hostsSorted.slice(0, 30).map(fmtHost).filter(h => h.id);
     // Authoritative counts — the AI must answer "how many hosts" from
     // these, NOT from `hosts.length` (which it sees as the SAMPLE
     // cap of 30). Operator-flagged: with 183 configured hosts the
@@ -2782,6 +2796,17 @@ export default {
       hosts_enabled: hostsEnabled,
       hosts_sample_cap: 30,
       problem_hosts: problemHostsCtx,
+      // Compact id+status line for EVERY curated host. The `hosts` block above
+      // is capped, so without this the AI had no idea a host past the cap even
+      // existed and would answer "I have no data on that host". With the roster
+      // it always knows the host exists and can pull its full record on demand
+      // via the get_host_detail tool. ~30 bytes/host — cheap next to the
+      // per-host detail records.
+      hosts_roster: allHosts.slice(0, 300).map(h => ({
+        id: (h && (h.id || h.host)) || '',
+        label: (h && h.label) || '',
+        status: (h && h.status) || 'unknown',
+      })).filter(h => h.id),
       hosts_summary: {
         total: hostsTotal,
         enabled: hostsEnabled,

@@ -794,7 +794,83 @@ async def _tool_upcoming_releases(args: dict, _ctx: dict) -> dict:
         return {"error": f"calendar fetch failed: {type(e).__name__}: {e}", "items": []}
 
 
+async def _tool_get_host_detail(args: dict, _ctx: dict) -> dict:
+    """Return the FULL merged record for ONE curated host — the same shape the
+    host drawer renders, not the trimmed summary the context block carries.
+
+    Exists because the per-turn context is CAPPED (the web builder ships the
+    first 30 hosts, Telegram 60), so on a larger fleet a host the operator names
+    may not be in context at all — the AI then either refuses or guesses. It
+    also only carries ~25 summary fields, so even an in-context host can't be
+    described at drawer depth. This tool takes a host the operator NAMED and
+    fetches everything about it on demand: telemetry, OS / hardware identity,
+    per-mount disk, network interfaces, temperatures, per-provider state
+    (including WHY a provider is paused + its last error), apps and detected
+    ports. Read-only — it runs the same probe path as opening the drawer.
+
+    ``host_id`` is matched tolerantly (curated id, label, or any provider-name
+    alias) so the operator can use whatever name they know the box by.
+    """
+    import asyncio as _asyncio  # noqa: PLC0415
+    host_id = str(args.get("host_id") or "").strip()
+    if not host_id:
+        return {"error": "host_id is required"}
+    try:
+        from main_pkg.hosts_routes import (  # noqa: PLC0415
+            _load_hosts_config as _lhc, _hosts_one_inner, _shape_host_api_row)
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"host lookup unavailable: {e}"}
+    curated = _lhc()
+    needle = host_id.strip().lower()
+
+    def _match(cand: dict) -> bool:
+        for k in ("id", "label", "beszel_name", "pulse_name",
+                  "webmin_name", "snmp_name", "address"):
+            if str(cand.get(k) or "").strip().lower() == needle:
+                return True
+        return False
+
+    _h = next((x for x in curated if isinstance(x, dict) and _match(x)), None)
+    if _h is None:
+        # Unambiguous substring fallback — "dns01" for "debian13dns01".
+        hits = [x for x in curated if isinstance(x, dict) and any(
+            needle in str(x.get(k) or "").strip().lower()
+            for k in ("id", "label", "beszel_name", "pulse_name",
+                      "webmin_name", "snmp_name"))]
+        if len(hits) == 1:
+            _h = hits[0]
+    if _h is None:
+        known = [str(x.get("id") or "") for x in curated if isinstance(x, dict)]
+        return {"error": f"no curated host matches {host_id!r}",
+                "known_host_ids": known[:200]}
+    try:
+        state, (merged, provs) = await _asyncio.wait_for(
+            _hosts_one_inner(_h, force=False), timeout=20.0)
+        row = _shape_host_api_row(
+            _h, merged, provs,
+            any_provider_enabled=bool(state.get("active")),
+            active=state.get("active"))
+    except _asyncio.TimeoutError:
+        return {"error": f"probe for {_h.get('id')!r} timed out after 20s"}
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"probe failed for {_h.get('id')!r}: {e}"}
+    # Drop the bulky/noisy keys — chart series and internal bookkeeping blow the
+    # token budget without helping the AI describe the host.
+    drop = {"apps", "_meta", "history", "samples"}
+    detail = {k: v for k, v in row.items()
+              if not k.startswith("_") and k not in drop}
+    # Recent failure transitions give the AI the WHY behind a paused provider.
+    try:
+        detail["recent_failure_events"] = _tool_get_failure_events(
+            {"host_id": str(_h.get("id") or ""), "hours": 48, "limit": 20}, _ctx,
+        ).get("events", [])
+    except Exception:  # noqa: BLE001
+        detail["recent_failure_events"] = []
+    return {"host": detail}
+
+
 PALETTE_TOOL_CATALOGUE: dict = {
+    "get_host_detail": _tool_get_host_detail,
     "get_recent_history": _tool_get_recent_history,
     "get_recent_logs": _tool_get_recent_logs,
     "get_failure_events": _tool_get_failure_events,
@@ -1208,6 +1284,25 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
                 "id, label, status, address, paused, beszel_name, "
                 "pulse_name, webmin_name, snmp_name",
                 problem_hosts[:200],
+            ))
+        # Full id+status roster. The detail block above is CAPPED, so without
+        # this the model has no idea a host past the cap exists and answers
+        # "I have no data on that host". The roster makes every host visible
+        # by name and points at get_host_detail for the actual data.
+        hosts_roster = _typed_field(ctx, "hosts_roster", list)
+        if hosts_roster:
+            parts.append(_format_records_block(
+                "Host roster (EVERY curated host, id + status only — no "
+                "telemetry). The detailed hosts block above is CAPPED, so a "
+                "host can appear HERE and not there. This roster is the "
+                "authoritative answer to 'do you know about host X' and "
+                "'list my hosts' — a host listed here EXISTS, so NEVER reply "
+                "that you have no data on it. To answer anything about one of "
+                "them (health, disk, why it's paused, hardware) call the "
+                "`get_host_detail` tool with its id; do NOT guess and do NOT "
+                "tell the operator to go look in the web UI.",
+                "id, label, status",
+                hosts_roster[:300],
             ))
         # Items counts — mirror the hosts_total pattern so the model
         # can answer "how many stacks need updating" / "any updates?"

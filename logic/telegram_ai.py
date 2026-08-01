@@ -910,6 +910,18 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
 
         ctx["hosts"] = host_records
         ctx["problem_hosts"] = problem_hosts
+        # Compact id+status line for EVERY curated host. `hosts` above is capped
+        # at sample_cap, so without this a host past the cap is invisible and
+        # the AI answers "no data on that host"; the roster keeps every host
+        # nameable and get_host_detail fetches the real data on demand.
+        ctx["hosts_roster"] = [
+            {
+                "id": str(r.get("id") or ""),
+                "label": str(r.get("label") or r.get("id") or ""),
+                "status": str(r.get("status") or "unknown"),
+            }
+            for r in api_hosts if str(r.get("id") or "")
+        ][:300]
         ctx["hosts_total"] = hosts_total
         ctx["hosts_enabled"] = hosts_enabled
         ctx["hosts_sample_cap"] = sample_cap
