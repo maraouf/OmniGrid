@@ -42,6 +42,7 @@ import time  # noqa: F401 — used at time.time() callsites below; IDE marks
 import httpx
 
 from logic.external_urls import ExternalURL
+from logic import ai_actions as _ai_actions
 
 # Canonical, ordered tuple of every AI provider OmniGrid speaks to.
 # CANONICAL source of truth — every other module that needs the list
@@ -899,197 +900,13 @@ async def ask_provider_with_fallback(
 # them across the FastAPI routes file.
 # ---------------------------------------------------------------------------
 
-ALLOWED_PALETTE_ACTIONS: frozenset[str] = frozenset({
-    "mark_all_notifications_read",
-    "refresh",
-    "reload",
-    # Per-app SKILL invocation (the app-skill framework — e.g. Speedtest's
-    # run_speedtest). Paired with `ACTION_DATA: {host_id, service_idx,
-    # skill_id}`. The SPA / Telegram dispatch it to POST
-    # /api/services/{host_id}/{service_idx}/skill/{skill_id}; only skills the
-    # context's `app_skills` block lists (app enabled + api_key set) are valid.
-    "run_app_skill",
-    "theme_dark",
-    "theme_light",
-    "theme_auto",
-    "open_notifications",
-    "show_hotkeys",
-    "cleanup_stopped",
-    "update_all_updatable",
-    "sign_out",
-    # On-demand port scan against the currently-open host drawer.
-    # SPA-side gate (master toggle + drawer-open + admin role) lives
-    # in `_commandActions()`; the AI emitting `ACTION: scan_ports` is
-    # honoured only when the SPA-side gate would otherwise pass.
-    "scan_ports",
-    # Open the Apps discovery wizard (admin) — the entry point for
-    # binding catalog templates to a host by matching its open ports.
-    # SPA-side gate (admin role + apps feature) lives in
-    # `_commandActions()`; `run` navigates to Admin → Apps and opens
-    # the wizard. This is the ONLY Apps write-flow exposed to the
-    # palette ON PURPOSE: the remaining Apps write ops (per-instance
-    # edit / unpin, per-template pin, catalog create / update / delete /
-    # re-seed, manual probe-now) need precise instance-index / template
-    # targeting that a one-shot NL palette can't reliably resolve, and
-    # their canonical surface is the Admin → Apps editor (instance
-    # Edit / Remove modal + Templates tab) with its own confirm flows.
-    # Discovery is the natural "AI, help me set up apps on this host"
-    # entry; the actual pin happens in the wizard with operator review.
-    "discover_apps",
-    # Re-test connection actions for each integration. SPA-callable
-    # via `_commandActions()` (one entry per provider when the SPA
-    # has the matching test handler). The AI can fire them when the
-    # operator says "test the Portainer connection" / "re-test
-    # Beszel". Each handler navigates to the relevant Admin tab AND
-    # kicks off the probe so the result chip appears in context.
-    "test_portainer",
-    "test_oidc",
-    "test_beszel",
-    "test_pulse",
-    "test_webmin",
-    "test_snmp",
-    "test_ping",
-    "test_asset_inventory",
-    "test_apprise",
-    # Switch a stack/container's image tag to a different floating tag.
-    # Operator pattern: pin a container deployed against `:2.0.0-dev` to
-    # the moving `:2` tag for v2-line patch updates without bumping to
-    # `:latest` (which on some images still tracks v1). The AI emits
-    # `ACTION: retag_image` paired with `ACTION_TAG: <new_tag>` (and
-    # OPTIONALLY `ACTION_ITEM: <name-or-id>`). When ACTION_ITEM is
-    # omitted, the SPA defaults to the open item drawer; if no drawer
-    # is open AND no ACTION_ITEM, the operator gets a toast asking to
-    # open the drawer or name the item explicitly. Destructive — gates
-    # behind the inline-confirm chip in approval mode.
-    "retag_image",
-    # Schedule CRUD via AI palette.
-    # Each action consumes `ACTION_DATA: <json>` carrying the payload
-    # (name, kind, interval_seconds, etc.). The SPA dispatches to the
-    # SAME `/api/schedules` endpoints the Admin → Schedules table uses,
-    # so backend authorization + bounds-clamping + skip-if-running gates
-    # all apply. delete is the only destructive action — gates behind
-    # the inline-confirm chip in the AI sidebar.
-    "schedule_create",
-    "schedule_update",
-    "schedule_delete",
-    # Item write-ops via AI palette — destructive, gated by inline-
-    # confirm chip in the sidebar (same shape as `cleanup_stopped` /
-    # `update_all_updatable`). Each requires `ACTION_ITEM: <name-or-id>`
-    # to identify the target; the SPA defaults to the open drawer if
-    # ACTION_ITEM is omitted (toast asks the operator to name the item
-    # if no drawer is open either). Same authorisation as the row-level
-    # action button: bearer / cookie + admin role.
-    "update_stack",
-    "update_container",
-    "restart_service",
-    "restart_container",
-    "remove_container",
-    # Bulk node prune via AI palette — same destructive treatment.
-    # Operator phrases: "prune docker on web01" / "prune the cluster".
-    # ACTION_HOSTS: <ids> can target a subset; omitting it falls through
-    # to the SPA's bulk-prune flow.
-    "prune_node",
-    # Bulk host-pause / resume via AI palette. The Cmd-K palette
-    # already has a verb-prefix DSL for these (`pause:` / `resume:`);
-    # exposing the snake_case action IDs makes the cmd-K route
-    # consistent for sidebar dispatching.
-    "hosts_bulk_pause",
-    "hosts_bulk_resume",
-    # Resume sampling for ONE host — the single-host / per-provider counterpart
-    # to hosts_bulk_resume above. Emits `ACTION: resume_host_sampling` +
-    # `ACTION_HOSTS: <host_id>` + optional `ACTION_DATA: {"provider": "<name>"}`.
-    # This is what a "Host sampling paused: <host> (<provider>)" notification
-    # asks for: with a provider it clears that provider's pause, without one it
-    # clears the whole-host pause (which cascades to every paused provider on
-    # that host). NOT destructive — resuming a probe is restorative, so it runs
-    # without a confirm gate. SPA descriptor id is `resume-host-sampling`.
-    "resume_host_sampling",
-    # Reboot ONE host over SSH. Operator phrase: "reboot switch52" / "restart
-    # the opnsense box". Emits `ACTION: reboot_host` + `ACTION_HOSTS: <host_id>`
-    # (the target host id; the SPA also falls back to the open host drawer).
-    # Reuses logic.ssh.reboot_host — the device-aware verb (per-host `reload`
-    # for a Cisco SG300, `sudo reboot` for Linux), the SAME path the Telegram
-    # /restart command uses. Requires the host to have SSH ENABLED (a read-only
-    # host returns a clear "SSH not enabled" error). DESTRUCTIVE — the SPA gates
-    # it behind the inline-confirm chip (sidebar) / typed-confirm. SPA
-    # descriptor id is `reboot-host` (hyphen form).
-    "reboot_host",
-    # OS package-update ONE host over SSH. Operator phrase: "update dns01" /
-    # "osupdate the pihole box" / "patch web01 and reboot". Emits `ACTION:
-    # osupdate_host` + `ACTION_HOSTS: <host_id>` + optional `ACTION_DATA:
-    # {"firmware": bool, "reboot": bool}`. Runs apt/yum upgrade + pihole/snap
-    # refresh (+ optional rpi-update firmware) then optionally reboots. Reuses
-    # logic.ssh.update_host as a BACKGROUND Operation (updates take minutes) —
-    # the same path the Telegram /osupdate command uses. DESTRUCTIVE — the SPA
-    # gates it behind the inline-confirm chip. SPA descriptor id is
-    # `osupdate-host` (hyphen form). Distinct from `update_all_updatable`
-    # (Docker image updates) — this updates the HOST's OS packages.
-    "osupdate_host",
-    # On-demand backup snapshot via AI palette. Non-destructive
-    # (creates a new zip; retention prune fires under the existing
-    # `tuning_backup_retention_count` knob).
-    "backup_create",
-    # Operator-typed custom notification routed to ONE medium. Pairs
-    # with `ACTION_DATA: {"medium": "telegram"|"apprise"|"app", "body":
-    # "<text>", "title": "<optional>"}`. Distinct from the per-medium
-    # Test endpoints (fixed payload) — this carries the operator's exact
-    # text. Destructive in the sense that the message goes out to real
-    # subscribers, so the SPA gates it behind the inline-confirm chip
-    # the way `cleanup_stopped` / `update_all_updatable` do. Operator
-    # phrase examples: "send to telegram Backup finished", "tell apprise
-    # 'restart complete'", "notify the team via telegram that
-    # opnsense is fine now".
-    "send_notification",
-    # AI memory write actions — already exposed via the MEMORY: /
-    # MEMORY-FORGET: directives in AI replies, but adding the explicit
-    # snake_case action IDs makes the cmd-K route consistent so
-    # operator phrases like "remember that X" / "forget about Y"
-    # parse to the same dispatch path regardless of whether the AI
-    # emits MEMORY: or ACTION: ai_memory_create.
-    "ai_memory_create",
-    "ai_memory_delete",
-    # Fire any schedule on-demand. Operator phrase: "run the backup
-    # schedule now". Requires `ACTION_ITEM: <name>` to identify the
-    # schedule by its operator-visible name. Same endpoint
-    # (POST /api/schedules/{id}/run) the Admin table's "Run now"
-    # button uses.
-    "schedule_run_now",
-    # Synonym IDs — same SPA descriptors as the canonical entries
-    # above, accepted by the backend so the AI can emit whichever
-    # operator-natural phrasing the user typed without the SPA's
-    # `_actionDescriptorById` alias needing to know about a fresh
-    # snake_case variant first. SPA's alias map resolves these to
-    # the canonical descriptor (`hosts-bulk-pause`,
-    # `mark-all-notifications-read`, etc.).
-    "bulk_pause_hosts",
-    "bulk_resume_hosts",
-    "prune_stopped",
-    "clear_notifications",
-    "notifications_clear_all",
-    # Apps feature — catalog template CRUD + pin + discover + manual
-    # probe. Operator phrases like "probe plex on host01", "pin sonarr
-    # to web02", "discover apps on web03", "re-seed app templates"
-    # parse to one of these IDs. Each requires action-specific
-    # ACTION_DATA / ACTION_HOSTS / ACTION_ITEM payloads (catalog_id,
-    # host_id, name, etc.) the SPA-side descriptor knows how to read.
-    # Naming matches the `OP_TYPES` registry entries for parity so the
-    # AI palette + History filter dropdown + i18n bundle stay in sync.
-    #
-    # Apps write-ops (services_catalog_* / services_pin /
-    # services_discover* / services_probe_now) were REMOVED from this
-    # whitelist — they had no matching SPA descriptor or alias entry
-    # in `static/js/app-command-palette.js:_actionDescriptorById`,
-    # so the AI parser would extract the ACTION but the dispatcher
-    # would silently return null. Pre-fix the AI would claim "I'll
-    # pin this app" / "I'll seed the catalog" without any actual
-    # action firing. The operator-design intent is that Apps
-    # write-ops happen via the Admin → Apps editor + the per-app
-    # drawer (operator review + confirm flow), NOT via AI palette
-    # dispatch — so removing them from the whitelist is the
-    # honest answer. If a future surface needs AI-driven Apps
-    # writes, add the entries back here AND wire matching SPA
-    # descriptors in the same change.
-})
+# Derived from the ai_actions registry — the single place an action (and its
+# aliases) is declared. Previously this literal, the palette route's
+# host-targeting set and the SPA's alias map were maintained separately, and
+# an alias added to only one of them silently did nothing. Add actions there,
+# not here; the prose that teaches the model WHEN to use each one stays in
+# PALETTE_SYSTEM_PROMPT below.
+ALLOWED_PALETTE_ACTIONS: frozenset[str] = _ai_actions.allowed_action_ids()
 
 PALETTE_SYSTEM_PROMPT: str = (
     "You are the Cmd-K palette assistant for OmniGrid, a Docker-Swarm "

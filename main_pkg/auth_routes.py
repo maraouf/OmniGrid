@@ -175,6 +175,19 @@ def _ai_palette_actions() -> "set[str]":
         return set()
 
 
+def _ai_action_registry() -> dict:
+    """Action registry view for /api/me's ``client_config.ai.actions`` — the
+    alias -> SPA-descriptor map + the destructive id set, from
+    ``logic.ai_actions``. Same late-import + safe-fallback contract as
+    :func:`_ai_palette_actions`: on import failure the SPA falls back to its
+    built-in map rather than losing action dispatch entirely."""
+    try:
+        from logic import ai_actions  # noqa: PLC0415
+        return ai_actions.client_config_payload()
+    except (ImportError, AttributeError):
+        return {}
+
+
 # Sibling-module names — defined in other main_pkg/* files
 # that end up in main's namespace via the chain.
 from main_pkg.scan_routes import (  # noqa: E402,F401 — explicit for IDE
@@ -1410,6 +1423,15 @@ async def api_me(request: Request):
                 # nothing happened" — the silent-drift failure mode
                 # this whitelist exists to prevent.
                 "palette_actions": sorted(_ai_palette_actions()),
+                # Action registry (`logic.ai_actions`) — `alias_to_spa` maps
+                # every AI-emitted id AND alias to its SPA descriptor id, and
+                # `destructive` lists the ids that must go through the confirm
+                # flow. The SPA used to hardcode both; that copy drifted badly
+                # (48 of its 86 alias entries could never fire, because the
+                # parser filters against the whitelist before the SPA sees the
+                # reply). Reading them from here means registering an alias in
+                # ONE place makes it work end-to-end.
+                "actions": _ai_action_registry(),
             },
             # Per-app modules — slug list of catalog templates that
             # have custom backend logic (api_key field + Test-credential

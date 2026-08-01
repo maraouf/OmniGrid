@@ -1493,7 +1493,17 @@ export default {
       // Per-app skill invocation (run_speedtest etc.).
       run_app_skill: 'run-app-skill',
     };
-    const target = aliasMap[id] || kebab;
+    // Prefer the BACKEND registry (logic/ai_actions -> /api/me
+    // client_config.ai.actions.alias_to_spa). The local `aliasMap` below is a
+    // fallback for the window before /api/me hydrates (and if the backend is
+    // older than this build). Registering an alias in the registry alone used
+    // to do nothing — the parser filters against its own whitelist first, so
+    // 48 of this map's entries could never fire; reading the backend map means
+    // one registration works end-to-end.
+    const _regMap = (this.me && this.me.client_config && this.me.client_config.ai
+      && this.me.client_config.ai.actions
+      && this.me.client_config.ai.actions.alias_to_spa) || null;
+    const target = (_regMap && _regMap[id]) || aliasMap[id] || kebab;
     // Backend-allowed-set guard (post-alias) — verify the snake_case
     // pre-image of the resolved descriptor is whitelisted. We check
     // BOTH `id` (the AI's raw emission) AND a re-snake'd `target`

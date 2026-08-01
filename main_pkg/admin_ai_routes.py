@@ -726,10 +726,12 @@ class AiFeedbackIn(BaseModel):
 # of these but omits (or misformats) the ACTION_HOSTS line — a known Gemini
 # directive-omission failure — the target is recovered from the user's query
 # text instead (see _resolve_hosts_from_query).
-_HOST_TARGETING_ACTIONS = frozenset({
-    "reboot_host", "reboot_switch", "restart_host", "scan_ports",
-    "osupdate_host", "resume_host_sampling",
-})
+# Derived from the ai_actions registry (host_targeting=True), so declaring an
+# action there automatically opts it into ACTION_HOSTS resolution + the
+# recover-the-target-from-the-query fallbacks. Includes each action's aliases.
+from logic import ai_actions as _ai_actions  # noqa: E402
+
+_HOST_TARGETING_ACTIONS = _ai_actions.host_targeting_ids()
 
 # Providers that can be individually auto-paused / resumed. Mirrors
 # logic.host_metrics_sampler._PROVIDER_PREFIXES — used to pull a provider name
