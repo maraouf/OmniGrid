@@ -135,6 +135,7 @@ from logic.settings_keys import (  # noqa: E402,F401  helper-key functions re-ex
     ai_provider_base_url_key,
     ai_provider_enabled_key,
     ai_provider_model_key,
+    ai_provider_native_tools_key,
     last_test_success_key,
     notify_event_key,
 )
