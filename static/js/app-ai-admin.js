@@ -219,6 +219,11 @@ export default {
     // Stable shape — `master_enabled` + `active_provider` + per-provider
     // mirror. API key is stamped via the `api_key_set` boolean OR the
     // typed string; either change marks the form dirty.
+    //
+    // EVERY editable per-provider field has to appear here or its checkbox /
+    // input changes nothing the dirty check can see and Save stays greyed out
+    // — which is exactly what happened when `native_tools` (nt) was added to
+    // the state, hydration and save payload but not to this snapshot.
     const p = this.aiForm.providers;
     return JSON.stringify({
       master: !!this.settings.ai_enabled,
@@ -228,10 +233,10 @@ export default {
       fb_order: (Array.isArray(this.settings.ai_fallback_order)
         ? this.settings.ai_fallback_order : []).join(','),
       fb_max_depth: Math.max(1, Math.min(2, +this.settings.ai_fallback_max_depth || 1)),
-      claude: {en: !!p.claude.enabled, m: p.claude.model || '', u: p.claude.base_url || '', k: p.claude.api_key || '', s: !!p.claude.api_key_set},
-      gemini: {en: !!p.gemini.enabled, m: p.gemini.model || '', u: p.gemini.base_url || '', k: p.gemini.api_key || '', s: !!p.gemini.api_key_set},
-      chatgpt: {en: !!p.chatgpt.enabled, m: p.chatgpt.model || '', u: p.chatgpt.base_url || '', k: p.chatgpt.api_key || '', s: !!p.chatgpt.api_key_set},
-      deepseek: {en: !!p.deepseek.enabled, m: p.deepseek.model || '', u: p.deepseek.base_url || '', k: p.deepseek.api_key || '', s: !!p.deepseek.api_key_set},
+      claude: {en: !!p.claude.enabled, nt: !!p.claude.native_tools, m: p.claude.model || '', u: p.claude.base_url || '', k: p.claude.api_key || '', s: !!p.claude.api_key_set},
+      gemini: {en: !!p.gemini.enabled, nt: !!p.gemini.native_tools, m: p.gemini.model || '', u: p.gemini.base_url || '', k: p.gemini.api_key || '', s: !!p.gemini.api_key_set},
+      chatgpt: {en: !!p.chatgpt.enabled, nt: !!p.chatgpt.native_tools, m: p.chatgpt.model || '', u: p.chatgpt.base_url || '', k: p.chatgpt.api_key || '', s: !!p.chatgpt.api_key_set},
+      deepseek: {en: !!p.deepseek.enabled, nt: !!p.deepseek.native_tools, m: p.deepseek.model || '', u: p.deepseek.base_url || '', k: p.deepseek.api_key || '', s: !!p.deepseek.api_key_set},
     });
   },
   // Helper: count of providers eligible to be fallback (master-enabled

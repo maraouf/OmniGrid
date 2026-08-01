@@ -136,6 +136,11 @@ import re  # noqa: F401,F811  (used at runtime; star-import shadow flags as dupl
 import tempfile  # noqa: F401,F811
 import time  # noqa: F401,F811  (used at runtime; star-import shadow flags as duplicate)
 from typing import Optional, Set
+# Imported explicitly rather than relied on from `from main import *`: the star
+# import silently drops anything main doesn't re-export, and a name that only
+# resolves at request time is how a boot-time ImportError reaches the deploy.
+from fastapi.responses import RedirectResponse  # noqa: E402
+from urllib.parse import quote  # noqa: E402
 
 # Load .env BEFORE any os.getenv() calls (including those done at import time
 # in auth.py). The file lives in the /app bind-mount and travels with the
@@ -1554,6 +1559,42 @@ def _expand_includes(body: str, path: str) -> tuple[str, tuple]:
 
 
 # noinspection PyTypeChecker,PyUnresolvedReferences
+def _shell_or_login(request: Request) -> Optional[Response]:
+    """Redirect to ``/login`` when the caller has no valid session.
+
+    Every SPA deep-link route serves the same shell, and the shell used to go
+    out to ANY browser: Alpine booted, `x-cloak` lifted, the whole dashboard
+    painted, and only once the in-page ``/api/me`` round-trip came back did the
+    page bounce to /login. An operator who wasn't signed in watched the grid
+    and chrome flash past before the login form appeared.
+
+    Deciding it here removes the flash at the source — an unauthenticated
+    browser never receives the app shell in the first place. Returns the
+    redirect to send, or ``None`` to serve the shell normally.
+
+    Deliberately permissive on failure: any error resolving the session serves
+    the shell (the client-side ``/api/me`` check + the global 401 handler still
+    bounce a genuinely unauthenticated user). Locking people out of the login
+    page because a cookie lookup raised would be a far worse failure than the
+    cosmetic flash this removes. ``/login`` itself is a separate route, so
+    there is no redirect loop.
+    """
+    try:
+        raw = request.cookies.get(auth.COOKIE_NAME) or ""
+        token_id = auth.parse_session_cookie(raw) if raw else None
+        if token_id:
+            with db_conn() as c:
+                if auth.get_active_session(c, token_id) is not None:
+                    return None  # valid session — serve the app
+    except Exception as e:  # noqa: BLE001
+        print(f"[shell] session pre-check failed, serving shell: {e}")
+        return None
+    nxt = request.url.path
+    if request.url.query:
+        nxt = f"{nxt}?{request.url.query}"
+    return RedirectResponse(f"/login?next={quote(nxt, safe='')}", status_code=302)
+
+
 def _render_shell(path: str) -> Response:
     """Serve an HTML shell with `__APP_VERSION__` → current version.
 
@@ -1635,9 +1676,12 @@ def _render_shell(path: str) -> Response:
 # literal "__APP_VERSION__" marker still in the script srcs. Registered
 # BEFORE the StaticFiles mount below (mount-order rule applies).
 @app.get("/")
-async def spa_shell():
-    """Serve the SPA master HTML for every non-/api path (catch-all route)."""
-    return _render_shell("static/index.html")
+async def spa_shell(request: Request):
+    """Serve the SPA master HTML for every non-/api path (catch-all route).
+
+    Unauthenticated callers are redirected to /login instead of being handed
+    the shell — see :func:`_shell_or_login`."""
+    return _shell_or_login(request) or _render_shell("static/index.html")
 
 
 # Deep-link routes for every SPA view. The Alpine front-end calls
@@ -1659,32 +1703,32 @@ for _view in _SPA_ROUTES:
 
 @app.get("/settings")
 @app.get("/settings/{section}")
-async def spa_settings_shell(section: str = ""):
+async def spa_settings_shell(request: Request, section: str = ""):
     """SPA shell route for /settings and /settings/<section> deep links.
     Section is consumed client-side by `_applyRouteFromPath()`; this
     handler only needs to return the master HTML."""
     _ = section
-    return _render_shell("static/index.html")
+    return _shell_or_login(request) or _render_shell("static/index.html")
 
 
 @app.get("/admin")
 @app.get("/admin/{tab}")
-async def spa_admin_shell(tab: str = ""):
+async def spa_admin_shell(request: Request, tab: str = ""):
     """SPA shell route for /admin and /admin/<tab> deep links.
     Tab is consumed client-side; this handler only returns the master
     HTML."""
     _ = tab
-    return _render_shell("static/index.html")
+    return _shell_or_login(request) or _render_shell("static/index.html")
 
 
 @app.get("/stats")
 @app.get("/stats/{tab}")
-async def spa_stats_shell(tab: str = ""):
+async def spa_stats_shell(request: Request, tab: str = ""):
     """SPA shell route for /stats and /stats/<tab> deep links.
     Tab is consumed client-side; this handler only returns the master
     HTML."""
     _ = tab
-    return _render_shell("static/index.html")
+    return _shell_or_login(request) or _render_shell("static/index.html")
 
 
 # Prometheus scrape endpoint.

@@ -80,7 +80,15 @@ function applyI18nDom() {
   let totpState = null;
 
   function tx(key, fallback, args) {
-    return window.t ? window.t(key, args) : fallback;
+    if (!window.t) {
+      return fallback;
+    }
+    // `t()` returns the KEY when it can't resolve one (missing entry, or the
+    // bundle hasn't loaded yet). Returning that verbatim is how a raw
+    // "login.sso_button_named" ends up rendered as a button label, so treat
+    // key-echoed-back as a miss and use the English fallback instead.
+    const tr = window.t(key, args);
+    return (tr && tr !== key) ? tr : fallback;
   }
 
   function showErr(msg) {
@@ -166,10 +174,20 @@ function applyI18nDom() {
   // Advertise SSO once we know which providers are configured. One button
   // per provider; falls back to a single legacy Authentik button if a stale
   // server still returns the old {oidc:true} shape.
-  fetch('/api/auth/providers').then(r => r.ok ? r.json() : null).then(p => {
+  fetch('/api/auth/providers').then(r => r.ok ? r.json() : null).then(async (p) => {
     let provs = (p && Array.isArray(p.providers)) ? p.providers : [];
     if (!provs.length && p && p.oidc) {
       provs = [{ id: 'authentik', label: 'Authentik', icon: 'authentik', login_url: '/api/oidc/login' }];
+    }
+    // Wait for the language bundle before rendering. This fetch and the i18n
+    // boot are independent promises, so on a fast /api/auth/providers response
+    // the button was built while the bundle was still loading — `t()` then had
+    // nothing to look the key up in and returned the key itself, rendering the
+    // literal "login.sso_button_named" as the button label. Failure is
+    // swallowed: the English fallback in `tx()` still gives a usable label.
+    try {
+      await window.__i18nReady;
+    } catch (_) {
     }
     renderSsoButtons(provs);
   }).catch(() => {
