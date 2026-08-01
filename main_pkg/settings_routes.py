@@ -63,6 +63,7 @@ from main import (  # noqa: E402,F401 — explicit for IDE; runtime via the * ab
     ai_provider_api_key_key,
     ai_provider_base_url_key,
     ai_provider_enabled_key,
+    ai_provider_native_tools_key,
     ai_provider_model_key,
     app,
     auth,
@@ -411,6 +412,7 @@ async def api_get_settings(request: Request):
             "providers": {
                 name: {
                     "enabled": (get_setting(ai_provider_enabled_key(name), "false") or "false").lower() == "true",
+                    "native_tools": (get_setting(ai_provider_native_tools_key(name), "false") or "false").lower() == "true",
                     "model": get_setting(ai_provider_model_key(name)) or "",
                     "base_url": get_setting(ai_provider_base_url_key(name)) or "",
                     "api_key_set": bool(get_setting(ai_provider_api_key_key(name))),
@@ -1935,6 +1937,11 @@ async def _api_set_settings_inner(s: "SettingsIn", request: Request, _portainer)
         _v = getattr(s, f"ai_provider_{_ai_name}_enabled", None)
         if _v is not None:
             set_setting(ai_provider_enabled_key(_ai_name), "true" if _v else "false")
+        # native tool-calling opt-in (default OFF — see ai_tool_schemas)
+        _v = getattr(s, f"ai_provider_{_ai_name}_native_tools", None)
+        if _v is not None:
+            set_setting(ai_provider_native_tools_key(_ai_name),
+                        "true" if _v else "false")
         # model
         _v = getattr(s, f"ai_provider_{_ai_name}_model", None)
         if _v is not None:

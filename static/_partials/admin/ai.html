@@ -938,6 +938,23 @@
                  a successful Save without re-pasting the secret).
                  Result chip stays inline so the toast doesn't
                  have to carry per-provider error text. -->
+            <!-- Native tool-calling opt-in. Default OFF per provider: each
+                 provider's request/response shape differs and has to be
+                 confirmed against that provider's live endpoint once. While
+                 off, the model is asked to hand-write TOOL: / TOOL_ARGS:
+                 lines and those are parsed out of the reply — which is what
+                 it does today. Turn on one provider, ask the assistant a
+                 diagnostic question, and confirm it still answers. -->
+            <div>
+              <label class="flex items-center gap-1.5 fs-xs cursor-pointer select-none">
+                <input type="checkbox" x-model="aiForm.providers[name].native_tools"
+                       @change="markAiFormDirty()"
+                       :disabled="isReadonly() || !settings.ai_enabled || !aiForm.providers[name].enabled">
+                <span x-text="t('admin.ai.native_tools_label')"></span>
+              </label>
+              <p class="fs-3xs text-[var(--text-faint)] mt-1"
+                 x-text="t('admin.ai.native_tools_hint')"></p>
+            </div>
             <!-- Shared Test-connection component (unified Test connection +
                  play icon + result box), one per provider card. The adapter
                  maps this provider's aiTestState[name] {loading, result}

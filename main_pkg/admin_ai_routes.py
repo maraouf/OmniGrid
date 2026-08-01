@@ -1001,6 +1001,11 @@ async def api_ai_palette(
         max_tokens=max_toks,
         fallback_enabled=fb_enabled,
         max_depth=fb_max_depth,
+        # FIRST round only — this is the round where the model decides whether
+        # it needs data. The second round below composes the answer FROM the
+        # results and is final regardless of further tool emissions, so offering
+        # it tools again would only invite a call nothing would dispatch.
+        native_tools=True,
     )
 
     # Multi-round tool dispatch — when the AI's first-round reply
@@ -1014,6 +1019,18 @@ async def api_ai_palette(
     # available tool surface.
     first_text = (out.get("text") or "") if isinstance(out, dict) else ""
     tool_calls, first_cleaned = _ai.parse_palette_tool_calls(first_text)
+    # Prefer NATIVE tool calls when the provider returned them (per-provider
+    # opt-in, default OFF — see logic.ai_tool_schemas). The provider enforces
+    # the schema, so these can't be malformed or missing a required argument,
+    # which is the failure mode the TOOL: / TOOL_ARGS: text parser exists to
+    # recover from. Falls straight back to the parsed text when the flag is off
+    # or the model answered in prose, so both paths stay live.
+    _native = (out.get("tool_calls") or []) if isinstance(out, dict) else []
+    if _native:
+        tool_calls = _native
+        # Native calls arrive out-of-band, so the visible text needs no
+        # directive-stripping — keep it as the model wrote it.
+        first_cleaned = first_text
     if tool_calls and isinstance(out, dict):
         # Dispatch every tool call inline. Results land under
         # `ctx["tool_results"]` keyed by tool name; multiple calls to

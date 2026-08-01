@@ -43,6 +43,7 @@ import httpx
 
 from logic.external_urls import ExternalURL
 from logic import ai_actions as _ai_actions
+from logic import ai_tool_schemas as _tool_schemas
 
 # Canonical, ordered tuple of every AI provider OmniGrid speaks to.
 # CANONICAL source of truth — every other module that needs the list
@@ -470,9 +471,13 @@ async def test_provider(
 # noinspection DuplicatedCode
 async def _chat_claude(api_key: str, model: str, base_url: str,
                        prompt: str, system_prompt: str, max_tokens: int,
-                       timeout: float) -> dict:
+                       timeout: float, tools: list | None = None) -> dict:
     """Run one chat completion against Claude's /v1/messages; returns the parsed
-    ``{text, prompt_tokens, completion_tokens, ...}`` result."""
+    ``{text, prompt_tokens, completion_tokens, ...}`` result.
+
+    ``tools`` (when non-empty) attaches native tool schemas and the reply
+    carries any structured tool calls under ``tool_calls``. Omitted => the
+    request is byte-identical to before, and ``tool_calls`` is an empty list."""
     base = _resolve_endpoint("claude", base_url)
     url = f"{base}/v1/messages"
     headers = {
@@ -487,6 +492,8 @@ async def _chat_claude(api_key: str, model: str, base_url: str,
     }
     if system_prompt:
         body["system"] = system_prompt
+    if tools:
+        body["tools"] = tools
     async with httpx.AsyncClient(timeout=timeout) as c:
         r = await c.post(url, headers=headers, json=body)
     if r.status_code != 200:
@@ -503,6 +510,7 @@ async def _chat_claude(api_key: str, model: str, base_url: str,
             "tokens": {"prompt": int(usage.get("input_tokens", 0)),
                        "completion": int(usage.get("output_tokens", 0))},
             "model": j.get("model") or model,
+            "tool_calls": _tool_schemas.parse_tool_calls("claude", j) if tools else [],
         }
     except (ValueError, json.JSONDecodeError) as e:
         return {"ok": False, "status": r.status_code,
@@ -512,9 +520,13 @@ async def _chat_claude(api_key: str, model: str, base_url: str,
 # noinspection DuplicatedCode
 async def _chat_gemini(api_key: str, model: str, base_url: str,
                        prompt: str, system_prompt: str, max_tokens: int,
-                       timeout: float) -> dict:
+                       timeout: float, tools: list | None = None) -> dict:
     """Run one chat completion against Gemini's generateContent; returns the
-    parsed ``{text, prompt_tokens, completion_tokens, ...}`` result."""
+    parsed ``{text, prompt_tokens, completion_tokens, ...}`` result.
+
+    ``tools`` (when non-empty) attaches native functionDeclarations and the
+    reply carries any structured calls under ``tool_calls``. Omitted => the
+    request is byte-identical to before."""
     base = _resolve_endpoint("gemini", base_url)
     mdl = model or _DEFAULT_MODELS["gemini"]
     url = f"{base}/v1beta/models/{mdl}:generateContent"
@@ -542,6 +554,8 @@ async def _chat_gemini(api_key: str, model: str, base_url: str,
     }
     if system_prompt:
         body["systemInstruction"] = {"parts": [{"text": system_prompt}]}
+    if tools:
+        body["tools"] = tools
     async with httpx.AsyncClient(timeout=timeout) as c:
         r = await c.post(url, headers=headers, json=body)
     if r.status_code != 200:
@@ -563,12 +577,17 @@ async def _chat_gemini(api_key: str, model: str, base_url: str,
                 if isinstance(p, dict) and not p.get("thought")
             ).strip()
         usage = j.get("usageMetadata") or {}
+        # A function-call reply legitimately carries NO text — the call lives in
+        # a `functionCall` part instead. Parse first so the empty-text guard
+        # below can tell "the model called a tool" apart from "the model
+        # produced nothing", which would otherwise surface as a false error.
+        gem_calls = _tool_schemas.parse_tool_calls("gemini", j) if tools else []
         # When the model produced nothing visible AND finish_reason
         # signals a budget exhaustion, surface that fact verbatim so
         # the operator knows to bump max_tokens or pick a non-thinking
         # model — much better than the silent "(empty response)" they
         # were seeing pre-fix.
-        if not text:
+        if not text and not gem_calls:
             if finish_reason in ("MAX_TOKENS", "STOP_SEQUENCE"):
                 detail = (f"Empty response — Gemini hit {finish_reason} "
                           f"after {int(usage.get('candidatesTokenCount', 0))} "
@@ -584,6 +603,7 @@ async def _chat_gemini(api_key: str, model: str, base_url: str,
                        "completion": int(usage.get("candidatesTokenCount", 0))},
             "model": mdl,
             "finish_reason": finish_reason,
+            "tool_calls": gem_calls,
         }
     except (ValueError, json.JSONDecodeError) as e:
         return {"ok": False, "status": r.status_code,
@@ -593,9 +613,14 @@ async def _chat_gemini(api_key: str, model: str, base_url: str,
 # noinspection DuplicatedCode
 async def _chat_openai_compatible(provider: str, api_key: str, model: str,
                                   base_url: str, prompt: str, system_prompt: str,
-                                  max_tokens: int, timeout: float) -> dict:
+                                  max_tokens: int, timeout: float,
+                                  tools: list | None = None) -> dict:
     """Run one chat completion against an OpenAI-compatible /chat/completions
-    endpoint (ChatGPT / DeepSeek); returns the parsed result."""
+    endpoint (ChatGPT / DeepSeek); returns the parsed result.
+
+    ``tools`` (when non-empty) attaches native function schemas and the reply
+    carries any structured calls under ``tool_calls``. Omitted => the request
+    is byte-identical to before."""
     base = _resolve_endpoint(provider, base_url)
     url = f"{base}/v1/chat/completions"
     headers = {
@@ -606,11 +631,13 @@ async def _chat_openai_compatible(provider: str, api_key: str, model: str,
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": prompt})
-    body = {
+    body: dict = {
         "model": model or _DEFAULT_MODELS.get(provider, ""),
         "messages": messages,
         "max_tokens": max_tokens,
     }
+    if tools:
+        body["tools"] = tools
     async with httpx.AsyncClient(timeout=timeout) as c:
         r = await c.post(url, headers=headers, json=body)
     if r.status_code != 200:
@@ -628,6 +655,7 @@ async def _chat_openai_compatible(provider: str, api_key: str, model: str,
             "tokens": {"prompt": int(usage.get("prompt_tokens", 0)),
                        "completion": int(usage.get("completion_tokens", 0))},
             "model": j.get("model") or model,
+            "tool_calls": _tool_schemas.parse_tool_calls(provider, j) if tools else [],
         }
     except (ValueError, json.JSONDecodeError) as e:
         return {"ok": False, "status": r.status_code,
@@ -645,9 +673,20 @@ async def ask_provider(
     base_url: str | None = None,
     max_tokens: int = 512,
     timeout: float | None = None,
+    native_tools: bool = False,
 ) -> dict:
     """Ask one provider for a chat completion. Returns
-    ``{ok, text, detail, response_time_ms, provider, model, tokens}``.
+    ``{ok, text, detail, response_time_ms, provider, model, tokens, tool_calls}``.
+
+    ``native_tools=True`` asks for NATIVE tool-calling — JSON tool schemas go
+    out with the request and structured calls come back in ``tool_calls``,
+    instead of the model hand-writing ``TOOL:`` / ``TOOL_ARGS:`` lines. It is
+    still gated per-provider (``ai_provider_<name>_native_tools``, default OFF),
+    so passing True is a request, not a guarantee — ``tool_calls`` is simply
+    empty when the provider hasn't been switched on, and the caller falls back
+    to parsing the text. Resolution happens per-attempt INSIDE the dispatch
+    below, which matters because the wire format is provider-specific and the
+    fallback chain can switch providers mid-flight.
 
     Sibling of :func:`test_provider` — same dispatch matrix, but issues
     a real conversational request rather than a one-token ping. Used
@@ -689,15 +728,22 @@ async def ask_provider(
     # Build a thunk for the per-provider call so the retry wrapper
     # can re-invoke it identically on a transient-overload retry.
     async def _do_call() -> dict:
+        # Resolved here (not by the caller) so each attempt gets the wire format
+        # for the provider actually being called — the fallback chain can hop
+        # providers, and a Claude-shaped tools block sent to Gemini is a 400.
+        tools = _tool_schemas.active_tools_for(p) if native_tools else []
         if p == "claude":
             return await _chat_claude(api_key, model or "", base_url or "",
-                                      prompt, system_prompt, max_tokens, timeout_f)
+                                      prompt, system_prompt, max_tokens, timeout_f,
+                                      tools=tools)
         elif p == "gemini":
             return await _chat_gemini(api_key, model or "", base_url or "",
-                                      prompt, system_prompt, max_tokens, timeout_f)
+                                      prompt, system_prompt, max_tokens, timeout_f,
+                                      tools=tools)
         else:
             return await _chat_openai_compatible(p, api_key, model or "", base_url or "",
-                                                 prompt, system_prompt, max_tokens, timeout_f)
+                                                 prompt, system_prompt, max_tokens, timeout_f,
+                                                 tools=tools)
 
     started = time.time()
     try:
@@ -771,6 +817,7 @@ async def ask_provider_with_fallback(
     fallback_enabled: bool = False,
     max_depth: int = 1,
     prompt_size_cap_chars: int = 32000,
+    native_tools: bool = False,
 ) -> dict:
     """Try `primary` first; on transient overload, walk `fallback_chain`
     (operator-ordered list of provider ids) up to `max_depth` deep.
@@ -809,6 +856,10 @@ async def ask_provider_with_fallback(
             base_url=str(base_url_v) if isinstance(base_url_v, str) else None,
             max_tokens=max_tokens,
             timeout=timeout,
+            # Forwarded per-attempt: each provider resolves its OWN tool wire
+            # format inside ask_provider, so a fallback hop can't send one
+            # provider's schema shape to another.
+            native_tools=native_tools,
         )
         history.append({
             "provider": provider_id,

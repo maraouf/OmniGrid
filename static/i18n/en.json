@@ -1707,6 +1707,8 @@
       "model_hint_deepseek": "DeepSeek model id (e.g. deepseek-chat, deepseek-coder).",
       "api_key_label": "API key",
       "api_key_placeholder": "Paste a provider API key",
+      "native_tools_label": "Use native tool-calling",
+      "native_tools_hint": "Send the assistant's diagnostic tools as structured schemas this provider validates, instead of asking the model to write the call out in text. Removes the malformed or forgotten tool calls that text parsing has to recover from. Off by default because each provider's format differs and needs confirming once — turn it on, ask the assistant a diagnostic question (e.g. \"why is <host> paused\"), and check it still answers. If anything looks wrong, turn it back off: the text path stays in place as a fallback.",
       "base_url_label": "Base URL (optional)",
       "base_url_hint": "Override the provider's default API host — leave blank for the canonical endpoint. Useful for self-hosted proxies or compatibility shims.",
       "base_url_http_warning": "Cleartext: API key will be sent unencrypted over HTTP. Use https:// unless this is a same-host service.",

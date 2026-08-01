@@ -212,6 +212,34 @@ def tools_for(provider: str) -> list[dict]:
     return []
 
 
+def native_tools_enabled(provider: str) -> bool:
+    """Whether NATIVE tool-calling is switched on for ``provider``.
+
+    Per-provider and default OFF: each provider's wire format differs and none
+    have been confirmed against a live endpoint, so the operator turns them on
+    one at a time after checking the assistant still answers. While off, the
+    existing ``TOOL:`` / ``TOOL_ARGS:`` text path runs unchanged.
+    """
+    p = (provider or "").strip().lower()
+    if not p:
+        return False
+    try:
+        from logic.db import get_setting_bool  # noqa: PLC0415
+        from logic.settings_keys import ai_provider_native_tools_key  # noqa: PLC0415
+        return bool(get_setting_bool(ai_provider_native_tools_key(p), False))
+    except Exception:  # noqa: BLE001
+        # Settings unavailable => behave as OFF. Never let a lookup failure
+        # switch a provider ONTO an unvalidated code path.
+        return False
+
+
+def active_tools_for(provider: str) -> list[dict]:
+    """``tools_for(provider)`` gated on the per-provider opt-in — ``[]`` when
+    native tool-calling is off, which is what callers pass to mean "don't send
+    a tools block at all"."""
+    return tools_for(provider) if native_tools_enabled(provider) else []
+
+
 def parse_tool_calls(provider: str, payload: dict) -> list[dict]:
     """Extract native tool calls from a provider response.
 

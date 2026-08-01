@@ -142,10 +142,10 @@ export default {
   // Portainer / OIDC dirty pattern).
   aiForm: {
     providers: {
-      claude: {enabled: false, model: '', base_url: '', api_key: '', api_key_set: false},
-      gemini: {enabled: false, model: '', base_url: '', api_key: '', api_key_set: false},
-      chatgpt: {enabled: false, model: '', base_url: '', api_key: '', api_key_set: false},
-      deepseek: {enabled: false, model: '', base_url: '', api_key: '', api_key_set: false},
+      claude: {enabled: false, native_tools: false, model: '', base_url: '', api_key: '', api_key_set: false},
+      gemini: {enabled: false, native_tools: false, model: '', base_url: '', api_key: '', api_key_set: false},
+      chatgpt: {enabled: false, native_tools: false, model: '', base_url: '', api_key: '', api_key_set: false},
+      deepseek: {enabled: false, native_tools: false, model: '', base_url: '', api_key: '', api_key_set: false},
     },
   },
   // Canonical model + base URL defaults, hydrated from the backend's
@@ -319,6 +319,9 @@ export default {
       const dflt = (ai.defaults || {})[name] || {};
       this.aiForm.providers[name] = {
         enabled: !!p.enabled,
+        // Native tool-calling opt-in (default OFF — the backend gates on this
+        // per provider; see logic/ai_tool_schemas.py).
+        native_tools: !!p.native_tools,
         // Prefer saved setting; fall back to canonical default so
         // the field renders pre-filled instead of blank on first
         // open.
@@ -430,6 +433,7 @@ export default {
       this.aiProviderNames.forEach(name => {
         const p = this.aiForm.providers[name];
         body[`ai_provider_${name}_enabled`] = !!p.enabled;
+        body[`ai_provider_${name}_native_tools`] = !!p.native_tools;
         body[`ai_provider_${name}_model`] = p.model || '';
         body[`ai_provider_${name}_base_url`] = p.base_url || '';
         // API key — keep-current-if-blank. Only send when the user

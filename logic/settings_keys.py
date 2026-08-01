@@ -276,6 +276,18 @@ def ai_provider_enabled_key(name: str) -> str:
     return f"ai_provider_{name}_enabled"
 
 
+def ai_provider_native_tools_key(name: str) -> str:
+    """``ai_provider_<name>_native_tools`` — per-provider opt-in to NATIVE
+    tool-calling (send JSON tool schemas and read structured tool calls back)
+    instead of asking the model to hand-write ``TOOL:`` / ``TOOL_ARGS:`` lines.
+
+    Per-provider and default OFF because each provider's request/response shape
+    differs and has to be confirmed against that provider's live endpoint once;
+    until it is, the text-directive path is what runs.
+    """
+    return f"ai_provider_{name}_native_tools"
+
+
 def ai_provider_model_key(name: str) -> str:
     """``ai_provider_<name>_model`` — per-provider model identifier."""
     return f"ai_provider_{name}_model"
