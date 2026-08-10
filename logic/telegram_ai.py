@@ -1337,7 +1337,18 @@ async def _ai_reply(
           "Example: 'resume sampling for HP654C46 (http_probe)' → write "
           "'Resuming http_probe on HP654C46.' then ACTION: resume_host_sampling, "
           "ACTION_HOSTS: HP654C46, ACTION_DATA: {\"provider\": \"http_probe\"}. "
-          "For these FIVE wired actions, "
+          "(6) ACTION: bounce_interface + ACTION_HOSTS: <host_id> + "
+          "ACTION_DATA: {\"interface\": \"<name>\", \"down_seconds\": 30} to "
+          "BOUNCE A SWITCH PORT (shut it, hold it down, bring it back) — for a "
+          "misbehaving device on that port. Pass the interface EXACTLY as the "
+          "operator wrote it (gi37 / gigabitethernet37 / gi1/0/12); do not "
+          "reformat it. DESTRUCTIVE: same gate as reboot_host (points at "
+          "/bounce when destructive commands are off). This is NOT reboot_host "
+          "— that restarts the whole switch. Example: 'bounce port 37 on "
+          "switch52' → write 'Bouncing gi37 on switch52.' then ACTION: "
+          "bounce_interface, ACTION_HOSTS: switch52mp01, ACTION_DATA: "
+          "{\"interface\": \"gi37\", \"down_seconds\": 30}. "
+          "For these SIX wired actions, "
           "emit the ACTION (+ ACTION_DATA / ACTION_HOSTS) lines (they are "
           "stripped from the visible text but dispatched) and write a short "
           "natural-language sentence framing what you did. "
@@ -1756,6 +1767,73 @@ async def _ai_reply(
                 action_outcome_line = (
                     f"\n\n⏳ OS update started on <b>{_listener()._escape(_label)}</b>"
                     f"{_extra_html} — I'll notify you when it finishes."
+                )
+        elif "bounce_interface" in actions:
+            # Bounce a switch port from free-text ("bounce gi37 on switch52").
+            # Telegram-AI twin of the web action + the /bounce command, all
+            # sharing logic.ssh.bounce_interface via the do_interface_bounce
+            # background op. DESTRUCTIVE (the port drops), so it rides the same
+            # allow-destructive gate as reboot_host and points at /bounce when
+            # that's off.
+            _hosts_cfg = _listener()._load_hosts_config()
+            _bi_hosts, _ = ai.parse_palette_action_hosts(raw_text)
+            bi_host = (_bi_hosts[0] if _bi_hosts
+                       else str((action_data or {}).get("host_id") or "").strip())
+            _bi_ad = action_data if isinstance(action_data, dict) else {}
+            from logic import ssh as _ssh
+            from logic.tuning import tuning_int as _tint, Tunable as _T
+            bi_iface = _ssh.normalize_interface(_bi_ad.get("interface"))
+            try:
+                bi_secs = float(_bi_ad.get("down_seconds")
+                                or _tint(_T.SSH_INTERFACE_BOUNCE_DOWN_SECONDS))
+            except (TypeError, ValueError):
+                bi_secs = 30.0
+            bi_secs = max(1.0, min(600.0, bi_secs))
+            matched = next(
+                (h for h in _hosts_cfg
+                 if isinstance(h, dict) and str(h.get("id") or "") == bi_host),
+                None,
+            )
+            try:
+                from logic.db import get_setting_bool as _gsb
+                _bi_allowed = _gsb(Settings.TELEGRAM_ALLOW_DESTRUCTIVE)
+            except (ImportError, RuntimeError, ValueError, TypeError):
+                _bi_allowed = False
+            if matched is None:
+                action_outcome_line = (
+                    "\n\n⚠️ <i>Couldn't bounce — no curated host matched "
+                    f"<code>{_listener()._escape(bi_host or '?')}</code>.</i>"
+                )
+            elif not bi_iface:
+                action_outcome_line = (
+                    "\n\n⚠️ <i>Couldn't bounce — no valid interface name was "
+                    "given (letters, digits and / . : - _ only).</i>"
+                )
+            elif not _bi_allowed:
+                action_outcome_line = (
+                    "\n\n🛑 Bouncing a port is destructive. Run the explicit "
+                    f"<code>/bounce {_listener()._escape(bi_host)} "
+                    f"{_listener()._escape(bi_iface)}</code> command (it asks you "
+                    "to confirm first), or enable “Allow destructive commands” "
+                    "in Admin → Notifications → Telegram."
+                )
+            else:
+                _label = str(matched.get("label") or bi_host)
+                from logic.ops import new_op as _new_op
+                from logic.ops_extras import do_interface_bounce as _do_bounce
+                from logic.telegram_handlers import _spawn_bg as _spawn_bg
+                _actor = (f"telegram-ai:{omnigrid_username}"
+                          if omnigrid_username else "telegram-ai")
+                op = _new_op("interface_bounce", bi_host, _label, actor=_actor)
+                _spawn_bg(
+                    _do_bounce(op, bi_host, bi_iface, _hosts_cfg,
+                               down_seconds=bi_secs),
+                    label=f"telegram-ai-bounce:{bi_host}",
+                )
+                action_outcome_line = (
+                    f"\n\n⏳ Bouncing <code>{_listener()._escape(bi_iface)}</code> on "
+                    f"<b>{_listener()._escape(_label)}</b> — down {int(bi_secs)}s, "
+                    "I'll notify you when it's back."
                 )
         elif "resume_host_sampling" in actions:
             # Resume auto-paused sampling for ONE host (optionally one provider)

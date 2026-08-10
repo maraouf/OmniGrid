@@ -1644,6 +1644,81 @@ async def _cmd_restart(client: httpx.AsyncClient, args: list[str], msg: dict) ->
 
 
 # noinspection DuplicatedCode
+async def _cmd_bounce(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+    """``/bounce <host> <interface> [seconds]`` — shut a switch port, hold it
+    down, bring it back up.
+
+    Destructive (the port is deliberately dropped), so it takes the same
+    typed-confirm two-step as ``/restart``. Backgrounded because of the hold —
+    the reply lands immediately and a notification reports the outcome. Shares
+    :func:`logic.ssh.bounce_interface` with the web + AI surfaces."""
+    from logic import ssh as _ssh
+    from logic.tuning import tuning_int, Tunable
+    usage = "Usage: <code>/bounce &lt;host&gt; &lt;interface&gt; [seconds]</code>"
+    if not args:
+        await _listener()._send_reply(client, usage)
+        return
+    is_confirm = (args[0].lower() == "confirm")
+    rest = args[1:] if is_confirm else list(args)
+    # Trailing all-digits token is the hold duration.
+    down_seconds = float(tuning_int(Tunable.SSH_INTERFACE_BOUNCE_DOWN_SECONDS))
+    if rest and rest[-1].isdigit():
+        down_seconds = max(1.0, min(600.0, float(rest[-1])))
+        rest = rest[:-1]
+    if len(rest) < 2:
+        await _listener()._send_reply(client, usage)
+        return
+    # Last remaining token is the interface; everything before it is the host.
+    interface = _ssh.normalize_interface(rest[-1])
+    target = " ".join(rest[:-1])
+    if not interface:
+        await _listener()._send_reply(
+            client,
+            f"❌ <code>{_listener()._escape(rest[-1])}</code> is not a valid "
+            f"interface name (letters, digits and / . : - _ only).")
+        return
+    matched, candidates = _listener()._resolve_target(target)
+    if await _listener()._reply_no_match_or_candidates(client, target, matched, candidates):
+        return
+    assert matched is not None  # narrowed by the helper's False branch
+    host_id = matched.get("id") or ""
+    label = matched.get("label") or host_id
+    if await _gate_destructive(
+        client, msg,
+        command="bounce",
+        confirm_command=(f"/bounce confirm {_listener()._escape(host_id)} "
+                         f"{_listener()._escape(interface)} {int(down_seconds)}"),
+        confirm_action_html=(f"bounce <code>{_listener()._escape(interface)}</code> on "
+                             f"<b>{_listener()._escape(label)}</b> "
+                             f"(down {int(down_seconds)}s)"),
+        is_confirm=is_confirm,
+    ):
+        return
+    from logic.ops import new_op as _new_op
+    from logic.ops_extras import do_interface_bounce as _do_bounce
+    _tl = _listener()
+    sender_id = (msg.get("from") or {}).get("id")
+    linked_user = _tl._lookup_omnigrid_user(sender_id) if sender_id is not None else None
+    hosts = _tl._load_hosts_config()
+    fs = _ssh.resolve_interface_failsafe(host_id, hosts)
+    op = _new_op("interface_bounce", host_id, label,
+                 actor=(f"telegram:{linked_user}" if linked_user else "telegram"))
+    _spawn_bg(
+        _do_bounce(op, host_id, interface, hosts, down_seconds=down_seconds),
+        label=f"telegram-bounce:{host_id}",
+    )
+    fs_note = (f"\n🛟 Failsafe: a reload is scheduled {fs['minutes']} min ahead and "
+               f"cancelled on success — if this cuts my own path to the switch it "
+               f"reboots itself back to a working config."
+               if fs.get("enabled") else "")
+    await _listener()._send_reply(
+        client,
+        f"⏳ Bouncing <code>{_listener()._escape(interface)}</code> on "
+        f"<b>{_listener()._escape(label)}</b> — down {int(down_seconds)}s, "
+        f"I'll tell you when it's back.{fs_note}")
+
+
+# noinspection DuplicatedCode
 async def _cmd_resume(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
     """``/resume <host> [provider]`` — clear auto-paused sampling for a host.
 

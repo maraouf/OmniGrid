@@ -260,6 +260,7 @@ class Tunable(str, Enum):
     SSH_DEFAULT_PORT = "tuning_ssh_default_port"
     SSH_TERMINAL_CONNECT_TIMEOUT_SECONDS = "tuning_ssh_terminal_connect_timeout_seconds"
     SSH_TERMINAL_LOGIN_TIMEOUT_SECONDS = "tuning_ssh_terminal_login_timeout_seconds"
+    SSH_INTERFACE_BOUNCE_DOWN_SECONDS = "tuning_ssh_interface_bounce_down_seconds"
     SSH_UPDATE_TIMEOUT_SECONDS = "tuning_ssh_update_timeout_seconds"
     SSH_WS_HEARTBEAT_SECONDS = "tuning_ssh_ws_heartbeat_seconds"
     STACK_UPDATE_OBSERVE_POLL_SECONDS = "tuning_stack_update_observe_poll_seconds"
@@ -1757,6 +1758,12 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # Raise for very large / slow fleets; the update runs as a background
     # Operation so this cap only bounds a single host's run, not a request.
     "tuning_ssh_update_timeout_seconds": ("SSH_UPDATE_TIMEOUT_SECONDS", 1800, 60, 14400),
+
+    # How long an interface stays DOWN during a bounce (shut -> hold -> no
+    # shut). 30s is the usual "make the far end notice and re-negotiate"
+    # window; lower it for a quick link-flap, raise it when the device on the
+    # far end needs longer to fully drop DHCP / re-run its boot sequence.
+    "tuning_ssh_interface_bounce_down_seconds": ("SSH_INTERFACE_BOUNCE_DOWN_SECONDS", 30, 1, 600),
 
     # SSH terminal connection-close wait timeout (seconds) — wall-clock
     # cap on `conn.wait_closed()` after a terminal session ends. Default

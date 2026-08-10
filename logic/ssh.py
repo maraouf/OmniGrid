@@ -338,6 +338,214 @@ def resolve_restart(host_id: str, hosts_config: list[dict]) -> dict:
     return {"command": command, "input": stdin_input, "shell": shell}
 
 
+# Interface names we'll put into a switch config line. STRICT whitelist rather
+# than an escape pass: this value reaches a shell on network gear and is
+# reachable from the AI, so anything that isn't plainly an interface name
+# (letters/digits and the / . : - _ separators real names use — e.g.
+# `gigabitethernet37`, `gi1/0/12`, `Te1/1`, `Port-channel3`) is refused
+# outright. A name is never quoted or escaped into safety here; it either
+# matches this shape or the command is not built at all.
+_INTERFACE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9/._:-]{0,62}$")
+
+# Built-in bounce sequence — Cisco IOS / small-business (SG300 etc.) syntax.
+# `{iface}` is substituted with the validated interface name. Overridable
+# per-host via `hosts_config[].ssh.interface_down_commands` /
+# `interface_up_commands`, or fleet-wide via the matching global settings, so
+# non-Cisco gear (or a switch wanting `configure terminal`) can differ without
+# touching code. Split into two halves because the operator-visible behaviour
+# is "down, wait, up" and the wait happens between them.
+DEFAULT_INTERFACE_DOWN_COMMANDS = ("configure", "interface {iface}", "shutdown", "end")
+DEFAULT_INTERFACE_UP_COMMANDS = ("configure", "interface {iface}", "no shutdown", "end")
+
+
+# --- Dead-man switch -------------------------------------------------------
+# Bouncing the port that carries OmniGrid's own path to the switch kills the
+# session at `shutdown`, so `no shutdown` never runs and the port stays down —
+# recoverable only from the console. The standard mitigation is a scheduled
+# reload armed BEFORE the change and cancelled after: if we lose the session we
+# can't cancel, the switch reboots, and because the change was never written to
+# startup-config it boots with the port UP again. An automatic undo.
+#
+# Two things make this dangerous to do naively, and both are handled below:
+#
+#  1. An arm that didn't take is WORSE than no failsafe, because the operator
+#     proceeds believing they're covered. So the arm is VERIFIED against the
+#     device's own response and the bounce is ABORTED if it can't be confirmed.
+#  2. A device that doesn't understand `reload in <n>` may fall back to parsing
+#     a bare `reload` and prompt "continue? (y/n)" — at which point our NEXT
+#     line ("configure") could be read as the answer and reboot the switch
+#     immediately. So a confirmation prompt is explicitly answered "N" and
+#     treated as a failure to arm, never as success.
+DEFAULT_FAILSAFE_ARM_COMMAND = "reload in {minutes}"
+DEFAULT_FAILSAFE_CANCEL_COMMAND = "reload cancel"
+
+# The device confirming a SCHEDULED reload (not an immediate one).
+_FAILSAFE_ARMED_RE = re.compile(
+    r"reload\s+scheduled|scheduled\s+reload|will\s+reload\s+in|"
+    r"reload\s+.*\bin\s+\d|shutdown\s+scheduled",
+    re.IGNORECASE,
+)
+# A yes/no confirmation prompt — means the device is about to do something NOW.
+_FAILSAFE_CONFIRM_PROMPT_RE = re.compile(
+    r"\(y/n\)|\[yes/no\]|\(yes/no\)|continue\s*\?|are\s+you\s+sure|confirm\b",
+    re.IGNORECASE,
+)
+# The device confirming the scheduled reload was cancelled/aborted.
+_FAILSAFE_CANCELLED_RE = re.compile(
+    r"reload\s+cancel|cancell?ed|aborted|no\s+reload\s+is\s+scheduled",
+    re.IGNORECASE,
+)
+
+
+def resolve_interface_failsafe(host_id: str, hosts_config: list[dict]) -> dict:
+    """Resolve the dead-man-switch config for ``host_id``.
+
+    OFF unless the operator explicitly enables it per host
+    (``hosts_config[].ssh.interface_bounce_failsafe = {enabled, minutes,
+    arm_command, cancel_command}``). Opt-in on purpose: arming it sends a
+    reload-scheduling command, and the exact syntax differs across vendors and
+    even between Cisco IOS and the small-business firmware. It should only be
+    switched on for a switch whose syntax the operator has actually confirmed.
+    """
+    per_host = _per_host_ssh(host_id, hosts_config).get("interface_bounce_failsafe") or {}
+    if not isinstance(per_host, dict) or not per_host.get("enabled"):
+        return {"enabled": False, "minutes": 0, "arm": "", "cancel": ""}
+    try:
+        minutes = int(per_host.get("minutes") or 5)
+    except (TypeError, ValueError):
+        minutes = 5
+    minutes = max(1, min(60, minutes))
+    arm = str(per_host.get("arm_command") or DEFAULT_FAILSAFE_ARM_COMMAND).strip()
+    cancel = str(per_host.get("cancel_command") or DEFAULT_FAILSAFE_CANCEL_COMMAND).strip()
+    return {
+        "enabled": True,
+        "minutes": minutes,
+        "arm": arm.replace("{minutes}", str(minutes)),
+        "cancel": cancel,
+    }
+
+
+def normalize_interface(name: str) -> str:
+    """Return the interface name if it's a plausible one, else ``""``.
+
+    Callers MUST treat an empty return as "refuse" — see :data:`_INTERFACE_RE`.
+    """
+    v = str(name or "").strip()
+    return v if _INTERFACE_RE.match(v) else ""
+
+
+def _per_host_ssh(host_id: str, hosts_config: list[dict]) -> dict:
+    """The ``hosts_config[].ssh`` sub-dict for ``host_id`` (``{}`` when absent)."""
+    for h in hosts_config or []:
+        if isinstance(h, dict) and str(h.get("id") or "") == str(host_id):
+            ssh_cfg = h.get("ssh")
+            return ssh_cfg if isinstance(ssh_cfg, dict) else {}
+    return {}
+
+
+def resolve_interface_bounce(host_id: str, hosts_config: list[dict]) -> dict:
+    """Resolve the down/up command templates for ``host_id``.
+
+    Precedence mirrors :func:`resolve_restart`: per-host
+    ``hosts_config[].ssh.interface_down_commands`` / ``interface_up_commands``
+    (newline- or comma-separated) → the global
+    ``ssh_default_interface_down_commands`` / ``_up_commands`` settings →
+    the built-in Cisco defaults.
+    """
+    per_host = _per_host_ssh(host_id, hosts_config)
+
+    # `get_setting` is imported per-function throughout this module (it is not
+    # a module-level name here) — a bare reference would NameError at call time.
+    from logic.db import get_setting  # noqa: PLC0415
+
+    def _pick(per_host_key: str, global_key, builtin: tuple) -> tuple:
+        raw = str(per_host.get(per_host_key) or "").strip()
+        if not raw:
+            # A settings read can fail (DB locked / unavailable). Falling back
+            # to the built-in default keeps bounce_interface's never-raises
+            # contract — an unreachable DB must not turn into an exception
+            # halfway through a switch operation.
+            try:
+                raw = str(get_setting(global_key, "") or "").strip()
+            except Exception as e:  # noqa: BLE001
+                # "skipped" not "failed" — this is a benign degradation to the
+                # built-in default, and `failed` would bucket it as ERROR in
+                # Admin -> Logs (logic/logs.py:_severity_for matches the verb).
+                print(f"[ssh] interface-bounce settings read skipped, "
+                      f"using built-in default ({global_key}): {e}")
+                raw = ""
+        if not raw:
+            return builtin
+        parts = [p.strip() for p in re.split(r"[\n,]+", raw) if p.strip()]
+        return tuple(parts) if parts else builtin
+
+    return {
+        "down": _pick("interface_down_commands",
+                      Settings.SSH_DEFAULT_INTERFACE_DOWN_COMMANDS,
+                      DEFAULT_INTERFACE_DOWN_COMMANDS),
+        "up": _pick("interface_up_commands",
+                    Settings.SSH_DEFAULT_INTERFACE_UP_COMMANDS,
+                    DEFAULT_INTERFACE_UP_COMMANDS),
+    }
+
+
+async def bounce_interface(host_id: str, interface: str, hosts_config: list[dict], *,
+                           down_seconds: float = 30.0,
+                           timeout: float = 120.0) -> dict:
+    """Shut an interface, hold it down, then bring it back up — over ONE SSH
+    session on the switch.
+
+    The whole sequence runs inside a single interactive shell on purpose. The
+    obvious alternative (shut, disconnect, reconnect, no-shut) is strictly
+    worse: the reconnect can fail exactly when it matters, and if the bounced
+    port is the one carrying the management path there would be nothing left to
+    reconnect over. Holding one session open means the bring-up half has already
+    been "posted" to the same channel that issued the shut.
+
+    That footgun still exists in the case where the switch drops us the instant
+    the port goes down — the result then reports ok=False with the actionable
+    "still DOWN, recover out-of-band" error rather than pretending it worked.
+
+    Returns ``{ok, interface, down_seconds, commands, transcript, error}``.
+    Never raises (mirrors run_command's contract)."""
+    iface = normalize_interface(interface)
+    if not iface:
+        return {"ok": False, "interface": str(interface or ""), "down_seconds": 0,
+                "commands": [], "transcript": "",
+                "error": (f"refusing {interface!r}: not a valid interface name "
+                          f"(letters, digits and / . : - _ only)")}
+    tmpl = resolve_interface_bounce(host_id, hosts_config)
+    down = [c.replace("{iface}", iface) for c in tmpl["down"]]
+    up = [c.replace("{iface}", iface) for c in tmpl["up"]]
+    # (line, pause_after) — the hold lands after the LAST down command so the
+    # port is actually down for the full window before the bring-up starts.
+    steps: list = [(c, 0.0) for c in down[:-1]]
+    steps.append((down[-1], max(0.0, float(down_seconds))))
+    steps += [(c, 0.0) for c in up]
+    # Pass the real sequence as the "command" so the audit row + the [ssh] log
+    # line say exactly what was typed into the switch, rather than a blank.
+    failsafe = resolve_interface_failsafe(host_id, hosts_config)
+    result = await run_command(
+        host_id, "; ".join(down + up), hosts_config,
+        timeout=timeout,
+        bounce_plan={"steps": steps, "failsafe": failsafe},
+    )
+    return {
+        "ok": bool(result.get("ok")),
+        "interface": iface,
+        "down_seconds": down_seconds,
+        "commands": down + up,
+        "failsafe": {
+            "enabled": bool(failsafe.get("enabled")),
+            "minutes": failsafe.get("minutes") or 0,
+            "armed": bool(result.get("failsafe_armed")),
+            "cancelled": bool(result.get("failsafe_cancelled")),
+        },
+        "transcript": str(result.get("stdout") or "").strip(),
+        "error": "" if result.get("ok") else (result.get("error") or "bounce did not complete"),
+    }
+
+
 def get_destructive_patterns() -> tuple[str, ...]:
     """Return the active destructive-command regexes.
 
@@ -944,6 +1152,127 @@ async def _run_exec(conn, command: str, stdin_input: Optional[str],
         )
 
 
+# noinspection DuplicatedCode
+async def _run_bounce_shell(conn, plan: dict, base_result: dict) -> None:
+    """Arm the dead-man switch (verified), bounce the port, cancel the switch.
+
+    Ordering is the whole point: the reload is scheduled and CONFIRMED before
+    the interface is touched, so if the shut cuts our own session the switch
+    still reboots itself back to a working config. See the module-level
+    dead-man-switch notes for why the arm is verified rather than assumed.
+    """
+    proc = await conn.create_process(term_type="xterm", term_size=(120, 40))
+    chunks: list[str] = []
+    dropped = False
+
+    async def _drain(seconds: float) -> str:
+        """Read for up to ``seconds``; return just what arrived in this call."""
+        nonlocal dropped
+        got: list[str] = []
+        end = time.time() + max(0.0, seconds)
+        while True:
+            remaining = end - time.time()
+            if remaining <= 0:
+                break
+            try:
+                data = await asyncio.wait_for(proc.stdout.read(4096), timeout=remaining)
+            except (asyncio.TimeoutError, TimeoutError):
+                break
+            except (BrokenPipeError, ConnectionResetError, asyncssh.Error, OSError):
+                dropped = True
+                break
+            if not data:
+                dropped = True
+                break
+            text = data if isinstance(data, str) else str(data)
+            got.append(text)
+            chunks.append(text)
+        return "".join(got)
+
+    def _say(text: str) -> bool:
+        nonlocal dropped
+        try:
+            proc.stdin.write(text if text.endswith(("\n", "\r")) else text + "\n")
+            return True
+        except (BrokenPipeError, ConnectionResetError, asyncssh.Error, OSError):
+            dropped = True
+            return False
+
+    fs = plan.get("failsafe") or {}
+    base_result["failsafe_armed"] = False
+    base_result["failsafe_cancelled"] = False
+
+    # 1. Arm + VERIFY. Abort before touching the port if we can't confirm it.
+    if fs.get("enabled"):
+        if not _say(fs["arm"]):
+            base_result["ok"] = False
+            base_result["error"] = "lost the session before the failsafe could be armed"
+            base_result["stdout"] = "".join(chunks)[: 256 * 1024]
+            return
+        reply = await _drain(3.0)
+        if _FAILSAFE_CONFIRM_PROMPT_RE.search(reply) and not _FAILSAFE_ARMED_RE.search(reply):
+            # The device wants to reload NOW, not schedule one. Decline
+            # explicitly — leaving this unanswered would let the next line be
+            # taken as the confirmation and reboot the switch.
+            _say("N")
+            await _drain(1.0)
+            base_result["ok"] = False
+            base_result["error"] = (
+                f"failsafe NOT armed: the switch treated {fs['arm']!r} as an "
+                f"immediate reload and asked for confirmation (declined). "
+                f"The port was NOT touched. Fix the arm command for this host "
+                f"or disable the failsafe.")
+            base_result["stdout"] = "".join(chunks)[: 256 * 1024]
+            return
+        if not _FAILSAFE_ARMED_RE.search(reply):
+            base_result["ok"] = False
+            base_result["error"] = (
+                f"failsafe NOT armed: no scheduled-reload confirmation from the "
+                f"switch after {fs['arm']!r}. The port was NOT touched — "
+                f"proceeding would have meant believing you had an automatic "
+                f"undo that does not exist.")
+            base_result["stdout"] = "".join(chunks)[: 256 * 1024]
+            return
+        base_result["failsafe_armed"] = True
+
+    # 2. The bounce itself.
+    for line, pause in plan["steps"]:
+        if dropped or not _say(line):
+            break
+        await _drain(0.6)
+        if pause > 0:
+            await asyncio.sleep(pause)
+            await _drain(0.4)
+
+    # 3. Cancel the failsafe — only reachable if we still have the session,
+    #    which is exactly the case where we no longer need the reboot.
+    if fs.get("enabled") and base_result["failsafe_armed"] and not dropped:
+        if _say(fs["cancel"]):
+            reply = await _drain(3.0)
+            base_result["failsafe_cancelled"] = bool(_FAILSAFE_CANCELLED_RE.search(reply))
+
+    transcript = "".join(chunks)
+    base_result["stdout"] = transcript[: 256 * 1024]
+    base_result["ok"] = not dropped
+    if dropped:
+        base_result["error"] = (
+            "the switch closed the SSH session part-way through the sequence — "
+            "if you bounced the port carrying this management connection it is "
+            "still DOWN"
+            + (f", but the failsafe is armed: the switch reboots in "
+               f"{fs.get('minutes')} min and comes back with the port UP "
+               f"(the change was never saved to startup-config)."
+               if base_result["failsafe_armed"] else
+               ". No failsafe was armed, so it must be brought back up "
+               "out-of-band (console, or another path to the switch)."))
+    elif base_result["failsafe_armed"] and not base_result["failsafe_cancelled"]:
+        base_result["error"] = (
+            f"the port bounced, but the scheduled reload could NOT be confirmed "
+            f"cancelled — this switch will REBOOT in ~{fs.get('minutes')} min "
+            f"unless you run {fs.get('cancel')!r} on it now.")
+        base_result["ok"] = False
+
+
 async def _run_shell_sequence(conn, command: str, stdin_input: Optional[str],
                               timeout: float, base_result: dict,
                               resolved: dict, started: float) -> None:
@@ -1037,6 +1366,7 @@ async def run_command(
     bypass_master_gate: bool = False,
     stdin_input: Optional[str] = None,
     shell_mode: bool = False,
+    bounce_plan: Optional[dict] = None,
 ) -> dict:
     """Execute ``command`` over SSH on the host resolved from ``host_id``.
 
@@ -1236,14 +1566,24 @@ async def run_command(
         # outer guard headroom so the inner loop's clean break wins the race
         # instead of the outer raising TimeoutError and discarding the
         # captured device transcript.
-        _outer_timeout = (timeout + 10.0) if shell_mode else timeout
+        # A config sequence holds the session open for its own pauses, so its
+        # wall-clock is the caller's timeout plus that hold — not the plain
+        # command timeout.
+        if bounce_plan:
+            _outer_timeout = (timeout
+                              + sum(float(p or 0) for _, p in bounce_plan["steps"])
+                              + 25.0)
+        else:
+            _outer_timeout = (timeout + 10.0) if shell_mode else timeout
         async with asyncio.timeout(_outer_timeout) if hasattr(asyncio, "timeout") else _NoopTimeout(_outer_timeout):
             async with conn_ctx as conn:
                 # Pull the server host-key fingerprint into the result
                 # so the UI can display what we trusted (especially
                 # important in the no-known-hosts TOFU path).
                 _stamp_server_fingerprint(conn, resolved)
-                if shell_mode:
+                if bounce_plan:
+                    await _run_bounce_shell(conn, bounce_plan, base_result)
+                elif shell_mode:
                     await _run_shell_sequence(
                         conn, command, stdin_input, timeout,
                         base_result, resolved, started,

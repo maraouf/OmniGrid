@@ -166,6 +166,9 @@ OP_TYPES: frozenset[str] = frozenset({
     # Host OS package update over SSH (web AI / Cmd-K / Telegram osupdate_host
     # + /osupdate). Long-running background Operation.
     "host_update",
+    # Switch interface bounce over SSH (shut -> hold -> no shut). Background
+    # Operation because it holds the port down for the configured window.
+    "interface_bounce",
     # Port-scan provider.
     "port_scan",
     # Schedule kinds (each `_run_<kind>` runner stamps history with the
@@ -549,6 +552,10 @@ NOTIFY_EVENT_NAMES = (
     # operator explicitly asked for the update and wants to know it finished.
     "host_update_success",
     "host_update_failure",
+    # Interface bounce (shut/no-shut on a switch port). Default ON — the port
+    # is down for the hold window and the operator needs to know it came back.
+    "interface_bounce_success",
+    "interface_bounce_failure",
 )
 NOTIFY_EVENT_DEFAULTS: dict[str, bool] = {
     name: (False if name in ("user_login", "port_scan_new_port", "http_probe_failure", "service_probe_failure", "prayer_reminder") else True)
@@ -840,6 +847,14 @@ NOTIFY_TEMPLATE_DEFAULTS: dict = {
     },
     "host_update_failure": {
         "title": "❌ Host update failed: {name}",
+        "body": "{error}",
+    },
+    "interface_bounce_success": {
+        "title": "🔌 Interface bounced: {name}",
+        "body": "{message}",
+    },
+    "interface_bounce_failure": {
+        "title": "❌ Interface bounce failed: {name}",
         "body": "{error}",
     },
 }

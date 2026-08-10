@@ -1845,6 +1845,7 @@
         "swarm_agent_recovered": "Swarm agent recovered",
         "prune": "Prune operations",
         "host_update": "Host OS updates",
+        "interface_bounce": "Switch interface bounces",
         "health_section": "Health events",
         "enable_all": "Enable all",
         "disable_all": "Disable all",
@@ -2778,6 +2779,11 @@
           "label": "SSH terminal login timeout (seconds)",
           "help": "Wall-clock cap on the post-connect SSH authentication phase (PubKey attempts, password prompt, banner exchange). Distinct from the connect timeout above. Same trade-off — raise for slow-auth servers (LDAP-backed sshd, PAM password lookups), lower for tighter failure detection. Default 20s. Range 5..120s. Takes effect on the next terminal-open click."
         },
+        "tuning_ssh_interface_bounce_down_seconds": {
+          "label": "Interface-bounce hold (seconds)",
+          "help": "How long a switch port stays DOWN during a bounce (shut → hold → no shut). 30s is the usual window for making the device on the far end notice the link drop and re-negotiate. Lower it for a quick link-flap; raise it when the far end needs longer to fully drop DHCP or re-run its boot sequence. Overridable per call (the /bounce command and the AI both accept an explicit duration). Default 30s. Range 1..600s. Takes effect on the next bounce.",
+          "_": ""
+        },
         "tuning_ssh_update_timeout_seconds": {
           "label": "Host OS-update SSH timeout (seconds)",
           "help": "Wall-clock cap on the OS package-update command (osupdate_host / /osupdate) over SSH — an apt/yum update + upgrade + dist-upgrade (+ optional rpi-update firmware) can run many minutes on a slow box or a saturated mirror. The update runs as a background Operation, so this only bounds a single host's run, not a web request. Raise for very slow / large hosts; lower only if you want a stuck update to fail faster. Default 1800s (30 min). Range 60..14400s. Takes effect on the next update."
@@ -3399,6 +3405,8 @@
       "scan_ports_sub": "On-demand TCP-connect scan against the open host drawer",
       "reboot_host": "Reboot a host",
       "reboot_host_sub": "Reboot the open host (or AI-named host) over SSH — device-aware (reload / sudo reboot)",
+      "bounce_interface": "Bounce a switch interface",
+      "bounce_interface_sub": "Shut a switch port, hold it down, bring it back — e.g. /bounce switch52 gigabitethernet37",
       "resume_host_sampling": "Resume sampling for a host",
       "resume_host_sampling_sub": "Clear an auto-paused host or provider — add a provider name to resume just that one (e.g. /resume dns01 http_probe)",
       "osupdate_host": "Update a host (OS packages)",
@@ -3845,6 +3853,7 @@
     "remove_container": "remove container",
     "host_reboot": "host reboot",
     "host_update": "host OS update",
+    "interface_bounce": "interface bounce",
     "prune_node": "prune node",
     "prune_all_nodes": "prune all nodes",
     "ssh_run": "ssh run",
@@ -4375,6 +4384,11 @@
       "no_target_toast": "No host selected — open a host drawer or name the host to update.",
       "no_match_toast": "No host matches \"{name}\" — check the name in Admin → Hosts.",
       "started": "OS update started."
+    },
+    "bounce": {
+      "no_target_toast": "No switch selected — name the switch to bounce a port on.",
+      "no_interface_toast": "No interface given — say which port to bounce (e.g. gigabitethernet37).",
+      "started": "Interface bounce started."
     },
     "resume": {
       "no_target_toast": "No host selected — open a host drawer or name the host to resume.",

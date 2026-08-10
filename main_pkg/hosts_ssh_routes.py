@@ -1448,6 +1448,55 @@ async def api_host_os_update(
             "firmware": bool(body.firmware), "reboot": bool(body.reboot)}
 
 
+class InterfaceBounceIn(BaseModel):
+    """Body for POST /api/hosts/{id}/interface-bounce."""
+    interface: str = ""
+    down_seconds: Optional[int] = None
+
+
+@app.post("/api/hosts/{host_id}/interface-bounce")
+async def api_host_interface_bounce(
+    host_id: str, body: InterfaceBounceIn, bg: BackgroundTasks, request: Request,
+    _admin: AdminUser,
+):
+    """Admin-only: bounce a switch interface (shut → hold → no shut) over SSH.
+
+    Spawns a background Operation because the port is deliberately held down for
+    the configured window; returns an ``op_id`` immediately and an
+    ``interface_bounce_success`` / ``_failure`` notification reports the outcome.
+    Shares :func:`logic.ssh.bounce_interface` with the Telegram ``/bounce``
+    command and the AI action, so every surface behaves identically. Destructive
+    — the SPA gates it behind the same confirm as reboot before calling.
+
+    The interface name is validated here as well as in the SSH layer: it reaches
+    a switch shell and is AI-reachable, so an invalid one is a 400 rather than
+    something that gets as far as opening a connection.
+    """
+    from logic import ssh as _ssh  # noqa: PLC0415
+    from logic.ops import new_op as _new_op  # noqa: PLC0415
+    from logic.ops_extras import do_interface_bounce as _do_bounce  # noqa: PLC0415
+    from logic.tuning import tuning_int as _tint, Tunable as _T  # noqa: PLC0415
+    hosts, _matched, label = _resolve_curated_host_or_404(host_id)
+    iface = _ssh.normalize_interface(body.interface)
+    if not iface:
+        raise HTTPException(
+            400, f"invalid interface name {body.interface!r} — letters, digits "
+                 f"and / . : - _ only")
+    secs = body.down_seconds
+    if secs is None:
+        secs = _tint(_T.SSH_INTERFACE_BOUNCE_DOWN_SECONDS)
+    secs = max(1, min(600, int(secs)))
+    fs = _ssh.resolve_interface_failsafe(host_id, hosts)
+    op = _new_op("interface_bounce", host_id, label, actor=_actor_from(request))
+    bg.add_task(_do_bounce, op, host_id, iface, hosts, down_seconds=float(secs))
+    return {
+        "op_id": op.id, "label": label, "interface": iface, "down_seconds": secs,
+        "failsafe": bool(fs.get("enabled")),
+        "detail": (f"Bouncing {iface} on {label} — down {secs}s. "
+                   f"You'll get a notification when it's back."),
+    }
+
+
 # ----------------------------------------------------------------------------
 # Interactive SSH terminal
 # Browser <—WSS—> OmniGrid backend <—asyncssh shell—> target host.

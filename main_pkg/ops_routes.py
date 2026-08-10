@@ -1975,6 +1975,7 @@ class SettingsIn(BaseModel):
     # dist-upgrade can run many minutes; default 30m. Read per-use in
     # do_host_update via tuning_int(Tunable.SSH_UPDATE_TIMEOUT_SECONDS).
     tuning_ssh_update_timeout_seconds: Optional[str] = None
+    tuning_ssh_interface_bounce_down_seconds: Optional[str] = None
     # SSH terminal connection-close wait timeout — caps how long
     # `conn.wait_closed()` blocks after a terminal session ends.
     # Rendered in Admin → SSH via `relocatedTuningKeys`.
@@ -2047,6 +2048,8 @@ class SettingsIn(BaseModel):
     notify_event_prayer_reminder: Optional[str] = None
     notify_event_host_update_success: Optional[str] = None
     notify_event_host_update_failure: Optional[str] = None
+    notify_event_interface_bounce_success: Optional[str] = None
+    notify_event_interface_bounce_failure: Optional[str] = None
     # -----------------------------------------------------------------
     # Per-medium master switches. The dispatcher in `logic/ops.py:notify`
     # fans out to every enabled medium; flipping one of these false

@@ -1163,6 +1163,7 @@ from logic.telegram_handlers import (  # noqa: E402
     _cmd_restart,
     _cmd_osupdate,
     _cmd_resume,
+    _cmd_bounce,
     _cmd_skills,
     _cmd_time,
     _cmd_unlink,
@@ -1308,6 +1309,17 @@ _COMMANDS: dict[str, dict[str, Any]] = {
         "handler": _cmd_osupdate,
         "usage": "/osupdate <host> [reboot] [firmware]",
         "description": "OS-update a host via SSH (apt/yum upgrade; destructive — requires confirm)",
+        "category": "ops",
+        "access": "admin",
+    },
+    "/bounce": {
+        # Shut a switch port, hold it down, bring it back up — for the
+        # "device on port N is misbehaving" case. Destructive (the port drops),
+        # so it takes the typed-confirm two-step. Backgrounded because of the
+        # hold; the outcome arrives as a notification.
+        "handler": _cmd_bounce,
+        "usage": "/bounce <host> <interface> [seconds]",
+        "description": "Bounce a switch interface (shut/no-shut; destructive — requires confirm)",
         "category": "ops",
         "access": "admin",
     },

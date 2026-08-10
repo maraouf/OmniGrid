@@ -778,6 +778,69 @@ async def do_host_update(
         persist_history(op)
 
 
+# noinspection DuplicatedCode
+async def do_interface_bounce(
+    op: Operation,
+    host_id: str,
+    interface: str,
+    hosts_config: list,
+    *,
+    down_seconds: float = 30.0,
+) -> None:
+    """Bounce a switch port (shut → hold → no shut) as a background Operation.
+
+    Backgrounded because the port is deliberately held down for the configured
+    window — a caller that waited would just be blocked on a sleep. The outcome
+    arrives as a notification + a ``interface_bounce`` history row. The
+    Operation IS the audit; there is no separate audit helper."""
+    from logic import ssh as _ssh  # noqa: PLC0415
+    label = op.target_name or host_id
+    try:
+        op.log(f"Bouncing {interface} on {label} — down {down_seconds:.0f}s")
+        result = await _ssh.bounce_interface(
+            host_id, interface, hosts_config, down_seconds=down_seconds,
+        )
+        fs = result.get("failsafe") or {}
+        if fs.get("enabled"):
+            op.log(f"Failsafe: armed={fs.get('armed')} cancelled={fs.get('cancelled')} "
+                   f"({fs.get('minutes')} min)")
+        tail = str(result.get("transcript") or "").strip()
+        if tail:
+            for ln in tail.splitlines()[-25:]:
+                op.log(ln)
+        if result.get("ok"):
+            detail = (f"{result.get('interface')} on {label} was held down "
+                      f"{down_seconds:.0f}s and is back up.")
+            op.log("Interface bounce complete", "success")
+            op.done("success")
+            await notify(
+                f"🔌 Interface bounced: {label}", detail, "success",
+                event="interface_bounce_success", actor_username=op.actor,
+                target_kind="host", target_id=str(host_id),
+            )
+        else:
+            err = result.get("error") or "bounce did not complete"
+            op.log(err, "error")
+            op.done("error", err)
+            await notify(
+                f"❌ Interface bounce failed: {label}", str(err)[:500], "error",
+                event="interface_bounce_failure", actor_username=op.actor,
+                target_kind="host", target_id=str(host_id),
+            )
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e:  # noqa: BLE001
+        op.log(str(e), "error")
+        op.done("error", str(e))
+        await notify(
+            f"❌ Interface bounce failed: {label}", str(e)[:500], "error",
+            event="interface_bounce_failure", actor_username=op.actor,
+            target_kind="host", target_id=str(host_id),
+        )
+    finally:
+        persist_history(op)
+
+
 async def do_update_stack_direct(op: Operation, node_id: str, project: str) -> None:
     """Pull + recreate a ``docker compose`` project on a direct-Docker
     (Portainer-less) node over SSH — runs ``docker compose -p <project> -f

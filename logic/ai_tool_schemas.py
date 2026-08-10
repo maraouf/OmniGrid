@@ -184,19 +184,52 @@ def for_openai() -> list[dict]:
     ]
 
 
-def for_gemini() -> list[dict]:
-    """Gemini ``tools`` array — ONE entry holding every declaration.
+# Gemini's function-declaration ``parameters`` is an OpenAPI-3.0 SUBSET, not
+# full JSON Schema, and it rejects keys outside that subset with a 400 rather
+# than ignoring them. A 400 is NOT in the fallback-retry set (that covers
+# transient overload: 429/502/503/504), so a rejected tools block surfaces as a
+# hard error on every request — the assistant simply stops answering. Emitting
+# only known-accepted keys is the difference between "works" and "the AI is
+# down until someone unticks the box".
+_GEMINI_SCHEMA_KEYS = frozenset({
+    "type", "format", "description", "nullable", "enum",
+    "items", "properties", "required",
+})
 
-    Gemini rejects the JSON-Schema-only keys, so ``additionalProperties`` is
-    stripped here rather than omitted from the shared schema (the other two
-    providers benefit from it).
+
+def _gemini_schema(node: dict) -> dict:
+    """Recursively reduce a JSON-Schema node to Gemini's accepted subset.
+
+    Dropped constraints aren't lost — ``default`` is folded into the
+    description, which is what the model actually reads when choosing
+    arguments, so the hint survives in the only form Gemini will accept.
     """
-    decls = []
-    for name, spec in TOOL_SCHEMAS.items():
-        params = {k: v for k, v in spec["parameters"].items()
-                  if k != "additionalProperties"}
-        decls.append({"name": name, "description": spec["description"],
-                      "parameters": params})
+    out: dict = {}
+    for key, val in node.items():
+        if key not in _GEMINI_SCHEMA_KEYS:
+            continue
+        if key == "properties" and isinstance(val, dict):
+            out[key] = {k: _gemini_schema(v) if isinstance(v, dict) else v
+                        for k, v in val.items()}
+        elif key == "items" and isinstance(val, dict):
+            out[key] = _gemini_schema(val)
+        else:
+            out[key] = val
+    default = node.get("default")
+    if default is not None:
+        desc = str(out.get("description") or "").rstrip()
+        out["description"] = f"{desc} (default: {default})".strip()
+    return out
+
+
+def for_gemini() -> list[dict]:
+    """Gemini ``tools`` array — ONE entry holding every declaration, with each
+    schema reduced to the subset Gemini accepts (see :data:`_GEMINI_SCHEMA_KEYS`)."""
+    decls = [
+        {"name": name, "description": spec["description"],
+         "parameters": _gemini_schema(spec["parameters"])}
+        for name, spec in TOOL_SCHEMAS.items()
+    ]
     return [{"functionDeclarations": decls}]
 
 

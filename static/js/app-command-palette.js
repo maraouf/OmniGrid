@@ -324,6 +324,21 @@ export default {
         run: (opts) => this.osUpdateHostAction(opts || {}),
       }] : []),
 
+      // Bounce a SWITCH PORT (shut -> hold -> no shut) over SSH — for a
+      // misbehaving device on that port. Distinct from reboot-host, which
+      // restarts the whole switch. Admin-only + DESTRUCTIVE (the port drops for
+      // the hold window). Long-running, so the backend runs it as a background
+      // op and notifies on completion. `/bounce <host> <interface> [seconds]`.
+      ...((typeof this.isAdmin === 'function' && this.isAdmin()
+        && typeof this.bounceInterfaceAction === 'function') ? [{
+        id: 'bounce-interface',
+        label: t('command_palette.action.bounce_interface', 'Bounce a switch interface'),
+        sub: t('command_palette.action.bounce_interface_sub', 'Shut a switch port, hold it down, bring it back — e.g. /bounce switch52 gigabitethernet37'),
+        verbs: ['bounce', 'flap', 'interface', 'port', 'shut', 'noshut'],
+        destructive: true,
+        run: (opts) => this.bounceInterfaceAction(opts || {}),
+      }] : []),
+
       // Resume auto-paused sampling for ONE host (optionally just one
       // provider) — the single-host counterpart to the bulk pause/resume DSL.
       // Admin-only but NOT destructive: re-enabling a probe is restorative, so
@@ -1438,6 +1453,14 @@ export default {
       reboot_switch: 'reboot-host',
       // Single-host resume-sampling synonyms (distinct from the FLEET-wide
       // hosts_bulk_resume below, which the operator gets for "resume everything").
+      // bounce_interface — shut/hold/no-shut ONE switch PORT (NOT the whole
+      // box, that's reboot_host). Synonyms cover "bounce port 37" /
+      // "flap the interface" / "restart gi37".
+      bounce_interface: 'bounce-interface',
+      bounce_port: 'bounce-interface',
+      restart_interface: 'bounce-interface',
+      flap_interface: 'bounce-interface',
+      bounce_switch_port: 'bounce-interface',
       resume_host_sampling: 'resume-host-sampling',
       resume_host: 'resume-host-sampling',
       resume_sampling: 'resume-host-sampling',

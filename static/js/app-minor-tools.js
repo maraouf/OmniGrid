@@ -575,6 +575,103 @@ export default {
       return {ok: false, detail: msg};
     }
   },
+  async bounceInterfaceAction(opts) {
+    // Bounce a switch port (shut -> hold -> no shut). Interface + hold come
+    // from the AI's ACTION_DATA when it dispatched this, or from the typed
+    // Cmd-K arg (`/bounce switch52 gi37 60`). DESTRUCTIVE — the dispatcher has
+    // already taken the operator through the confirm before we get here.
+    opts = opts || {};
+    const sidebar = opts.surface === 'sidebar';
+    const data = (opts.data && typeof opts.data === 'object') ? opts.data : {};
+    const argToks = String(opts.queryArg || '').trim().split(/[\s,]+/).filter(Boolean);
+    // Hold: ACTION_DATA wins, else a bare number in the typed arg.
+    let seconds = Number(data.down_seconds);
+    if (!Number.isFinite(seconds) || seconds <= 0) {
+      const n = argToks.find(t => /^\d+$/.test(t));
+      seconds = n ? Number(n) : 0;
+    }
+    // Interface: ACTION_DATA wins, else the first arg token that looks like an
+    // interface (starts with a letter, isn't a bare number) and doesn't resolve
+    // to a host — so `/bounce switch52 gi37` picks gi37, not switch52.
+    let iface = String(data.interface || '').trim();
+    let hostId = (opts.host_id || opts.actionItem || opts.item || '').toString().trim();
+    if (!iface || !hostId) {
+      for (const tok of argToks) {
+        if (/^\d+$/.test(tok)) {
+          continue;
+        }
+        const asHost = this._resolveHostToken(tok);
+        if (!hostId && asHost) {
+          hostId = asHost;
+        } else if (!iface && !asHost) {
+          iface = tok;
+        }
+      }
+    }
+    if (!hostId && this.drawerHost && this.drawerHost.id) {
+      hostId = String(this.drawerHost.id);
+    }
+    if (!hostId) {
+      const turns = Array.isArray(this.aiConversation) ? this.aiConversation : [];
+      for (let i = turns.length - 1; i >= 0; i--) {
+        const t = turns[i];
+        if (t && t.role === 'assistant' && Array.isArray(t.host_ids) && t.host_ids.length) {
+          hostId = String(t.host_ids[0]);
+          break;
+        }
+      }
+    }
+    if (!hostId) {
+      const msg = this.t('host_drawer.bounce.no_target_toast')
+        || 'No switch selected — name the switch to bounce a port on.';
+      if (!sidebar && typeof this.showToast === 'function') {
+        this.showToast(msg, 'error');
+      }
+      return {ok: false, detail: msg};
+    }
+    if (!iface) {
+      const msg = this.t('host_drawer.bounce.no_interface_toast')
+        || 'No interface given — say which port to bounce (e.g. gigabitethernet37).';
+      if (!sidebar && typeof this.showToast === 'function') {
+        this.showToast(msg, 'error');
+      }
+      return {ok: false, detail: msg};
+    }
+    try {
+      const body = {interface: iface};
+      if (seconds > 0) {
+        body.down_seconds = seconds;
+      }
+      const r = await fetch('/api/hosts/' + encodeURIComponent(hostId) + '/interface-bounce',
+        {method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(body)});
+      let j = {};
+      try {
+        j = await r.json();
+      } catch (_e) {
+        j = {};
+      }
+      if (!r.ok) {
+        const detail = (j && j.detail) || ('HTTP ' + r.status);
+        if (!sidebar && typeof this.showToast === 'function') {
+          this.showToast(detail, 'error');
+        }
+        return {ok: false, detail: detail};
+      }
+      const detail = j.detail
+        || (this.t('host_drawer.bounce.started') || 'Interface bounce started.');
+      if (!sidebar && typeof this.showToast === 'function') {
+        this.showToast(detail, 'success');
+      }
+      return {ok: true, detail: detail};
+    } catch (e) {
+      const msg = (this.t('toasts.failed') || 'Failed') + ': ' + e.message;
+      if (!sidebar && typeof this.showToast === 'function') {
+        this.showToast(msg, 'error');
+      }
+      return {ok: false, detail: msg};
+    }
+  },
   async resumeHostSamplingAction(opts) {
     // Resume auto-paused sampling for ONE host — the single-host counterpart to
     // the bulk pause/resume actions. With a provider (from the AI's ACTION_DATA
