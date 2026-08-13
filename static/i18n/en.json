@@ -846,6 +846,12 @@
   "chips": {
     "standalone": "standalone",
     "external": "external",
+    "update_blocked_external": "external",
+    "update_blocked_title_external": "A newer image is available, but this service was not deployed through a stack OmniGrid can update — there is no compose file to pull with. Update it wherever it was deployed from.",
+    "update_blocked_via_stack": "via stack",
+    "update_blocked_title_via_stack": "A newer image is available. This service updates with its whole compose project, not on its own — use the Update stack button on the stack header row.",
+    "update_blocked_orphan": "stopped",
+    "update_blocked_title_orphan": "A newer image is available, but this container is already stopped — remove it with the row's trash icon instead of updating it.",
     "off_suffix": "off",
     "upd_suffix": "upd",
     "off_with_stale_digest_title": "{count} of these offline item(s) also has a newer remote image — but since it's already offline, the fix is to REMOVE it (use the row's trash icon), not to update the stack. The asterisk in the chip flags this case.",

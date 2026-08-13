@@ -1245,7 +1245,7 @@
                        header button too duplicates the affordance and
                        stacks two amber buttons in the same horizontal
                        slice. Toggle off when expanded. -->
-                <button type="button" x-show="isAdmin() && stack.updates>0 && (stack.stack_id || stack.compose_path) && !expanded.includes(stack.name)"
+                <button type="button" x-show="isAdmin() && stackHeaderUpdateVisible(stack)"
                         @click="updateStack(stack)"
                         :disabled="isStackBusy(stack)"
                         class="btn btn-warning fs-sm">
@@ -1379,6 +1379,10 @@
                 <td class="hidden lg:table-cell fs-xs mono text-dim" x-text="fmtAgo(uptimeFor(item))"></td>
                 <td class="align-right" @click.stop>
                   <div class="flex items-center justify-end gap-1.5">
+                    <span x-show="isAdmin() && updateBlockedReason(item)"
+                        class="chip fs-3xs text-warning"
+                        :title="t('chips.update_blocked_title_' + updateBlockedReason(item))"
+                        x-text="t('chips.update_blocked_' + updateBlockedReason(item))"></span>
                     <button type="button" x-show="isAdmin() && item.status==='update' && canUpdate(item)"
                             @click="itemAction(item)"
                             :disabled="isItemBusy(item)"
@@ -1616,6 +1620,10 @@
               </td>
               <td class="align-right" @click.stop>
                 <div class="flex items-center justify-end gap-1.5">
+                  <span x-show="isAdmin() && updateBlockedReason(item)"
+                            class="chip fs-3xs text-warning"
+                            :title="t('chips.update_blocked_title_' + updateBlockedReason(item))"
+                            x-text="t('chips.update_blocked_' + updateBlockedReason(item))"></span>
                   <button type="button" x-show="isAdmin() && item.status==='update' && canUpdate(item)"
                           @click="itemAction(item)"
                           :disabled="isItemBusy(item)"

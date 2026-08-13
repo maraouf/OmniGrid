@@ -80,6 +80,56 @@ export default {
     }
     return false;
   },
+  // Why an item counted under "Updates N" has no Update button of its own.
+  // The nav badge / Updates chip / per-stack pill all count STALENESS
+  // (status==='update' && health!=='offline'), but the button needs
+  // ACTIONABILITY — `itemAction` only knows two routes (stack_id -> update
+  // stack, container -> recreate). Anything else counted but unclickable read
+  // as a broken badge ("Stacks 1" with no button anywhere on the page), so
+  // every such row now says why instead of rendering an empty action cell.
+  // Returns '' when the item does have its own button (or isn't stale).
+  updateBlockedReason(item) {
+    if (!item || item.status !== 'update' || this.canUpdate(item)) {
+      return '';
+    }
+    if (item.type === 'orphan') {
+      return 'orphan';
+    }
+    // A direct-Docker swarm service updates with its whole compose project
+    // (`docker compose pull && up -d`), never on its own — the affordance is
+    // the stack-header button, which `stackHeaderUpdateVisible` now keeps
+    // visible while the stack is expanded precisely for this case.
+    if (item.compose_path) {
+      return 'via_stack';
+    }
+    return 'external';
+  },
+  // Stack-header "Update stack" visibility.
+  //
+  // The header button used to hide whenever the stack was expanded, on the
+  // assumption that expanding reveals a per-row Update button for everything
+  // updatable inside — true for Portainer stacks (their service items carry
+  // `stack_id`), FALSE for direct-Docker compose stacks, whose service items
+  // carry no `stack_id` and so never render a row button. Expanding one of
+  // those hid the only way to update it while the badge still counted it.
+  stackHeaderUpdateVisible(stack) {
+    if (!stack || !(stack.updates > 0)) {
+      return false;
+    }
+    if (!stack.stack_id && !stack.compose_path) {
+      return false;
+    }
+    if (!this.expanded.includes(stack.name)) {
+      return true;
+    }
+    // Expanded: show the header button only when no updatable row inside can
+    // act on itself, so a Portainer stack still doesn't stack two amber
+    // buttons in the same horizontal slice.
+    const its = Array.isArray(stack.items) ? stack.items : [];
+    return !its.some(i => i.status === 'update'
+      && i.health !== 'offline'
+      && this.canUpdate(i));
+  },
   actionLabel(item) {
     if (item.status !== 'update') {
       return '—';
