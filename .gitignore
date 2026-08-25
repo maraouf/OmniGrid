@@ -55,3 +55,5 @@ tmp/
 node_modules/.bin/
 node_modules/**/.bin/
 
+.aider*
+.env
