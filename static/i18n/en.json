@@ -106,6 +106,7 @@
     "empty": "No notifications yet — events fire here as they happen.",
     "mark_read": "Mark read",
     "mark_all_read": "Mark all read",
+    "marking_all_read": "Marking…",
     "marked_all_read": "Marked {count} as read",
     "filter_severity": "Severity:",
     "filter_event": "Event:",

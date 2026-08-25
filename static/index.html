@@ -11747,8 +11747,12 @@
                 <span x-show="notificationsLoading" x-text="t('actions.reloading')"></span>
               </button>
               <button type="button" @click="markAllNotificationsRead()" class="btn btn-soft fs-sm"
-                      :disabled="(notificationsUnread || 0) === 0"
-                      x-text="t('notifications.mark_all_read')"></button>
+                      :disabled="notificationsMarkingAllRead || (notificationsUnread || 0) === 0">
+                <span x-show="!notificationsMarkingAllRead" x-text="t('notifications.mark_all_read')"></span>
+                <span x-show="notificationsMarkingAllRead" class="flex items-center gap-1.5">
+                  <span class="spin"></span><span x-text="t('notifications.marking_all_read')"></span>
+                </span>
+              </button>
               <button type="button" @click="showNotificationsPopup=false" class="btn btn-ghost"
                       :aria-label="t('actions.close')">✕
               </button>

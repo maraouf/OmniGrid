@@ -30,6 +30,10 @@ export default {
   notificationsUnread: 0,
   notificationsTotal: 0,
   notificationsLoading: false,
+  // In-flight flag for the Mark-all-read button (spinner + re-entrancy
+  // guard). Separate from `notificationsLoading`, which gates the list
+  // fetch + pagination — a read-all must not disable Reload and vice versa.
+  notificationsMarkingAllRead: false,
   // Notifications page size. Initial value is 25 (UX-tightened from
   // the previous 50 — the popup felt overwhelming on busy fleets).
   // Operator can override via Admin → Notifications → "Notifications
@@ -442,23 +446,45 @@ export default {
     }
   },
   async markAllNotificationsRead() {
+    // Optimistic flip + in-flight guard, matching `markNotificationRead`
+    // above. Pre-fix this awaited the POST before touching anything, so for
+    // the whole round-trip the button stayed enabled and nothing on screen
+    // moved — the operator read that as "the click didn't register" and
+    // clicked again, firing N concurrent read-all POSTs. The optimism dims
+    // every row (and zeroes the badge, which the button's own :disabled gate
+    // reads) on the first click; the busy flag covers the frame before Alpine
+    // flushes and drives the spinner. Rolls back to the captured read_at
+    // values on failure, same as the single-row path.
+    if (this.notificationsMarkingAllRead) {
+      return;
+    }
+    const rows = (this.notifications || []).filter(n => n && n.read_at == null);
+    const prevUnread = this.notificationsUnread;
+    const ts = Math.floor(Date.now() / 1000);
+    this.notificationsMarkingAllRead = true;
+    for (const n of rows) {
+      n.read_at = ts;
+    }
+    this.notificationsUnread = 0;
     try {
       const r = await fetch('/api/notifications/read-all', {method: 'POST'});
       if (!r.ok) {
         throw new Error(await this.fmtResponseError(r));
       }
       const d = await r.json();
-      const ts = Math.floor(Date.now() / 1000);
-      for (const n of (this.notifications || [])) {
-        if (n.read_at == null) {
-          n.read_at = ts;
-        }
+      if (Number.isFinite(d.unread_count)) {
+        this.notificationsUnread = d.unread_count;
       }
-      this.notificationsUnread = 0;
       this.showToast(this.t('notifications.marked_all_read', {count: d.count || 0})
         || ('Marked ' + (d.count || 0) + ' as read'));
     } catch (e) {
+      for (const n of rows) {
+        n.read_at = null;
+      }
+      this.notificationsUnread = prevUnread;
       this.showToast(this.t('toasts.load_failed', {error: e.message}), 'error');
+    } finally {
+      this.notificationsMarkingAllRead = false;
     }
   },
   notificationDotClass(severity) {
