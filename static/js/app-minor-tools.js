@@ -476,8 +476,12 @@ export default {
       if (!sidebar && typeof this.showToast === 'function') {
         this.showToast(detail, ok ? 'success' : 'error');
       }
-      // On failure, append the device transcript (the prompt a non-Unix device
-      // stalled at) so the sidebar panel shows it — parity with Telegram.
+      // The reboot now runs as a background Operation (a ~25s blocking request
+      // was coming back through the proxy as an HTTP 502), so there is no
+      // transcript in THIS response — the device output is logged into the op,
+      // visible in the running-ops panel and afterwards on the history row,
+      // and a notification carries the outcome. `j.transcript` is still
+      // honoured so a deploy still on the old synchronous route keeps working.
       const tail = (!ok && j.transcript) ? ('\n\n' + j.transcript) : '';
       return {ok: ok, detail: detail + tail};
     } catch (e) {

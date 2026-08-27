@@ -596,6 +596,10 @@ async def api_get_settings(request: Request):
             # the built-in `sudo reboot`. Per-host overrides live in
             # hosts_config[].ssh.restart_command.
             "restart_command": get_setting(Settings.SSH_DEFAULT_RESTART_COMMAND) or "",
+            # Blank = do not save before rebooting (the default).
+            "restart_save_command": (
+                get_setting(Settings.SSH_DEFAULT_RESTART_SAVE_COMMAND) or ""
+            ),
             "custom_actions": (lambda raw:
                                (json.loads(raw) if (raw or "").strip() else [])
                                )(get_setting(Settings.SSH_CUSTOM_ACTIONS)),
@@ -1415,6 +1419,13 @@ async def _api_set_settings_inner(s: "SettingsIn", request: Request, _portainer)
         set_setting(
             Settings.SSH_DEFAULT_RESTART_COMMAND,
             (s.ssh_default_restart_command or "").strip()[:512],
+        )
+    # Optional save-before-reboot verb. Blank clears it, which means
+    # "reboot without saving" — the default and the prior behaviour.
+    if s.ssh_default_restart_save_command is not None:
+        set_setting(
+            Settings.SSH_DEFAULT_RESTART_SAVE_COMMAND,
+            (s.ssh_default_restart_save_command or "").strip()[:512],
         )
     if s.ssh_default_port is not None:
         try:

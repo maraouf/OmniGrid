@@ -215,6 +215,15 @@ def get_global_ssh_settings() -> dict:
         "restart_command": (
             get_setting(Settings.SSH_DEFAULT_RESTART_COMMAND) or ""
         ).strip(),
+        # Fleet-wide "save the running config before rebooting" verb
+        # (e.g. `write memory` on Cisco). BLANK = do not save, which is
+        # the default and the previous behaviour. Per-host
+        # ``ssh.restart_save_command`` overrides this. See
+        # resolve_restart() for why this exists rather than relying on
+        # the device's unsaved-changes prompt.
+        "restart_save_command": (
+            get_setting(Settings.SSH_DEFAULT_RESTART_SAVE_COMMAND) or ""
+        ).strip(),
     }
 
 
@@ -335,7 +344,19 @@ def resolve_restart(host_id: str, hosts_config: list[dict]) -> dict:
         # raw per-host JSON) is left as-is.
         if not stdin_input.endswith(("\n", "\r")):
             stdin_input += "\n"
-    return {"command": command, "input": stdin_input, "shell": shell}
+    # OPTIONAL save-before-reboot. Answering "Y" to a switch's "You haven't
+    # saved your changes. Are you sure you want to continue ?" prompt does
+    # NOT save anything — it means "continue anyway", i.e. proceed and LOSE
+    # them. The only way to keep unsaved running-config across a reboot is to
+    # write it to startup-config FIRST, which is what this command does.
+    # Blank (the default) preserves the previous behaviour: reboot without
+    # saving, so the device comes back on its last known-good startup-config.
+    save_cmd = str(per_host.get("restart_save_command") or "").strip()
+    if not save_cmd:
+        save_cmd = (get_global_ssh_settings().get("restart_save_command")
+                    or "").strip()
+    return {"command": command, "input": stdin_input, "shell": shell,
+            "save": save_cmd or None}
 
 
 # Interface names we'll put into a switch config line. STRICT whitelist rather
@@ -1295,25 +1316,95 @@ async def _run_shell_sequence(conn, command: str, stdin_input: Optional[str],
     chunks: list[str] = []
     closed = False
     rebooting = False
-    # Type the command, then (after a short settle so the device prints its
-    # confirmation prompt) the answer — already newline-terminated by
-    # resolve_restart. A write that fails means the device dropped the
-    # session the instant it saw the command, i.e. it rebooted → success.
+    # The answer is typed PER PROMPT, as each prompt appears — never written
+    # ahead of time.
+    #
+    # A Cisco SG300 with unsaved changes asks TWO questions:
+    #   1. "You haven't saved your changes. Are you sure ... ? (Y/N)[N]"
+    #   2. "This command will reset the whole system ... ? (Y/N)[N]"
+    # Each takes a single keypress, and a bare Enter takes the bolded
+    # DEFAULT (N). The previous code wrote the whole answer once, 0.4s after
+    # the command: its "Y" answered question 1, and its trailing newline was
+    # still in the input buffer when question 2 appeared, so the switch read
+    # that as "take the default" and ABORTED its own reload — surfacing to
+    # the operator as "device did not reboot within 15s".
+    #
+    # So: write the answer WITHOUT its terminator each time a prompt is seen,
+    # and send Enter only if the device then sits silent (gear that needs
+    # Enter to commit). A terminator can never leak into the next question.
+    answer = (stdin_input or "").rstrip("\r\n")
+    answered = 0
+    scan_from = 0           # only hunt for a prompt in not-yet-answered output
+    commit_pending = False  # a bare answer went out; Enter may be needed
+    commit_at = 0.0         # ...and this is when we give up waiting
+    blind_sent = False      # last-resort fallback for an unrecognised prompt
+    max_answers = 8         # a device looping on prompts must not loop us
+    # Commands to type, in order. A configured save command runs FIRST so the
+    # running-config reaches startup-config before the box goes down — see
+    # resolve_restart for why answering "Y" to the unsaved-changes prompt is
+    # NOT a way to save. The save's own confirmation prompt (an SG300 asks
+    # "Overwrite file [startup-config] ... (Y/N)") is answered by the same
+    # per-prompt loop below.
+    queue = [c for c in ((resolved or {}).get("save"), command) if c]
+
+    def _type(cmd: str) -> None:
+        proc.stdin.write(cmd if cmd.endswith(("\n", "\r")) else cmd + "\n")
+
     try:
-        proc.stdin.write(command if command.endswith(("\n", "\r")) else command + "\n")
-        if stdin_input:
-            await asyncio.sleep(0.4)
-            proc.stdin.write(stdin_input)
+        _type(queue.pop(0))
     except (BrokenPipeError, ConnectionResetError, asyncssh.Error, OSError):
         closed = True
     deadline = time.time() + max(2.0, timeout)
+    blind_after = time.time() + 2.0
     while not closed:
         remaining = deadline - time.time()
         if remaining <= 0:
             break
+        # Poll briefly while expecting something (a prompt to answer, an Enter
+        # to commit, or a queued command to send once the device goes idle);
+        # otherwise wait out the whole remaining budget.
+        waiting = (commit_pending or bool(queue)
+                   or (answer and answered == 0 and not blind_sent))
         try:
-            data = await asyncio.wait_for(proc.stdout.read(4096), timeout=remaining)
+            data = await asyncio.wait_for(
+                proc.stdout.read(4096),
+                timeout=min(remaining, 0.6) if waiting else remaining,
+            )
         except (asyncio.TimeoutError, TimeoutError):
+            try:
+                if commit_pending:
+                    if time.time() < commit_at:
+                        continue   # not quiet for long enough yet
+                    # The device took our keypress and has stayed quiet
+                    # since — gear that wants Enter to commit an answer.
+                    # Deliberately NOT triggered by "some output
+                    # arrived": such a device echoes the keypress
+                    # instantly and only then waits, so an echo proves
+                    # nothing. The wait is long enough that a switch
+                    # which simply moves to its next question (that is
+                    # milliseconds, not seconds) has already been
+                    # answered by the prompt branch below, so this Enter
+                    # can not leak into a later question.
+                    proc.stdin.write("\n")
+                    commit_pending = False
+                    continue
+                if queue:
+                    # Previous command finished (device idle at its prompt) —
+                    # type the next one. This is how the save runs to
+                    # completion BEFORE the reboot command is sent.
+                    _type(queue.pop(0))
+                    blind_after = time.time() + 2.0
+                    continue
+                if (answer and answered == 0 and not blind_sent
+                        and time.time() >= blind_after):
+                    # No prompt we recognise ever appeared. Fall back to the
+                    # old blind write so an unusual prompt shape still gets
+                    # answered instead of silently timing out.
+                    proc.stdin.write(answer + "\n")
+                    blind_sent = True
+                    continue
+            except (BrokenPipeError, ConnectionResetError, asyncssh.Error, OSError):
+                closed = True
             break
         except (BrokenPipeError, ConnectionResetError, asyncssh.Error, OSError):
             closed = True
@@ -1322,12 +1413,28 @@ async def _run_shell_sequence(conn, command: str, stdin_input: Optional[str],
             closed = True
             break
         chunks.append(data if isinstance(data, str) else str(data))
+        seen = "".join(chunks)
         # The device may ACK the reboot ("Shutting down ...") well before it
         # actually drops the SSH session. Once we see that, the reboot has
         # fired — stop waiting + report success instead of timing out.
-        if _REBOOT_IN_PROGRESS_RE.search("".join(chunks)):
+        if _REBOOT_IN_PROGRESS_RE.search(seen):
             rebooting = True
             break
+        # Answer any confirmation prompt in output we haven't scanned yet.
+        # `scan_from` moves past everything seen at answer time, so each
+        # prompt is answered exactly once and the echo of our own keypress
+        # can't be mistaken for a fresh question.
+        if (answer and answered < max_answers
+                and _FAILSAFE_CONFIRM_PROMPT_RE.search(seen[scan_from:])):
+            try:
+                proc.stdin.write(answer)
+            except (BrokenPipeError, ConnectionResetError, asyncssh.Error, OSError):
+                closed = True
+                break
+            answered += 1
+            scan_from = len(seen)
+            commit_pending = True
+            commit_at = time.time() + 1.5
     transcript = "".join(chunks)
     base_result["stdout"] = transcript[: 256 * 1024]
     base_result["ok"] = bool(closed or rebooting)

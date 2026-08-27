@@ -554,6 +554,8 @@ NOTIFY_EVENT_NAMES = (
     "host_update_failure",
     # Interface bounce (shut/no-shut on a switch port). Default ON — the port
     # is down for the hold window and the operator needs to know it came back.
+    "host_reboot_success",
+    "host_reboot_failure",
     "interface_bounce_success",
     "interface_bounce_failure",
 )
@@ -848,6 +850,14 @@ NOTIFY_TEMPLATE_DEFAULTS: dict = {
     "host_update_failure": {
         "title": "❌ Host update failed: {name}",
         "body": "{error}",
+    },
+    "host_reboot_success": {
+        "title": "\U0001F501 Reboot sent: {name}",
+        "body": "The reboot command was accepted by {name} at {time}.",
+    },
+    "host_reboot_failure": {
+        "title": "\u274C Reboot failed: {name}",
+        "body": "{name} did not reboot: {error}",
     },
     "interface_bounce_success": {
         "title": "🔌 Interface bounced: {name}",

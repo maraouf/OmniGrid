@@ -94,6 +94,7 @@ export default {
       fqdn_suffix: s.fqdn_suffix || '',
       known_hosts: s.known_hosts || '',
       restart_command: s.restart_command || '',
+      restart_save_command: s.restart_save_command || '',
       destructive_patterns: s.destructive_patterns || '',
       private_key_set: !!s.private_key_set,
       passphrase_set: !!s.passphrase_set,
@@ -264,6 +265,7 @@ export default {
         ssh_fqdn_suffix: this.sshSettings.fqdn_suffix || '',
         ssh_default_known_hosts: this.sshSettings.known_hosts || '',
         ssh_default_restart_command: this.sshSettings.restart_command || '',
+        ssh_default_restart_save_command: this.sshSettings.restart_save_command || '',
         ssh_destructive_patterns: this.sshSettings.destructive_patterns || '',
         // Backend drops rows with empty title or command, so clean
         // slots the operator left blank simply vanish on save.

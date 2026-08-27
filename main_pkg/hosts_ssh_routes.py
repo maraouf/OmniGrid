@@ -1359,6 +1359,7 @@ async def api_ssh_run(
 async def api_host_reboot(
     host_id: str,
     request: Request,
+    bg: BackgroundTasks,
     _admin: AdminUser,
 ):
     """Admin-only: reboot a curated host over SSH via its RESOLVED reboot verb.
@@ -1372,25 +1373,18 @@ async def api_host_reboot(
     Destructive: the SPA gates it behind the inline-confirm chip (sidebar) /
     typed-confirm before calling. Lands a ``host_reboot`` row in history.
     """
-    from logic import ssh as _ssh
+    from logic.ops import new_op as _new_op  # noqa: PLC0415
+    from logic.ops_extras import do_reboot_host as _do_reboot  # noqa: PLC0415
     hosts, _matched, label = _resolve_curated_host_or_404(host_id)
-    result = await _ssh.reboot_host(host_id, hosts, timeout=15.0)
-    actor = getattr(request.state, "user", None)
-    actor_name = getattr(actor, "username", None) or "unknown"
-    ok = bool(result.get("ok"))
-    cmd = result.get("command") or ""
-    # Audit row (op_type='host_reboot') via the shared helper so the web +
-    # Telegram-AI reboot surfaces audit identically.
-    _ssh.write_reboot_audit(host_id, label, result, actor_name)
+    op = _new_op("host_reboot", host_id, label, actor=_actor_from(request))
+    bg.add_task(_do_reboot, op, host_id, hosts, timeout=15.0)
     return {
-        "ok": ok,
-        "command": cmd,
-        "detail": (f"Reboot command sent to {label}." if ok
-                   else (result.get("error") or "reboot command did not fire")),
-        # Tail of the device transcript so the SPA can show what a non-Unix
-        # device stalled at (mirrors the Telegram failure reply).
-        "transcript": (result.get("transcript") or "")[-2000:],
+        "ok": True,
+        "op_id": op.id,
         "label": label,
+        "detail": (f"Reboot dispatched to {label}. The device transcript "
+                   f"lands in this operation, and a notification reports "
+                   f"the outcome."),
     }
 
 

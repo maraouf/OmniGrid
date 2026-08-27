@@ -1505,6 +1505,9 @@ class SettingsIn(BaseModel):
     # hosts_config[].ssh.restart_command for non-Linux gear (e.g. a Cisco
     # SG300 reboots via `reload`).
     ssh_default_restart_command: Optional[str] = None
+    # Optional "save the running config first" verb (e.g. `write memory`).
+    # Blank = reboot WITHOUT saving, which is the default.
+    ssh_default_restart_save_command: Optional[str] = None
     ssh_default_private_key: Optional[str] = None
     ssh_default_private_key_passphrase: Optional[str] = None
     # Password auth as an alternative to private key. When both are
@@ -2048,6 +2051,8 @@ class SettingsIn(BaseModel):
     notify_event_prayer_reminder: Optional[str] = None
     notify_event_host_update_success: Optional[str] = None
     notify_event_host_update_failure: Optional[str] = None
+    notify_event_host_reboot_success: Optional[str] = None
+    notify_event_host_reboot_failure: Optional[str] = None
     notify_event_interface_bounce_success: Optional[str] = None
     notify_event_interface_bounce_failure: Optional[str] = None
     # -----------------------------------------------------------------

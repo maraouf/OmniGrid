@@ -779,6 +779,71 @@ async def do_host_update(
 
 
 # noinspection DuplicatedCode
+async def do_reboot_host(
+    op: Operation,
+    host_id: str,
+    hosts_config: list,
+    *,
+    timeout: float = 15.0,
+) -> None:
+    """Reboot a host over SSH as a background Operation.
+
+    Backgrounded for the same reason as :func:`do_interface_bounce`: the SSH
+    exchange with network gear runs to a ~25s budget (shell mode waits for the
+    device to answer its confirmation prompts and drop the session), and a
+    request blocked that long behind a reverse proxy comes back to the browser
+    as an HTTP 502 even when the reboot itself was fine.
+
+    The device transcript is logged INTO the Operation rather than returned in
+    the response, so "what the switch actually said" stays visible — live in
+    the running-ops panel, and afterwards on the history row. The Operation IS
+    the audit here, so this deliberately does NOT also call
+    :func:`logic.ssh.write_reboot_audit` (that stays for the Telegram path,
+    which has no Operation): one reboot must not land two history rows.
+    """
+    from logic import ssh as _ssh  # noqa: PLC0415
+    label = op.target_name or host_id
+    try:
+        result = await _ssh.reboot_host(host_id, hosts_config, timeout=timeout)
+        cmd = result.get("command") or ""
+        if cmd:
+            op.log(f"Reboot command: {cmd}")
+        tail = str(result.get("transcript") or result.get("stdout") or "").strip()
+        if tail:
+            for ln in tail.splitlines()[-25:]:
+                op.log(ln)
+        if result.get("ok"):
+            op.log(f"Reboot command accepted by {label}", "success")
+            op.done("success")
+            await notify(
+                f"\U0001F501 Reboot sent: {label}",
+                f"The reboot command was accepted by {label}.", "success",
+                event="host_reboot_success", actor_username=op.actor,
+                target_kind="host", target_id=str(host_id),
+            )
+        else:
+            err = result.get("error") or "reboot command did not fire"
+            op.log(err, "error")
+            op.done("error", err)
+            await notify(
+                f"❌ Reboot failed: {label}", str(err)[:500], "error",
+                event="host_reboot_failure", actor_username=op.actor,
+                target_kind="host", target_id=str(host_id),
+            )
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e:  # noqa: BLE001
+        err = f"{type(e).__name__}: {e}"
+        op.log(err, "error")
+        op.done("error", err)
+        await notify(
+            f"❌ Reboot failed: {label}", err[:500], "error",
+            event="host_reboot_failure", actor_username=op.actor,
+            target_kind="host", target_id=str(host_id),
+        )
+
+
+# noinspection DuplicatedCode
 async def do_interface_bounce(
     op: Operation,
     host_id: str,

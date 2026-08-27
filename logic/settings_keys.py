@@ -220,6 +220,7 @@ class Settings(str, Enum):
     SSH_DEFAULT_INTERFACE_DOWN_COMMANDS = "ssh_default_interface_down_commands"
     SSH_DEFAULT_INTERFACE_UP_COMMANDS = "ssh_default_interface_up_commands"
     SSH_DEFAULT_RESTART_COMMAND = "ssh_default_restart_command"
+    SSH_DEFAULT_RESTART_SAVE_COMMAND = "ssh_default_restart_save_command"
     SSH_DEFAULT_USER = "ssh_default_user"
     SSH_DESTRUCTIVE_PATTERNS = "ssh_destructive_patterns"
     SSH_ENABLED = "ssh_enabled"
