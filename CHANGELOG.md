@@ -157,6 +157,7 @@ this whole block to `[X.Y.0]` and adds a fresh empty `[Unreleased]` above.
 
 ### Fixed
 
+- **"Fix permissions" now tells you when TrueNAS won't allow it.** TrueNAS protects its builtin groups from membership changes, so the automatic fix cannot work there — it now says so and points at the alternative (use a root SSH user for that node, which changes nothing on the machine). It also no longer claims the change was applied when it was refused, and it shows a progress message while it works.
 - **"Fix permissions" failed on TrueNAS, and looked like it was doing nothing.** It was sending the wrong kind of group id, which TrueNAS rejected. It now also shows progress while it works — it opens a connection, makes the change and reconnects to check, which takes a few seconds.
 - **A button showed its own internal name instead of its label.** The new Fix-permissions button read `nodes.fix_socket_btn`. The translation was there — the code asked for it in a way that could never fall back correctly. Fixed, and a new check now refuses to let any screen text ship without its translation: it verifies all 4,582 of them on every commit.
 - **"Fix permissions" failed with "Unknown Docker node".** It was sending the node's display name where its internal id was expected, so the server could not find it.

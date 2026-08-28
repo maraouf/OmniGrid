@@ -930,10 +930,18 @@ export default {
     if (!ok) {
       return;
     }
-    // Progress dialog FIRST — the request opens an SSH session, probes,
-    // applies the change and then RE-CONNECTS to verify, which is several
-    // seconds of nothing on screen otherwise. Same shape as
-    // diagnoseDockerNode's "Running diagnostic…"; the result replaces it.
+    // Progress, TWO ways, because one of them proved unreliable here.
+    //
+    // The app's own toast goes first: it is Alpine-rendered and entirely
+    // independent of SweetAlert. The loading dialog below is fired in the
+    // window where the CONFIRM dialog is still closing, and SweetAlert
+    // drops a fire() issued there — which is why the first attempt at this
+    // showed nothing at all. diagnoseDockerNode does not hit that because
+    // it has no confirm ahead of it.
+    //
+    // The work is worth announcing: it opens an SSH session, probes,
+    // applies the change and then RE-CONNECTS to verify.
+    this.showToast(this._tf('nodes.fix_socket_running', 'Applying the fix…'), 'info');
     if (Swal) {
       Swal.fire({
         title: this._tf('nodes.fix_socket_running', 'Applying the fix…'),

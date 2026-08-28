@@ -704,6 +704,7 @@ async def fix_socket_permissions(node: dict, *, timeout: "Optional[float]" = Non
         group = facts.get("group") or ""
         is_root = facts.get("uid") == "0"
         appliance = facts.get("appliance") == "truenas"
+        appliance_name = "TrueNAS" if appliance else "This system"
         has_sudo = facts.get("sudo") == "yes"
         out["group"] = group or None
         if not group or group == "?":
@@ -776,9 +777,32 @@ async def fix_socket_permissions(node: dict, *, timeout: "Optional[float]" = Non
         ra = await asyncio.wait_for(ssh_conn.run(apply_cmd, check=False),
                                     timeout=min(to, 60.0))
         applied_ok = (ra.exit_status == 0)
+        said = str(ra.stderr or ra.stdout or "").strip()
         _step("Apply group membership", applied_ok,
-              (str(ra.stderr or ra.stdout or "").strip()[:200]
-               or f"added '{user}' to '{group}'"))
+              (said[:200] or f"added '{user}' to '{group}'"))
+        if not applied_ok:
+            # STOP HERE. Verifying after a failed apply produced a
+            # message asserting the change "was applied" — the opposite
+            # of what happened.
+            low = said.lower()
+            if "builtin group" in low or "may not be altered" in low:
+                # TrueNAS protects builtin groups from membership edits
+                # through its API, and going around it with usermod on a
+                # middleware-managed box is the "looks fixed, reverts
+                # later" trap. Point at the fix that needs no change on
+                # the node and cannot be undone by the appliance.
+                out["error"] = (
+                    f"{appliance_name} refuses to change membership of the builtin "
+                    f"group '{group}', and working around that by editing the "
+                    f"group file directly would be reverted by the appliance. "
+                    f"Use a ROOT SSH user for this node instead (Admin -> Docker "
+                    f"Nodes) \u2014 that needs no change on the node at all. It said: "
+                    f"{said[:200]}")
+            else:
+                out["error"] = (
+                    f"the group change was REFUSED, so nothing was altered on the "
+                    f"node: {said[:300] or 'no output'}")
+            return out
     except (asyncio.CancelledError, KeyboardInterrupt):
         raise
     except Exception as e:  # noqa: BLE001
