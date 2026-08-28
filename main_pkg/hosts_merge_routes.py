@@ -73,6 +73,7 @@ import hashlib
 import json
 import os
 from logic.coerce import as_list
+from logic.merge import resolve_probe_target as _resolve_probe_target
 import time
 from typing import Any, Iterable, Optional
 
@@ -1212,23 +1213,11 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
         # HARD-GATE: probe ONLY when an alias OR a curated `snmp_name`
         # resolves a target. The previous bare-`h["id"]` fallthrough fanned
         # out probes to every host on fleet-enable, ~all-but-mapped of which
-        # timed out. Resolution chain: alias > snmp_name > SKIP.
-        # Resolution chain for the SNMP probe target:
-        #   1. snmp_aliases[h["id"]]   — global Docker-hostname → SNMP-target map
-        #   2. h["snmp_name"]          — per-host SNMP-specific target override
-        #   3. h["address"]            — curated dedicated probe target (used by
-        #                                 port-scan + ping + SSH too — single
-        #                                 source of truth for "the LAN address
-        #                                 of this host" so disabling other
-        #                                 providers doesn't leave SNMP without
-        #                                 a target)
-        #   4. ""                      — SKIP (no target → no probe)
-        snmp_target = (
-            (state.get("snmp_aliases") or {}).get(h["id"])
-            or (h.get("snmp_name") or "").strip()
-            or (h.get("address") or "").strip()
-            or ""
-        )
+        # timed out. The chain itself lives in logic.merge's
+        # resolve_probe_target so this path and the gather path that
+        # builds the Node cards cannot resolve a host differently.
+        snmp_target = _resolve_probe_target(
+            h["id"], state.get("snmp_aliases") or {}, h, "snmp_name")
         # Per-(snmp, host) auto-pause short-circuit. When the
         # operator-set threshold has been hit on the sampler path the
         # probe is SKIPPED entirely — no cool-down arming, no log spam,

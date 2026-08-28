@@ -1904,7 +1904,11 @@ async def _gather_impl() -> None:
         # for the "fold provider into nodes_info row" merge semantics
         # so the Hosts endpoint and the gather flow stay byte-
         # identical. See for the dedup rationale.
-        from logic.merge import is_meaningful as _meaningful, merge_best as _merge_best
+        from logic.merge import (
+            is_meaningful as _meaningful,
+            merge_best as _merge_best,
+            resolve_probe_target as _resolve_probe_target,
+        )
         from logic.db import get_setting, active_host_stats_providers
         from logic import beszel as _beszel
         from logic import node_exporter as _ne
@@ -2087,15 +2091,19 @@ async def _gather_impl() -> None:
                 # noinspection PySimplifyBooleanCheck,PyComparisonWithCallableTrueFalse
                 if row_snmp.get("enabled") is not True:
                     return h, None
-                # HARD-GATE on alias OR snmp_name. Bare-`h` fallthrough
-                # was a perf cliff: fleet-enable on a 200-host fleet fanned
-                # out 200 SNMP probes, ~all-but-mapped of which timed out.
-                target_host = (
-                    snmp_aliases_raw.get(h)
-                    or (snmp_row.get("snmp_name") if isinstance(snmp_row, dict) else "")
-                    or ""
-                )
-                target_host = (target_host or "").strip()
+                # HARD-GATE on alias OR snmp_name OR address. Bare-`h`
+                # fallthrough was a perf cliff: fleet-enable on a 200-host
+                # fleet fanned out 200 SNMP probes, ~all-but-mapped of which
+                # timed out. `address` is NOT that fallthrough — it is an
+                # operator-set field, so a row without one is still skipped.
+                # It belongs here because it is the curated
+                # provider-independent probe target and the per-host path
+                # already resolves it: a host configured with `address` and
+                # no `snmp_name` had full figures in the Hosts view and none
+                # on its Node card, since only this path stopped one step
+                # early. Keep the two chains identical.
+                target_host = _resolve_probe_target(
+                    h, snmp_aliases_raw, snmp_row, "snmp_name")
                 if not target_host:
                     return h, None
                 community = (row_snmp.get("community") or "").strip() or default_community

@@ -116,6 +116,46 @@ def lookup_host_tolerant(host_map: dict, needle: str) -> Optional[dict]:
     return None
 
 
+def resolve_probe_target(
+    host_id: str,
+    aliases: dict,
+    row: object,
+    name_field: str,
+) -> str:
+    """Resolve where to send a probe for one curated host.
+
+    The chain, first non-empty wins:
+
+        1. ``aliases[host_id]``  - the global name-to-target override map
+        2. ``row[name_field]``   - this provider's per-host target override
+        3. ``row["address"]``    - the curated provider-independent target
+        4. ``""``                - SKIP; there is nothing to probe
+
+    Every step is an operator-set field, so a host nobody configured returns
+    "" and is skipped. That gate is load-bearing: falling through to the bare
+    host id once fanned a fleet-wide enable out into a probe per host, almost
+    all of which timed out against machines that do not speak the protocol.
+
+    ``address`` is in the chain because it is the one field meaning "the
+    address of this machine" regardless of provider, so turning one provider
+    off cannot leave another without a target. It lives here, rather than
+    inline at each call site, because it did diverge: the per-host path
+    resolved ``address`` and the gather path stopped a step short, so a host
+    configured that way had full figures in the Hosts view and none at all on
+    its Node card. One resolver, one chain.
+    """
+    if not host_id:
+        return ""
+    candidates = [(aliases or {}).get(host_id) if isinstance(aliases, dict) else ""]
+    if isinstance(row, dict):
+        candidates.append(row.get(name_field))
+        candidates.append(row.get("address"))
+    for c in candidates:
+        if isinstance(c, str) and c.strip():
+            return c.strip()
+    return ""
+
+
 def parse_load_triple(
     values: list,
     parser: Callable[[Any], float] = float,
@@ -138,6 +178,8 @@ def parse_load_triple(
     return one, five, fifteen
 
 
+WEAK_KEYS_FIELD = "_weak_keys"
+
 def merge_best(dst: dict, src: dict) -> None:
     """Fold ``src`` into ``dst``, overwriting only with meaningful values.
 
@@ -153,12 +195,35 @@ def merge_best(dst: dict, src: dict) -> None:
     Mutates ``dst`` in place. Returns None.
 
     Provider merge order matters (the project conventions "Hosts pipeline" rule):
-    Pulse → Beszel → node-exporter → Webmin. Each provider calls
+    Pulse → SNMP → Beszel → node-exporter → Webmin → Ping. Each provider calls
     this with ``dst = nodes_info[host]`` and ``src = its_extracted_stats``.
+
+    **Weak values.** Later-wins is right when every provider measures the
+    same thing, and wrong when one of them measures a NARROWER thing. A
+    provider may therefore declare some of its own keys low-confidence by
+    listing them under ``src[WEAK_KEYS_FIELD]``; those seed an empty
+    destination but never displace a value an earlier provider already
+    established. The case this exists for: a Beszel agent with no
+    ``EXTRA_FILESYSTEMS`` reports the total of its own primary filesystem,
+    while SNMP and node-exporter report the total across every mounted
+    filesystem, so on a NAS the single-filesystem figure would overwrite a
+    whole-pool one purely because Beszel merges later. The declaration is
+    in-band so the generic hub-merge helper needs no per-provider special
+    case, and it is READ, never popped: the same extracted-stats dict is
+    merged more than once (gather and the per-host path), so consuming the
+    marker on first use would silently disarm it on the second.
     """
     if not src:
         return
+    weak = src.get(WEAK_KEYS_FIELD)
+    weak_set = (frozenset(weak)
+                if isinstance(weak, (list, tuple, set, frozenset))
+                else frozenset())
     for k, v in src.items():
+        if k == WEAK_KEYS_FIELD:
+            continue
+        if k in weak_set and is_meaningful(dst.get(k)):
+            continue
         if is_meaningful(v):
             dst[k] = v
         elif k not in dst:

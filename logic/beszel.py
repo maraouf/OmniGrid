@@ -37,6 +37,7 @@ from typing import Any, Optional, TypedDict
 import httpx
 
 from logic.merge import (
+    WEAK_KEYS_FIELD as _WEAK_KEYS_FIELD,
     lookup_host_tolerant as _lookup_host_tolerant,
     normalize_arch as _normalize_arch,
 )
@@ -1148,7 +1149,21 @@ def extract_stats(info_in: Optional[dict] = None, stats_in: Optional[dict] = Non
         or stats.get("services")
         or info.get("services")
     )
+    # Without an EFS list the disk numbers above describe ONE filesystem
+    # (the agent's primary), while SNMP / node-exporter / Webmin each
+    # report the total across every mounted filesystem. Beszel merges
+    # after SNMP, so on a NAS the narrower figure wins purely on
+    # ordering: a TrueNAS host reporting 394 GB for its root dataset
+    # displaced SNMP's 13.4 TB across the pools, and the row showed the
+    # root dataset. Declaring these weak keeps them as a seed for hosts
+    # where Beszel is the only provider, without letting them displace a
+    # whole-machine total somebody else already established. With an EFS
+    # list the sum above IS the whole-machine view, so it stays strong.
+    weak_keys = ([] if disk_pct_efs is not None
+                 else ["host_disk_total", "host_disk_used",
+                       "host_disk_free", "host_disk_percent"])
     return {
+        _WEAK_KEYS_FIELD: weak_keys,
         "host_disk_total": int(disk_total),
         "host_disk_used": int(disk_used),
         "host_disk_free": max(0, int(disk_total - disk_used)),
