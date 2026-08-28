@@ -595,6 +595,41 @@ async def _diagnose_socket(conn, sock_path: str, user: str, timeout: float) -> s
     )
 
 
+async def _midclt(conn, pfx: str, call: str, arg: str, timeout: float):
+    """Run one ``midclt call <name> [json-arg]`` and return its parsed JSON.
+
+    Each API call is its own run with the JSON parsed here rather than being
+    chained through a shell pipeline: the pipeline version could not substitute
+    a computed value into the next call, and a parse failure in the middle of it
+    was invisible. Returns None when the call fails or its output is not JSON —
+    every caller checks the shape it expects rather than trusting this.
+    """
+    cmd = f"{pfx}midclt call {call}" + (f" '{arg}'" if arg else "")
+    try:
+        r = await asyncio.wait_for(conn.run(cmd, check=False),
+                                   timeout=min(timeout, 30.0))
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception:  # noqa: BLE001
+        return None
+    raw = str(r.stdout or "").strip()
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except ValueError:
+        # A login banner or a warning ahead of the JSON — take the last line
+        # that parses, which is what midclt actually printed.
+        for line in reversed(raw.splitlines()):
+            line = line.strip()
+            if line[:1] in "[{":
+                try:
+                    return json.loads(line)
+                except ValueError:
+                    continue
+        return None
+
+
 async def fix_socket_permissions(node: dict, *, timeout: "Optional[float]" = None) -> dict:
     """Grant this node's SSH user access to the Docker socket, then VERIFY it.
 
@@ -692,41 +727,47 @@ async def fix_socket_permissions(node: dict, *, timeout: "Optional[float]" = Non
 
         pfx = "" if is_root else "sudo -n "
         if appliance:
-            # TrueNAS owns its user database; go through its API so the change
-            # survives an upgrade. Read the current auxiliary groups, append the
-            # socket's group id, write back.
-            cmd = (
-                f"{pfx}midclt call user.query "
-                f"'[[\"username\",\"=\",\"{user}\"]]' "
-                f"| python3 -c \"import json,sys;u=json.load(sys.stdin);"
-                f"print(u[0]['id'] if u else '')\""
-            )
-            rid = await asyncio.wait_for(ssh_conn.run(cmd, check=False),
-                                         timeout=min(to, 30.0))
-            uid = str(rid.stdout or "").strip().splitlines()[-1:] or [""]
-            uid = uid[0].strip()
-            if not uid.isdigit():
-                out["error"] = ("couldn't resolve the TrueNAS user id for "
-                                f"'{user}' via midclt — apply the group change "
-                                f"in the TrueNAS users UI instead")
-                _step("Apply (TrueNAS API)", False, out["error"])
+            # TrueNAS owns its user database, so the change goes through its API
+            # to survive an upgrade. `user.update`'s `groups` takes the
+            # middleware's GROUP RECORD IDS (the `id` column from group.query) —
+            # NOT unix gids. Appending a gid to that list is rejected with
+            # "[EINVAL] user_update.groups.N: This group does not exist", which
+            # is exactly what a first cut using `getent group` produced.
+            grp = await _midclt(ssh_conn, pfx, "group.query",
+                                f'[["group","=","{group}"]]', to)
+            grec = grp[0] if isinstance(grp, list) and grp else None
+            gid_rec = grec.get("id") if isinstance(grec, dict) else None
+            if not isinstance(gid_rec, int):
+                out["error"] = (
+                    f"couldn't resolve the TrueNAS group record for '{group}' "
+                    f"(midclt group.query returned nothing usable). Add "
+                    f"'{user}' to '{group}' in the TrueNAS users UI instead.")
+                _step("Apply group membership", False, out["error"])
                 return out
-            gid_cmd = f"{pfx}getent group '{group}' | cut -d: -f3"
-            rg = await asyncio.wait_for(ssh_conn.run(gid_cmd, check=False),
-                                        timeout=min(to, 20.0))
-            gid = str(rg.stdout or "").strip()
-            if not gid.isdigit():
-                out["error"] = f"couldn't resolve the gid of group '{group}'"
-                _step("Apply (TrueNAS API)", False, out["error"])
+            usr = await _midclt(ssh_conn, pfx, "user.query",
+                                f'[["username","=","{user}"]]', to)
+            urec = usr[0] if isinstance(usr, list) and usr else None
+            # One guard for both shapes: the record must be a dict AND
+            # carry an int id. Testing them separately produced two
+            # identical error blocks; testing only the derived value left
+            # `urec` un-narrowed for the checker.
+            uid_rec = urec.get("id") if isinstance(urec, dict) else None
+            if not isinstance(urec, dict) or not isinstance(uid_rec, int):
+                out["error"] = (
+                    f"couldn't resolve the TrueNAS user record for '{user}' "
+                    f"— apply the group change in the TrueNAS users UI instead.")
+                _step("Apply group membership", False, out["error"])
                 return out
-            apply_cmd = (
-                f"{pfx}midclt call user.get_instance {uid} "
-                f"| python3 -c \"import json,sys;u=json.load(sys.stdin);"
-                f"g=sorted(set((u.get('groups') or [])+[{gid}]));"
-                f"print(json.dumps(g))\" "
-                f"| xargs -0 -I{{}} {pfx}midclt call user.update {uid} "
-                f"'{{\"groups\": {{}}}}'"
-            )
+            current = [g for g in (urec.get("groups") or []) if isinstance(g, int)]
+            if gid_rec in current:
+                out["error"] = (
+                    f"'{user}' is ALREADY in '{group}' according to TrueNAS, yet "
+                    f"the socket is still refused — so group membership is not "
+                    f"the blocker here. Check the Docker daemon on the node.")
+                _step("Apply group membership", False, out["error"])
+                return out
+            payload = json.dumps({"groups": sorted(set(current + [gid_rec]))})
+            apply_cmd = f"{pfx}midclt call user.update {uid_rec} '{payload}'"
             out["method"] = "truenas-midclt"
         else:
             apply_cmd = f"{pfx}usermod -aG '{group}' '{user}'"
@@ -767,7 +808,10 @@ async def fix_socket_permissions(node: dict, *, timeout: "Optional[float]" = Non
     except (asyncio.CancelledError, KeyboardInterrupt):
         raise
     except Exception as e:  # noqa: BLE001
-        _step("Verify (new session)", False, f"{type(e).__name__}: {e}")
+        _step("Verify (new session)", False, f"{type(e).__name__}")
+        # The step line carries the exception type; the full text goes in
+        # `error` once. Printing both put the same 400-character device
+        # message on screen twice.
         out["error"] = ("the group change was applied but the socket still "
                         f"couldn't be opened: {e}")
     return out

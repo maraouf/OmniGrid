@@ -157,6 +157,7 @@ this whole block to `[X.Y.0]` and adds a fresh empty `[Unreleased]` above.
 
 ### Fixed
 
+- **"Fix permissions" failed on TrueNAS, and looked like it was doing nothing.** It was sending the wrong kind of group id, which TrueNAS rejected. It now also shows progress while it works — it opens a connection, makes the change and reconnects to check, which takes a few seconds.
 - **A button showed its own internal name instead of its label.** The new Fix-permissions button read `nodes.fix_socket_btn`. The translation was there — the code asked for it in a way that could never fall back correctly. Fixed, and a new check now refuses to let any screen text ship without its translation: it verifies all 4,582 of them on every commit.
 - **"Fix permissions" failed with "Unknown Docker node".** It was sending the node's display name where its internal id was expected, so the server could not find it.
 - **A Cisco switch would say it was rebooting and then cancel itself.** When the switch had unsaved changes it asked *two* questions before reloading, and OmniGrid only really answered the first — the leftover keystroke landed on the second question as "no", so the switch called the whole thing off and you got "device did not reboot within 15s". Each question is now answered as it appears.

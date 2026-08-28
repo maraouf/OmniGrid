@@ -915,6 +915,7 @@ export default {
       return;
     }
     const label = this._tf('nodes.fix_socket_title', 'Fix socket permissions');
+    const Swal = window.Swal;
     const ok = await this.confirmDialog({
       title: label,
       html: this._tf('nodes.fix_socket_confirm',
@@ -929,12 +930,29 @@ export default {
     if (!ok) {
       return;
     }
+    // Progress dialog FIRST — the request opens an SSH session, probes,
+    // applies the change and then RE-CONNECTS to verify, which is several
+    // seconds of nothing on screen otherwise. Same shape as
+    // diagnoseDockerNode's "Running diagnostic…"; the result replaces it.
+    if (Swal) {
+      Swal.fire({
+        title: this._tf('nodes.fix_socket_running', 'Applying the fix…'),
+        html: this._tf('nodes.fix_socket_running_sub',
+          'Connecting, granting access, then reconnecting to verify.'),
+        didOpen: () => Swal.showLoading(),
+        allowOutsideClick: false,
+      });
+    }
     try {
       const r = await fetch('/api/docker-nodes/' + encodeURIComponent(id)
         + '/fix-socket-permissions', { method: 'POST' });
       if (!r.ok) {
         const detail = await this.fmtResponseError(r);
-        this.showToast(detail, 'error');
+        if (Swal) {
+          Swal.fire({ icon: 'error', title: label, text: detail });
+        } else {
+          this.showToast(detail, 'error');
+        }
         return;
       }
       const j = await r.json();
@@ -967,7 +985,12 @@ export default {
         void this.refresh(true);
       }
     } catch (_) {
-      this.showToast(this.t('toasts.network_error') || 'Network error', 'error');
+      const msg = this._tf('toasts.network_error', 'Network error');
+      if (Swal) {
+        Swal.fire({ icon: 'error', title: label, text: msg });
+      } else {
+        this.showToast(msg, 'error');
+      }
     }
   },
 
