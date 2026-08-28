@@ -35,7 +35,7 @@ httpx>=0.28.1
 # Gauge / Histogram (cache-age gauge, op-result counter, host-probe
 # duration histogram, etc.). Pinned because some 0.x releases reshape
 # the multiprocess collector path we don't use today but might.
-prometheus-client>=0.25.0
+prometheus-client>=0.26.0
 # Password hashing for local-auth users. logic/auth.py uses
 # `bcrypt.hashpw(...)` at user creation + `checkpw(...)` on every
 # login. Pinned at 5.x for the modern hash format and constant-time
