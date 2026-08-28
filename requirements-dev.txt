@@ -10,3 +10,7 @@
 # pyright isn't installed, so this file is optional for contributors who only
 # touch non-Python surfaces — but required to reproduce the full lint gate.
 pyright==1.1.411
+# pytest runs the tests/ suite. The pre-commit hook invokes it when present
+# and skips with a note when it is not, same graceful contract as pyright —
+# but the full commit gate needs it.
+pytest==9.1.1

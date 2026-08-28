@@ -151,6 +151,7 @@ this whole block to `[X.Y.0]` and adds a fresh empty `[Unreleased]` above.
 
 ### Changed
 
+- **Docker node Troubleshoot now tells you which problem you have.** When it could reach the node but not the Docker socket, it used to list both possible causes and ask you to go run `ls -l` and `id` yourself. It now checks over the connection it already has and says which one it is — socket missing, permissions (naming the actual group, and both ways to fix it), or a daemon that is not listening. It only looks; it never changes anything on the node.
 - **App cards — cleaner, borderless stats.** Every app's stat panel on the Apps page now renders flat — no tinted accent box around the numbers — matching the neater Speedtest card look. The host drawer keeps its boxed detail panels unchanged.
 
 ### Fixed
@@ -191,6 +192,7 @@ this whole block to `[X.Y.0]` and adds a fresh empty `[Unreleased]` above.
 
 ### Internal
 
+- **Commits are now checked before they land.** A commit hook refuses any AI attribution in the commit message, and a matching audit sweeps the whole history for the same patterns (currently clean across 1,526 commits, including author and committer names). The pre-commit hook also grew teeth: it previously ran only the per-file checks on staged files, so the project-wide audits never ran on a commit at all. It now runs those and the test suite too, and any warning — not just an error — stops the commit. Test coverage was added for the switch reboot prompts and the Docker socket diagnosis, and `pytest` is now a listed dev dependency, without which the existing tests could not run.
 - **AI actions now have a single registry (`logic/ai_actions.py`).** Every AI-invocable action and its aliases used to be declared in four separate places that nothing kept aligned — and the drift was real: **48 of the 86 entries in the browser's alias map could never fire**, because the reply is filtered against the backend whitelist before the browser ever sees it, so an alias registered only in the frontend was dead on arrival. Actions, aliases, destructive flags and host-targeting are now declared once and derived everywhere, so registering an alias is a single edit that works end-to-end (and those 48 dead aliases now work). A new `audit-ai-actions` lint rule fails the build on drift — including the dangerous case where an action's destructive flag disagrees with the UI and the confirmation step would be skipped.
 - Dependency bumps: `fastapi >=0.139.0`, `uvicorn[standard] >=0.51.0`, and `webauthn >=3.0.0`. The webauthn major bump is additive/hardening only (PQC ML-DSA support, stricter CBOR validation, EdDSA encouragement); OmniGrid passes its COSE algorithms explicitly and its call/return surface is unchanged, so passkey registration + login are unaffected — and the lazy-import guard still degrades gracefully if the wheel is ever absent.
 - App range pickers — the host-drawer charts time-range strip now uses the shared `og-range-picker` component (which gained an `aria-busy` / disabled-while-loading gate), removing the last hand-rolled range picker in the SPA and its now-dead CSS.

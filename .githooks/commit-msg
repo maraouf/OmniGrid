@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# OmniGrid commit-msg shim — refuses AI attribution trailers.
+#
+# This repo's commits carry NO assistant attribution: no `Co-Authored-By:
+# Claude`, no `Claude-Session:` link, no "Generated with [Claude Code]"
+# footer. The harness adds those by default, and history was rewritten once
+# already to strip them, so this hook exists to make that a property of the
+# repo rather than something that has to be remembered on every commit.
+#
+# Checked in at .githooks/commit-msg and activated per-clone by
+# `python scripts/install_precommit.py` (which sets core.hooksPath). Bypass
+# for ONE commit with `git commit --no-verify` — the same escape hatch the
+# pre-commit shim has.
+set -eu
+
+msg_file="${1:-}"
+if [ -z "$msg_file" ] || [ ! -f "$msg_file" ]; then
+  # No message file (or an unexpected invocation) — don't block the commit
+  # on a hook that can't see what it is meant to check.
+  exit 0
+fi
+
+# Strip comment lines first: `git commit -v` appends the whole staged diff
+# below a `# ------------------------ >8 ------------------------` line as
+# comments, and a diff that legitimately touches THIS file (or the lint rule)
+# would otherwise trip the hook on its own patterns.
+body="$(grep -v '^#' "$msg_file" || true)"
+
+# One pattern per line, extended-regex, case-insensitive.
+# ^-anchored: git only recognises a trailer at column 0, so this matches a
+# real trailer while leaving prose free to quote the patterns (this hook
+# blocked its own introducing commit, whose message describes them).
+patterns='^co-authored-by:[[:space:]]*claude
+^claude-session:
+^[^[:alnum:]]*generated with \[claude code\]
+^[^[:alnum:]]*co-authored-by:.*noreply@anthropic\.com'
+
+# Collect first, print once. A single line commonly matches more than one
+# pattern (a Co-Authored-By trailer also carries the anthropic address), and
+# reporting it twice reads like two separate problems.
+matches=""
+while IFS= read -r pat; do
+  [ -z "$pat" ] && continue
+  found="$(printf '%s' "$body" | grep -inE "$pat" || true)"
+  [ -n "$found" ] && matches="$matches$found
+"
+done <<EOF
+$patterns
+EOF
+
+matches="$(printf '%s' "$matches" | grep -v '^$' | sort -n -u || true)"
+
+if [ -n "$matches" ]; then
+  echo "[commit-msg] REJECTED — AI attribution trailer in the commit message:" >&2
+  printf '%s\n' "$matches" | sed 's/^/    /' >&2
+  cat >&2 <<'HELP'
+
+This repo's history carries no assistant attribution. Remove the line(s)
+above and commit again.
+
+  git commit --amend        # if the commit already exists
+  git commit --no-verify    # bypass for this one commit (deliberate only)
+
+The same patterns are audited across history by the `git-trailers` lint
+rule (python scripts/lint.py --rules audit-git-trailers --all).
+HELP
+  exit 1
+fi
+
+exit 0

@@ -496,6 +496,105 @@ async def probe(node: dict, *, timeout: Optional[float] = None) -> dict:
             "status": status, "version": ""}
 
 
+async def _diagnose_socket(conn, sock_path: str, user: str, timeout: float) -> str:
+    """Work out WHY the Docker socket is unreachable, over an SSH session that
+    is already authenticated.
+
+    Only reads: `test -S`, `stat` on the socket, and the user's group list. The
+    two causes the caller cannot distinguish on its own are (a) the socket is
+    there but this user has no access to it, and (b) Docker is not running / the
+    path is wrong — and those want completely different fixes, so leaving it
+    ambiguous stops the diagnostic exactly where it gets useful. Returns a
+    ready-to-show hint; on any failure returns the original generic guidance so
+    the diagnostic never gets WORSE than before.
+    """
+    generic = (
+        f"SSH forwarding IS enabled (a test forward through this connection "
+        f"succeeded) — so the block is the SOCKET, not sshd. Either the "
+        f"'{user}' user can't read {sock_path} (use a root SSH user for this "
+        f"node, or add '{user}' to the socket's group), or Docker isn't "
+        f"running / the socket path is wrong. Check on the node: "
+        f"`ls -l {sock_path}` and `id {user}`."
+    )
+    # One round-trip, delimited so a shell banner can't be mistaken for output.
+    script = (
+        f"echo OG-SOCK-BEGIN; "
+        f"if [ -S '{sock_path}' ]; then echo exists=yes; else echo exists=no; fi; "
+        f"stat -c 'owner=%U group=%G mode=%a' '{sock_path}' 2>/dev/null "
+        f"|| echo 'owner=? group=? mode=?'; "
+        f"echo \"groups=$(id -Gn 2>/dev/null)\"; "
+        f"echo \"uid=$(id -u 2>/dev/null)\"; "
+        f"if [ -r '{sock_path}' ] && [ -w '{sock_path}' ]; then echo access=yes; "
+        f"else echo access=no; fi; "
+        f"echo OG-SOCK-END"
+    )
+    try:
+        res = await asyncio.wait_for(conn.run(script, check=False),
+                                     timeout=min(timeout, 15.0))
+        out = str(res.stdout or "")
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception:  # noqa: BLE001
+        return generic
+    if "OG-SOCK-BEGIN" not in out or "OG-SOCK-END" not in out:
+        return generic
+    body = out.split("OG-SOCK-BEGIN", 1)[1].split("OG-SOCK-END", 1)[0]
+    facts: dict[str, str] = {}
+    for line in body.splitlines():
+        line = line.strip()
+        if line.startswith("owner="):        # the stat line carries three keys
+            for part in line.split():
+                if "=" in part:
+                    k, _, v = part.partition("=")
+                    facts[k] = v
+        elif "=" in line:
+            k, _, v = line.partition("=")
+            facts[k.strip()] = v.strip()
+
+    exists = facts.get("exists") == "yes"
+    access = facts.get("access") == "yes"
+    sock_group = facts.get("group") or "?"
+    mode = facts.get("mode") or "?"
+    is_root = facts.get("uid") == "0"
+
+    if not exists:
+        return (
+            f"SSH forwarding is fine — the socket itself is the problem: "
+            f"{sock_path} DOES NOT EXIST on the node. Either the Docker daemon "
+            f"isn't running, or this node's socket is somewhere else. Fix on "
+            f"the node, then re-run this check: confirm Docker is up, and "
+            f"correct the socket path in Admin → Docker Nodes if it differs."
+        )
+    if access:
+        return (
+            f"SSH forwarding is fine and '{user}' CAN read and write "
+            f"{sock_path} (owned by group '{sock_group}', mode {mode}) — so "
+            f"neither sshd nor permissions explain this. The most likely "
+            f"remaining cause is that the Docker daemon is not actually "
+            f"listening on that socket (a stale socket file left behind by a "
+            f"stopped daemon looks exactly like this). Check the daemon's "
+            f"state on the node."
+        )
+    # Exists, but this user can't use it — the common case, and the one with a
+    # concrete fix. Name the actual owning group rather than assuming 'docker'.
+    grp_hint = (f"add '{user}' to the '{sock_group}' group"
+                if sock_group not in ("", "?") else
+                f"give '{user}' access to {sock_path}")
+    root_note = ("" if not is_root else
+                 " (note: this session reports uid 0, yet access was refused — "
+                 "so the socket is likely masked by ACLs or a read-only mount)")
+    return (
+        f"SSH forwarding is fine, the socket EXISTS, and the block is "
+        f"permissions: '{user}' cannot use {sock_path} (owned by group "
+        f"'{sock_group}', mode {mode}){root_note}. Two fixes: point this node "
+        f"at a root SSH user in Admin → Docker Nodes — no change on the node — "
+        f"or {grp_hint} on the node and open a NEW SSH session (group "
+        f"membership only applies to new logins). On an appliance OS such as "
+        f"TrueNAS, make that group change through its own users UI rather than "
+        f"usermod, or the appliance may revert it."
+    )
+
+
 async def diagnose(node: dict, *, timeout: Optional[float] = None) -> dict:
     """Staged connectivity diagnostic for a direct-Docker node — powers the
     "Troubleshoot" action on an unreachable Node card. Runs each layer
@@ -643,10 +742,13 @@ async def diagnose(node: dict, *, timeout: Optional[float] = None) -> dict:
         except Exception:  # noqa: BLE001
             fwd_ok = False
         if fwd_ok:
-            _hint = (f"SSH forwarding IS enabled (a test forward through this connection succeeded) — so the block "
-                     f"is the SOCKET, not sshd. Either the '{user}' user can't read {sock_path} (use a root SSH user "
-                     f"for this node, or add '{user}' to the 'docker' group), or Docker isn't running / the socket "
-                     f"path is wrong. Check on the node: `ls -l {sock_path}` and `id {user}`.")
+            # Forwarding works, so the socket is the problem — and we still
+            # hold an authenticated SSH session, so ANSWER which of the two
+            # causes it is instead of printing two commands for the operator
+            # to run by hand. Read-only: stat the socket, read the group that
+            # owns it and the user's groups. Best-effort — if the probe itself
+            # fails we fall back to the original generic guidance.
+            _hint = await _diagnose_socket(ssh_conn, sock_path, user, to)
         else:
             _hint = ("SSH forwarding is BLOCKED (a plain TCP forward through this connection also failed) — set "
                      "`AllowTcpForwarding yes` (or `local`) AND `AllowStreamLocalForwarding yes` in the node's sshd "
