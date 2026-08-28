@@ -159,6 +159,20 @@ def _pget(provider, name: str, default=None):
     return _settings().get(_providers.setting_key(provider, name), default)
 
 
+def _pget_str(provider, name: str, default: str = "") -> str:
+    """Read a provider's STRING setting by leaf ``name``.
+
+    `_pget` is untyped by necessity (the settings dict holds mixed
+    types), so its value cannot be handed to a `str` parameter without
+    a checker complaining. Every string-valued provider setting goes
+    through here instead. A missing setting reads as the empty string,
+    which fails the same way the previous None did — `is_configured()`
+    gates these paths before either value is used.
+    """
+    v = _pget(provider, name, default)
+    return v if isinstance(v, str) else (default if v is None else str(v))
+
+
 def _verify_tls(provider) -> bool:
     """True when OmniGrid should verify this provider's issuer TLS cert (DB-backed
     per provider; defaults on so a public issuer isn't silently downgraded).
@@ -508,8 +522,8 @@ async def login(request: Request, provider_id: str = _providers.DEFAULT_PROVIDER
         raise HTTPException(status_code=404, detail=f"Unknown OIDC provider {provider_id!r}")
     if not is_configured(provider.id):
         return _sso_login_error_redirect(request, provider, "not_configured")
-    issuer = _pget(provider, "issuer_url")
-    client_id = _pget(provider, "client_id")
+    issuer = _pget_str(provider, "issuer_url")
+    client_id = _pget_str(provider, "client_id")
     configured_redirect = (_pget(provider, "redirect_uri") or "").strip()
     redirect_uri = configured_redirect or _default_redirect_uri(request, provider)
     scopes = _pget(provider, "scopes") or provider.default_scopes
@@ -669,8 +683,8 @@ async def callback(request: Request, provider_id: str = _providers.DEFAULT_PROVI
             headers=_flow_clear_headers,
         )
 
-    issuer = _pget(provider, "issuer_url")
-    client_id = _pget(provider, "client_id")
+    issuer = _pget_str(provider, "issuer_url")
+    client_id = _pget_str(provider, "client_id")
     client_secret = _pget(provider, "client_secret")
     redirect_uri = (_pget(provider, "redirect_uri") or "").strip() or _default_redirect_uri(request, provider)
     verify_tls = _verify_tls(provider)

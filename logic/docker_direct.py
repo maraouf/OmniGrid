@@ -595,6 +595,181 @@ async def _diagnose_socket(conn, sock_path: str, user: str, timeout: float) -> s
     )
 
 
+async def fix_socket_permissions(node: dict, *, timeout: "Optional[float]" = None) -> dict:
+    """Grant this node's SSH user access to the Docker socket, then VERIFY it.
+
+    Only for the case ``_diagnose_socket`` identifies as a permission block:
+    the socket exists and the configured user is not in its owning group.
+
+    Two paths, because the right command depends on who owns the user database:
+
+      * appliance (TrueNAS SCALE and similar) — go through the appliance API
+        (``midclt call user.update``). A raw ``usermod`` on a box whose users
+        are middleware-managed can be silently reverted on upgrade or a config
+        sync, which would look fixed today and break later.
+      * ordinary Linux — ``usermod -aG <group> <user>``.
+
+    Success is proven by re-opening the Docker socket on a NEW connection, not
+    by the command's exit status: group membership only applies to new logins,
+    so a 0 exit says nothing about whether the grant actually took.
+
+    SECURITY: membership of the socket's group is equivalent to root on that
+    machine — anything that can talk to the Docker daemon can start a container
+    that mounts the host filesystem. The caller is responsible for making that
+    explicit; this function just performs what it was asked to.
+    """
+    to = float(timeout or _timeout())
+    conn_spec = _resolve_node_conn(node)
+    user = conn_spec.get("user") or ""
+    host = conn_spec.get("host") or ""
+    sock_path = str(node.get("socket") or DEFAULT_SOCKET)
+    out: dict = {"ok": False, "host": host, "user": user, "socket": sock_path,
+                 "steps": [], "method": None, "group": None}
+
+    def _step(label: str, ok: bool, detail: str = "") -> None:
+        out["steps"].append({"label": label, "ok": bool(ok), "detail": detail})
+
+    if not user:
+        out["error"] = "no SSH user configured for this node"
+        return out
+
+    ssh_conn = None
+    try:
+        ssh_conn = await asyncio.wait_for(asyncssh.connect(
+            host=host, port=int(conn_spec.get("port") or 22), username=user,
+            client_keys=conn_spec.get("client_keys") or None,
+            passphrase=conn_spec.get("passphrase") or None,
+            known_hosts=None, agent_path=None,
+            password=conn_spec.get("password") or None,
+            connect_timeout=max(5.0, min(to, 30.0)),
+            login_timeout=max(5.0, min(to, 30.0)),
+        ), timeout=to)
+
+        # Who owns the socket, and can we act at all?
+        probe = (
+            f"echo OG-FIX-BEGIN; "
+            f"stat -c 'group=%G' '{sock_path}' 2>/dev/null || echo 'group=?'; "
+            f"echo \"uid=$(id -u 2>/dev/null)\"; "
+            f"if command -v midclt >/dev/null 2>&1; then echo appliance=truenas; "
+            f"else echo appliance=no; fi; "
+            f"if sudo -n true 2>/dev/null; then echo sudo=yes; else echo sudo=no; fi; "
+            f"echo OG-FIX-END"
+        )
+        r = await asyncio.wait_for(ssh_conn.run(probe, check=False),
+                                   timeout=min(to, 20.0))
+        text = str(r.stdout or "")
+        facts: dict[str, str] = {}
+        for line in text.split("OG-FIX-BEGIN", 1)[-1].split("OG-FIX-END", 1)[0].splitlines():
+            if "=" in line:
+                k, _, v = line.strip().partition("=")
+                facts[k] = v
+        group = facts.get("group") or ""
+        is_root = facts.get("uid") == "0"
+        appliance = facts.get("appliance") == "truenas"
+        has_sudo = facts.get("sudo") == "yes"
+        out["group"] = group or None
+        if not group or group == "?":
+            out["error"] = (f"couldn't read the group that owns {sock_path} — "
+                            f"nothing to grant")
+            _step("Inspect socket", False, out["error"])
+            return out
+        _step("Inspect socket", True,
+              f"owned by group '{group}'"
+              + (" · appliance: TrueNAS" if appliance else "")
+              + (" · root" if is_root else (" · sudo" if has_sudo else " · no sudo")))
+
+        if not (is_root or has_sudo):
+            out["error"] = (
+                f"'{user}' can neither run commands as root nor use passwordless "
+                f"sudo on this node, so the group change can't be applied from "
+                f"here. Make it on the node, or point this node at a root SSH "
+                f"user in Admin -> Docker Nodes.")
+            _step("Apply", False, "no privilege to change group membership")
+            return out
+
+        pfx = "" if is_root else "sudo -n "
+        if appliance:
+            # TrueNAS owns its user database; go through its API so the change
+            # survives an upgrade. Read the current auxiliary groups, append the
+            # socket's group id, write back.
+            cmd = (
+                f"{pfx}midclt call user.query "
+                f"'[[\"username\",\"=\",\"{user}\"]]' "
+                f"| python3 -c \"import json,sys;u=json.load(sys.stdin);"
+                f"print(u[0]['id'] if u else '')\""
+            )
+            rid = await asyncio.wait_for(ssh_conn.run(cmd, check=False),
+                                         timeout=min(to, 30.0))
+            uid = str(rid.stdout or "").strip().splitlines()[-1:] or [""]
+            uid = uid[0].strip()
+            if not uid.isdigit():
+                out["error"] = ("couldn't resolve the TrueNAS user id for "
+                                f"'{user}' via midclt — apply the group change "
+                                f"in the TrueNAS users UI instead")
+                _step("Apply (TrueNAS API)", False, out["error"])
+                return out
+            gid_cmd = f"{pfx}getent group '{group}' | cut -d: -f3"
+            rg = await asyncio.wait_for(ssh_conn.run(gid_cmd, check=False),
+                                        timeout=min(to, 20.0))
+            gid = str(rg.stdout or "").strip()
+            if not gid.isdigit():
+                out["error"] = f"couldn't resolve the gid of group '{group}'"
+                _step("Apply (TrueNAS API)", False, out["error"])
+                return out
+            apply_cmd = (
+                f"{pfx}midclt call user.get_instance {uid} "
+                f"| python3 -c \"import json,sys;u=json.load(sys.stdin);"
+                f"g=sorted(set((u.get('groups') or [])+[{gid}]));"
+                f"print(json.dumps(g))\" "
+                f"| xargs -0 -I{{}} {pfx}midclt call user.update {uid} "
+                f"'{{\"groups\": {{}}}}'"
+            )
+            out["method"] = "truenas-midclt"
+        else:
+            apply_cmd = f"{pfx}usermod -aG '{group}' '{user}'"
+            out["method"] = "usermod"
+
+        ra = await asyncio.wait_for(ssh_conn.run(apply_cmd, check=False),
+                                    timeout=min(to, 60.0))
+        applied_ok = (ra.exit_status == 0)
+        _step("Apply group membership", applied_ok,
+              (str(ra.stderr or ra.stdout or "").strip()[:200]
+               or f"added '{user}' to '{group}'"))
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e:  # noqa: BLE001
+        out["error"] = f"{type(e).__name__}: {e}"
+        _step("Connect", False, out["error"])
+        return out
+    finally:
+        if ssh_conn is not None:
+            ssh_conn.close()
+
+    # VERIFY on a brand-new connection — group membership only applies to new
+    # logins, so the old session could not see it even on success.
+    try:
+        async with connect(node, timeout=to) as cli:
+            status, _d, snip = await cli.get("/_ping")
+        if status == 200:
+            out["ok"] = True
+            _step("Verify (new session)", True, "Docker API responded (/_ping -> 200)")
+            out["detail"] = (f"'{user}' is now in '{out['group']}' on {host} and "
+                             f"the Docker socket answers. Node should come back "
+                             f"on the next refresh.")
+        else:
+            _step("Verify (new session)", False,
+                  f"HTTP {status or '?'} from /_ping: {snip[:120]}")
+            out["error"] = ("the group change was applied but the socket still "
+                            "didn't answer — check the Docker daemon on the node")
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e:  # noqa: BLE001
+        _step("Verify (new session)", False, f"{type(e).__name__}: {e}")
+        out["error"] = ("the group change was applied but the socket still "
+                        f"couldn't be opened: {e}")
+    return out
+
+
 async def diagnose(node: dict, *, timeout: Optional[float] = None) -> dict:
     """Staged connectivity diagnostic for a direct-Docker node — powers the
     "Troubleshoot" action on an unreachable Node card. Runs each layer

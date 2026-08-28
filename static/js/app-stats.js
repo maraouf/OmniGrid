@@ -859,18 +859,101 @@ export default {
         return h + '</div>';
       }).join('');
       const head = (j.target ? '<div style="font-size:.75rem;color:var(--text-faint);margin-bottom:.4rem">' + esc(j.target) + '</div>' : '');
+      // When the diagnosis is the ONE case we can act on — the socket exists
+      // and this user is not in its owning group — offer to apply the fix
+      // rather than leaving the operator to go and type it. Detected off the
+      // hint the backend already produced, so the button appears only when the
+      // backend actually reached that conclusion.
+      const fixable = (j.steps || []).some((st) =>
+        !st.ok && /block is permissions/i.test(String(st.hint || '')));
       if (Swal) {
-        Swal.fire({
+        const res = await Swal.fire({
           icon: j.ok ? 'success' : 'warning',
           title: (j.ok ? '✓ ' : '') + label,
           html: head + (rows || esc(this.t('nodes.troubleshoot_none') || 'No diagnostic steps ran.')),
           width: 640,
+          showCancelButton: fixable,
+          confirmButtonText: fixable
+            ? (this.t('nodes.fix_socket_btn') || 'Fix permissions…')
+            : (this.t('actions.ok') || 'OK'),
+          cancelButtonText: this.t('actions.close') || 'Close',
         });
+        if (fixable && res && res.isConfirmed) {
+          await this.fixDockerNodeSocket(node);
+        }
       }
     } catch (_) {
       if (Swal) {
         Swal.fire({ icon: 'error', title: label, text: (this.t('toasts.network_error') || 'Network error') });
       }
+    }
+  },
+
+  async fixDockerNodeSocket(node) {
+    // Applies the permission fix the diagnostic identified. Confirmed FIRST,
+    // and the confirm says what the grant actually means: access to the Docker
+    // socket is equivalent to root on that machine, because anything that can
+    // talk to the daemon can start a container that mounts the host
+    // filesystem. That is a real decision, so it is the operator's to make —
+    // but having made it, they shouldn't have to go and type the command.
+    const id = (node && (node.id || node.name)) || '';
+    if (!id) {
+      return;
+    }
+    const label = this.t('nodes.fix_socket_title') || 'Fix socket permissions';
+    const ok = await this.confirmDialog({
+      title: label,
+      html: (this.t('nodes.fix_socket_confirm')
+        || 'This adds the SSH user to the group that owns the Docker socket on '
+         + 'that machine.<br><br><b>Access to the Docker socket is equivalent to '
+         + 'root there</b> \u2014 anything that can reach the daemon can start a '
+         + 'container that mounts the host filesystem.<br><br>On an appliance OS '
+         + 'the change is made through its own API so it survives an upgrade.'),
+      icon: 'warning',
+      confirmText: this.t('nodes.fix_socket_btn') || 'Fix permissions\u2026',
+    });
+    if (!ok) {
+      return;
+    }
+    try {
+      const r = await fetch('/api/docker-nodes/' + encodeURIComponent(id)
+        + '/fix-socket-permissions', { method: 'POST' });
+      if (!r.ok) {
+        const detail = await this.fmtResponseError(r);
+        this.showToast(detail, 'error');
+        return;
+      }
+      const j = await r.json();
+      const esc = (t) => this._logEscape(String(t == null ? '' : t));
+      const rows = (j.steps || []).map((st) => {
+        const mark = st.ok ? '\u2713' : '\u2717';
+        const color = st.ok ? 'var(--success)' : 'var(--danger)';
+        return '<div style="margin:.45rem 0;text-align:start">'
+          + '<div style="font-weight:600;color:' + color + '">' + mark + ' ' + esc(st.label) + '</div>'
+          + (st.detail
+            ? '<div style="font-size:.8rem;color:var(--text-dim);margin-top:.15rem;word-break:break-word">'
+              + esc(st.detail) + '</div>'
+            : '')
+          + '</div>';
+      }).join('');
+      const tail = j.ok
+        ? '<div style="margin-top:.5rem;color:var(--success)">' + esc(j.detail || '') + '</div>'
+        : '<div style="margin-top:.5rem;color:var(--warning)">' + esc(j.error || '') + '</div>';
+      if (Swal) {
+        await Swal.fire({
+          icon: j.ok ? 'success' : 'warning',
+          title: label,
+          html: rows + tail,
+          width: 640,
+        });
+      }
+      if (j.ok && typeof this.refresh === 'function') {
+        // The node should reconnect now — pull fresh state rather than making
+        // the operator wait out the poll interval.
+        void this.refresh(true);
+      }
+    } catch (_) {
+      this.showToast(this.t('toasts.network_error') || 'Network error', 'error');
     }
   },
 

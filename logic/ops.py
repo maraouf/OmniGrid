@@ -162,6 +162,7 @@ OP_TYPES: frozenset[str] = frozenset({
     "ssh_run",
     "ssh_terminal",
     # Host reboot over SSH (web AI / Cmd-K / Telegram reboot_host + /restart).
+    "docker_node_fix_socket",
     "host_reboot",
     # Host OS package update over SSH (web AI / Cmd-K / Telegram osupdate_host
     # + /osupdate). Long-running background Operation.

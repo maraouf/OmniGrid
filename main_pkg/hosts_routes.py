@@ -2040,12 +2040,59 @@ async def api_docker_nodes_diagnose(node_id: str, _u: AdminUser):
     node by id from the ``docker_nodes`` setting and runs
     ``logic.docker_direct.diagnose`` (DNS → TCP → SSH auth → Docker socket, each
     with a pass/fail + a fix). Uses the stored credentials."""
-    node = next((n for n in _load_docker_nodes()
-                 if isinstance(n, dict) and str(n.get("id") or "") == str(node_id)), None)
-    if node is None:
-        raise HTTPException(status_code=404, detail=f"Unknown Docker node {node_id!r}")
+    node = _docker_node_or_404(node_id)
     from logic import docker_direct  # noqa: PLC0415
     return await docker_direct.diagnose(node)
+
+
+def _docker_node_or_404(node_id: str) -> dict:
+    """Load one configured Docker node by id, or 404.
+
+    Shared by every per-node route so they cannot drift on either the
+    match (id compared as a string) or the error text."""
+    node = next((n for n in _load_docker_nodes()
+                 if isinstance(n, dict)
+                 and str(n.get("id") or "") == str(node_id)), None)
+    if node is None:
+        raise HTTPException(status_code=404,
+                            detail=f"Unknown Docker node {node_id!r}")
+    return node
+
+
+@app.post("/api/docker-nodes/{node_id}/fix-socket-permissions")
+async def api_docker_nodes_fix_socket(node_id: str, request: Request, _u: AdminUser):
+    """Admin-only: grant this node's SSH user access to the Docker socket.
+
+    The paired action for the permission case `diagnose` identifies. Uses the
+    appliance's own API where there is one (TrueNAS `midclt`), verifies by
+    re-opening the socket on a NEW connection, and audits the attempt.
+
+    DESTRUCTIVE in the sense that matters: membership of the socket's group is
+    equivalent to root on that machine, so the SPA gates this behind an explicit
+    confirm that says so.
+    """
+    node = _docker_node_or_404(node_id)
+    from logic import docker_direct  # noqa: PLC0415
+    result = await docker_direct.fix_socket_permissions(node)
+    try:  # best-effort audit — never break the response
+        from logic import ops as _ops_mod  # noqa: PLC0415
+        from logic.db import db_conn as _dbc  # noqa: PLC0415
+        with _dbc() as c:
+            _ops_mod.write_admin_audit(
+                c, "docker_node_fix_socket",
+                target_kind="docker_node", target_id=str(node_id),
+                target_name=str(node.get("name") or node_id),
+                actor=_actor_from(request),
+                status="success" if result.get("ok") else "error",
+                message=(f"granted '{result.get('user')}' access to "
+                         f"{result.get('socket')} via {result.get('method')}"
+                         if result.get("ok") else None),
+                error=(None if result.get("ok") else str(result.get("error") or "")[:500]),
+            )
+            c.commit()
+    except Exception:  # noqa: BLE001
+        pass
+    return result
 
 
 def _sweep_orphan_provider_state_rows(live_ids: set) -> int:

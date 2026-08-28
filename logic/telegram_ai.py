@@ -1782,7 +1782,10 @@ async def _ai_reply(
             _bi_ad = action_data if isinstance(action_data, dict) else {}
             from logic import ssh as _ssh
             from logic.tuning import tuning_int as _tint, Tunable as _T
-            bi_iface = _ssh.normalize_interface(_bi_ad.get("interface"))
+            # ACTION_DATA is model-supplied JSON, so the value is Any|None
+            # here; normalize_interface takes a str and refuses anything
+            # that is not plainly an interface name, empty included.
+            bi_iface = _ssh.normalize_interface(str(_bi_ad.get("interface") or ""))
             try:
                 bi_secs = float(_bi_ad.get("down_seconds")
                                 or _tint(_T.SSH_INTERFACE_BOUNCE_DOWN_SECONDS))
