@@ -874,8 +874,8 @@ export default {
           width: 640,
           showCancelButton: fixable,
           confirmButtonText: fixable
-            ? (this.t('nodes.fix_socket_btn') || 'Fix permissions…')
-            : (this.t('actions.ok') || 'OK'),
+            ? this._tf('nodes.fix_socket_btn', 'Fix permissions…')
+            : this._tf('actions.ok', 'OK'),
           cancelButtonText: this.t('actions.close') || 'Close',
         });
         if (fixable && res && res.isConfirmed) {
@@ -889,6 +889,16 @@ export default {
     }
   },
 
+  _tf(key, fallback) {
+    // Translate-or-fallback. `t()` echoes the KEY BACK when it cannot resolve
+    // it, and a key is truthy, so the common `t(k) || fallback` shape can
+    // never reach its fallback — it renders the raw key instead (shipped once
+    // as a button reading "nodes.fix_socket_btn"). Treat key-echoed-back as a
+    // miss, matching the guard in app-apps-drawer.js / app-ai-admin.js.
+    const tr = this.t(key);
+    return (tr && tr !== key) ? tr : fallback;
+  },
+
   async fixDockerNodeSocket(node) {
     // Applies the permission fix the diagnostic identified. Confirmed FIRST,
     // and the confirm says what the grant actually means: access to the Docker
@@ -896,21 +906,25 @@ export default {
     // talk to the daemon can start a container that mounts the host
     // filesystem. That is a real decision, so it is the operator's to make —
     // but having made it, they shouldn't have to go and type the command.
-    const id = (node && (node.id || node.name)) || '';
+    // Same derivation as diagnoseDockerNode: a Nodes-view node object has
+    // no `id` — the configured node id is carried in `backend` as
+    // "docker:<id>". Using node.name instead sent the DISPLAY name and
+    // 404'd ("Unknown Docker node 'TrueNAS'").
+    const id = String((node && node.backend) || '').replace(/^docker:/, '');
     if (!id) {
       return;
     }
-    const label = this.t('nodes.fix_socket_title') || 'Fix socket permissions';
+    const label = this._tf('nodes.fix_socket_title', 'Fix socket permissions');
     const ok = await this.confirmDialog({
       title: label,
-      html: (this.t('nodes.fix_socket_confirm')
-        || 'This adds the SSH user to the group that owns the Docker socket on '
+      html: this._tf('nodes.fix_socket_confirm',
+        'This adds the SSH user to the group that owns the Docker socket on '
          + 'that machine.<br><br><b>Access to the Docker socket is equivalent to '
          + 'root there</b> \u2014 anything that can reach the daemon can start a '
          + 'container that mounts the host filesystem.<br><br>On an appliance OS '
          + 'the change is made through its own API so it survives an upgrade.'),
       icon: 'warning',
-      confirmText: this.t('nodes.fix_socket_btn') || 'Fix permissions\u2026',
+      confirmText: this._tf('nodes.fix_socket_btn', 'Fix permissions\u2026'),
     });
     if (!ok) {
       return;
