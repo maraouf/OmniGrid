@@ -622,7 +622,10 @@ async def fix_socket_permissions(node: dict, *, timeout: "Optional[float]" = Non
     conn_spec = _resolve_node_conn(node)
     user = conn_spec.get("user") or ""
     host = conn_spec.get("host") or ""
-    sock_path = str(node.get("socket") or DEFAULT_SOCKET)
+    # Same source diagnose() uses: _resolve_node_conn already defaulted it.
+    # Reading node["socket"] was wrong twice over — the key is
+    # "socket_path", and the constant is _DEFAULT_SOCKET.
+    sock_path = conn_spec["socket_path"]
     out: dict = {"ok": False, "host": host, "user": user, "socket": sock_path,
                  "steps": [], "method": None, "group": None}
 
