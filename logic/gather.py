@@ -420,10 +420,16 @@ def apply_host_snapshot_fallback(
         snap = snapshots.get(host)
         if not snap:
             # Try short-hostname match — Docker reports `docker.example.com`
-            # but the snapshot might have been keyed under `docker`.
-            short = str(host).split(".", 1)[0]
+            # but the snapshot might have been keyed under `docker`. Case
+            # is folded because Docker reports whatever the machine calls
+            # itself while the curated id is whatever was typed: a node
+            # reporting `TrueNAS` found nothing under `truenas` and its
+            # card rendered with no host figures at all. Every other
+            # node-name-to-curated-host lookup already folds case.
+            short = str(host).split(".", 1)[0].lower()
             for k, v in snapshots.items():
-                if k == short or str(k).split(".", 1)[0] == short:
+                kl = str(k).lower()
+                if kl == short or kl.split(".", 1)[0] == short:
                     snap = v
                     break
         if not snap:
@@ -1459,6 +1465,14 @@ async def merge_docker_nodes_into_cache() -> None:
         reg_to = 60.0
     new_items: list = []
     nodes_info = _cache.setdefault("nodes_info", {})
+    # Read once for the whole loop rather than once per node — the
+    # fallback below would otherwise re-read the same table for every
+    # configured direct node.
+    try:
+        _snapshots = load_host_snapshots()
+    except Exception as e:  # noqa: BLE001
+        print(f"[docker] could not read host snapshots: {type(e).__name__}: {e}")
+        _snapshots = {}
     async with httpx.AsyncClient(timeout=reg_to) as reg_client:
         for node in nodes_cfg:
             try:
@@ -1500,6 +1514,23 @@ async def merge_docker_nodes_into_cache() -> None:
             # nodes_info_map carries the manager/standalone card + (for a Swarm
             # manager) one card per other Swarm node — merge them all in.
             nodes_info.update(ninfo_map)
+            # These cards arrive AFTER every host-stats provider has merged
+            # (this runs at the tail of the gather, once nodes_info is
+            # already published), so nothing upstream ever populates their
+            # host fields — a direct node showed core count and Docker's own
+            # disk usage and nothing else, while the Hosts view had the full
+            # figures for the same machine. Fill them from the same
+            # persisted snapshot the rest of the pipeline falls back to,
+            # which is written on every successful probe of that host.
+            # Seed-only: it never overwrites a value the card already
+            # carries, so Docker's own reading still wins where it has one.
+            try:
+                apply_host_snapshot_fallback(ninfo_map, _snapshots)
+            except (asyncio.CancelledError, KeyboardInterrupt):
+                raise
+            except Exception as e:  # noqa: BLE001
+                print(f"[docker] snapshot fallback for {label!r} failed: "
+                      f"{type(e).__name__}: {e}")
             _primary = ninfo_map.get(label) or {}
             print(f"[docker] INFO node {node.get('id')!r} ({label}): "
                   f"{len(node_items)} container(s) running="
