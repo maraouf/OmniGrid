@@ -12268,7 +12268,7 @@
                   :id="'ai-tooldispatch-desc-' + idx">
               <span x-text="t('ai_sidebar.tool_dispatch_prompt')"></span>
               <template x-for="(tc, ti) in (turn.pending_tool_confirms || [])" :key="ti">
-                <code class="mono fs-2xs ms-1" x-text="tc.tool + (tc.args && tc.args.preset ? ': ' + tc.args.preset : (tc.args && tc.args.container_name ? ': ' + tc.args.container_name : ''))"></code>
+                <code class="mono fs-2xs ms-1" x-text="tc.tool + aiToolChipDetail(tc)"></code>
               </template>
             </span>
             <button type="button"

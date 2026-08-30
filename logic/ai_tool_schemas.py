@@ -162,6 +162,23 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "limit": {"type": _INT, "description": "Top-N paths.", "default": 20},
         }, ["host_id", "container_name"]),
     },
+    "find_mac_port": {
+        "description": (
+            "Which port on a switch has seen a MAC address. Call this FIRST "
+            "when asked to bounce the port a device or MAC is on, then bounce "
+            "the port it returns \u2014 never guess a port. Returns `interface` "
+            "when the address is on exactly one port; when it is on several, "
+            "`interfaces` lists them and you must ask which rather than choose, "
+            "because one is usually a trunk to another switch. Touches the "
+            "switch, so the operator confirms before it runs."),
+        "parameters": _obj({
+            "host_id": {"type": _STR,
+                        "description": "Curated host id of the SWITCH to ask."},
+            "mac": {"type": _STR,
+                    "description": ("MAC address in any spelling \u2014 colons, "
+                                    "dashes, dotted quads or bare hex.")},
+        }, ["host_id", "mac"]),
+    },
 }
 
 

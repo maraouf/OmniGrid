@@ -378,6 +378,25 @@ _INTERFACE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9/._:-]{0,62}$")
 DEFAULT_INTERFACE_DOWN_COMMANDS = ("configure", "interface {iface}", "shutdown", "end")
 DEFAULT_INTERFACE_UP_COMMANDS = ("configure", "interface {iface}", "no shutdown", "end")
 
+# Asking the switch which port a MAC is on. One read-only command, and the
+# answer is what the bounce below needs as its `{iface}` — the two are meant to
+# be used together. Templates rather than a hardcoded command because the
+# command AND the MAC format both vary by vendor: a small-business Cisco wants
+# `6c:63:f8:53:bd:1f`, classic IOS wants `6c63.f853.bd1f`. Every rendering is
+# offered as a placeholder so switching vendor is a settings edit, not a code
+# change. Placeholders: {mac} colon, {mac_dot} Cisco dotted, {mac_dash},
+# {mac_bare}.
+DEFAULT_MAC_LOOKUP_COMMANDS = ("show mac address-table address {mac}",)
+
+# Words that appear on a MAC-table row but are never a port. Checked
+# case-insensitively against whole tokens, so a port genuinely named e.g.
+# "dynamic1" would not be filtered.
+_MAC_TABLE_NOISE = frozenset({
+    "dynamic", "static", "self", "secure", "management", "mgmt", "permanent",
+    "learnt", "learned", "cpu", "drop", "vlan", "mac", "address", "port",
+    "ports", "type", "age", "aging",
+})
+
 
 # --- Dead-man switch -------------------------------------------------------
 # Bouncing the port that carries OmniGrid's own path to the switch kills the
@@ -508,6 +527,161 @@ def resolve_interface_bounce(host_id: str, hosts_config: list[dict]) -> dict:
                     Settings.SSH_DEFAULT_INTERFACE_UP_COMMANDS,
                     DEFAULT_INTERFACE_UP_COMMANDS),
     }
+
+
+def normalize_mac(mac: str) -> str:
+    """Reduce any written form of a MAC to twelve lowercase hex digits.
+
+    Accepts every separator in common use (``:``, ``-``, ``.``, spaces, or
+    none at all) because the address reaches us from wherever the person
+    copied it — a DHCP lease, a label, a vendor UI, another switch. Returns
+    "" when the input is not a MAC, which every caller treats as "refuse",
+    so a malformed value can never reach a device command.
+    """
+    raw = re.sub(r"[^0-9A-Fa-f]", "", str(mac or ""))
+    return raw.lower() if len(raw) == 12 else ""
+
+
+def mac_renderings(mac: str) -> dict:
+    """Every spelling of one MAC, for the lookup command's placeholders.
+
+    A vendor accepts the form its own CLI prints and often rejects the
+    others, so the template picks; see DEFAULT_MAC_LOOKUP_COMMANDS.
+    """
+    h = normalize_mac(mac)
+    if not h:
+        return {}
+    pairs = [h[i:i + 2] for i in range(0, 12, 2)]
+    quads = [h[i:i + 4] for i in range(0, 12, 4)]
+    return {
+        "mac": ":".join(pairs),
+        "mac_dash": "-".join(pairs),
+        "mac_dot": ".".join(quads),
+        "mac_bare": h,
+    }
+
+
+def resolve_mac_lookup(host_id: str, hosts_config: list[dict]) -> tuple:
+    """Resolve the MAC-table query commands for ``host_id``.
+
+    Precedence mirrors :func:`resolve_interface_bounce`: per-host
+    ``hosts_config[].ssh.mac_lookup_commands`` → the global
+    ``ssh_default_mac_lookup_commands`` setting → the built-in Cisco default.
+    """
+    per_host = _per_host_ssh(host_id, hosts_config)
+    from logic.db import get_setting  # noqa: PLC0415
+
+    raw = str(per_host.get("mac_lookup_commands") or "").strip()
+    if not raw:
+        try:
+            raw = str(get_setting(
+                Settings.SSH_DEFAULT_MAC_LOOKUP_COMMANDS, "") or "").strip()
+        except Exception as e:  # noqa: BLE001
+            # "skipped" not "failed" — a benign degradation to the built-in
+            # default, and `failed` would bucket this as ERROR in Admin → Logs.
+            print(f"[ssh] mac-lookup settings read skipped, using built-in "
+                  f"default: {e}")
+            raw = ""
+    if not raw:
+        return DEFAULT_MAC_LOOKUP_COMMANDS
+    parts = [p.strip() for p in re.split(r"[\n,]+", raw) if p.strip()]
+    return tuple(parts) if parts else DEFAULT_MAC_LOOKUP_COMMANDS
+
+
+def parse_mac_table(output: str, mac: str) -> list:
+    """Pull the port names out of a MAC-address-table listing.
+
+    Deliberately format-agnostic rather than per-vendor: every switch prints
+    one row per place it has seen the address, and the only two things worth
+    knowing about a row are that it mentions the address and which of its
+    columns is the port. So this looks at rows mentioning the address in any
+    spelling, and takes the tokens that could be an interface name — starting
+    with a letter, containing a digit, and not one of the words that appear in
+    these tables as a type or a heading. That reads a small-business Cisco's
+    ``gi12`` and a classic IOS ``Gi1/0/12`` without knowing which it is
+    talking to.
+
+    Returns the distinct ports in the order found. A MAC on more than one port
+    is a real situation (a trunk, or a genuinely duplicated address) and the
+    caller is expected to refuse to guess between them.
+    """
+    forms = mac_renderings(mac)
+    if not forms or not output:
+        return []
+    needles = [v.lower() for v in forms.values()]
+    found: list = []
+    for line in str(output).splitlines():
+        low = line.lower()
+        if not any(n in low for n in needles):
+            continue
+        for token in re.split(r"[\s,]+", line.strip()):
+            t = token.strip()
+            if not t or t.lower() in _MAC_TABLE_NOISE:
+                continue
+            if t.lower() in needles:              # the address column itself
+                continue
+            if not re.match(r"^[A-Za-z][A-Za-z0-9/._:-]*$", t):
+                continue
+            if not re.search(r"\d", t):          # a bare word, not a port
+                continue
+            if normalize_interface(t) and t not in found:
+                found.append(t)
+    return found
+
+
+async def find_mac_interface(host_id: str, mac: str, hosts_config: list[dict], *,
+                             timeout: float = 30.0) -> dict:
+    """Ask a switch which of its ports has seen ``mac``.
+
+    Read-only: it runs the resolved query command and parses the reply. It is
+    the missing first half of "bounce whatever port this device is on" — the
+    ``interface`` it returns is what :func:`bounce_interface` takes.
+
+    Refuses to pick when the address appears on more than one port. That is a
+    real situation (a trunk toward another switch, or a duplicated address),
+    and the two cases want opposite responses from a person: bouncing the
+    trunk because a device behind it misbehaved would take out everything else
+    behind it too. So it reports the candidates and leaves the choice.
+
+    Returns ``{ok, mac, interface, interfaces, commands, output, error}``.
+    Never raises (mirrors run_command's contract).
+    """
+    forms = mac_renderings(mac)
+    if not forms:
+        return {"ok": False, "mac": str(mac or ""), "interface": "",
+                "interfaces": [], "commands": [], "output": "",
+                "error": (f"refusing {mac!r}: not a MAC address "
+                          f"(expected twelve hex digits)")}
+    cmds = [c.format(**forms) if "{" in c else c
+            for c in resolve_mac_lookup(host_id, hosts_config)]
+    # Interactive shell, not an SSH exec request. The devices this asks are
+    # switches, and the small-business Cisco this was built against refuses
+    # exec outright — which is why the bounce this feeds runs its commands
+    # through a shell too. Sending a read-only `show` down the exec path
+    # would fail on exactly the hardware the feature exists for.
+    result = await run_command(host_id, "; ".join(cmds), hosts_config,
+                               timeout=timeout, shell_query=True)
+    out = str(result.get("stdout") or "")
+    if not result.get("ok"):
+        return {"ok": False, "mac": forms["mac"], "interface": "",
+                "interfaces": [], "commands": cmds, "output": out,
+                "error": result.get("error") or "the lookup command failed"}
+    ports = parse_mac_table(out, mac)
+    if not ports:
+        return {"ok": False, "mac": forms["mac"], "interface": "",
+                "interfaces": [], "commands": cmds, "output": out,
+                "error": (f"{forms['mac']} is not in {host_id}'s MAC table — "
+                          f"the device may be off, on another switch, or "
+                          f"aged out")}
+    if len(ports) > 1:
+        return {"ok": False, "mac": forms["mac"], "interface": "",
+                "interfaces": ports, "commands": cmds, "output": out,
+                "error": (f"{forms['mac']} appears on {len(ports)} ports "
+                          f"({', '.join(ports)}) — refusing to choose, since "
+                          f"one of them is likely a trunk toward another "
+                          f"switch")}
+    return {"ok": True, "mac": forms["mac"], "interface": ports[0],
+            "interfaces": ports, "commands": cmds, "output": out, "error": ""}
 
 
 async def bounce_interface(host_id: str, interface: str, hosts_config: list[dict], *,
@@ -1294,6 +1468,76 @@ async def _run_bounce_shell(conn, plan: dict, base_result: dict) -> None:
         base_result["ok"] = False
 
 
+async def _run_shell_query(conn, command: str, timeout: float,
+                           base_result: dict, resolved: dict,
+                           started: float) -> None:
+    """Type a read-only command into an interactive shell and read the reply.
+
+    Separate from :func:`_run_shell_sequence`, which shares the interactive
+    shell but not the question it is asking. That one drives a reboot, so it
+    treats the channel dropping as success and waits out the whole budget
+    otherwise. A `show` command never drops the channel, so running one
+    through it would report failure after the full timeout with the answer
+    sitting in the transcript.
+
+    What ends a query instead is the device going quiet: it prints its reply
+    and returns to a prompt. So this reads until nothing has arrived for
+    QUIET_S, which is the only end-of-output signal available without knowing
+    the device's prompt string.
+
+    Needed at all because the switches this asks refuse SSH exec requests, so
+    the ordinary exec path is not available for them.
+    """
+    QUIET_S = 1.2
+    proc = await conn.create_process(term_type="xterm", term_size=(200, 4000))
+    chunks: list[str] = []
+    try:
+        proc.stdin.write(command if command.endswith(("\n", "\r"))
+                         else command + "\n")
+    except (BrokenPipeError, ConnectionResetError, asyncssh.Error, OSError) as e:
+        base_result["error"] = f"could not send the query: {e}"
+        return
+    deadline = time.time() + max(2.0, timeout)
+    last = time.time()
+    while time.time() < deadline:
+        try:
+            data = await asyncio.wait_for(proc.stdout.read(4096), timeout=0.4)
+        except (asyncio.TimeoutError, TimeoutError):
+            # Quiet for long enough: the device has finished answering. Only
+            # counts once something has actually arrived, so a slow device
+            # is not mistaken for a finished one.
+            if chunks and (time.time() - last) >= QUIET_S:
+                break
+            continue
+        except (BrokenPipeError, ConnectionResetError, asyncssh.Error, OSError):
+            break
+        if not data:
+            break
+        chunks.append(data if isinstance(data, str)
+                      else data.decode("utf-8", "replace"))
+        last = time.time()
+    # Leave the shell rather than dropping the connection under the device.
+    try:
+        proc.stdin.write("exit\n")
+    except (BrokenPipeError, ConnectionResetError, asyncssh.Error, OSError):
+        pass
+    out = "".join(chunks)[: 256 * 1024]
+    base_result["ok"] = bool(out.strip())
+    base_result["stdout"] = out
+    base_result["transcript"] = out
+    if not base_result["ok"]:
+        base_result["error"] = (
+            "the device returned nothing before the timeout — it may be "
+            "sitting at a prompt this command did not answer")
+    print(f"[ssh] query DONE host={resolved.get('host')!r} "
+          f"user={resolved.get('user')!r} "
+          f"duration_ms={int((time.time() - started) * 1000)} "
+          f"len_out={len(out)}")
+    preview = out[:400].replace("\n", " | ")
+    if preview:
+        print(f"[ssh] query stdout: {preview}")
+
+
 async def _run_shell_sequence(conn, command: str, stdin_input: Optional[str],
                               timeout: float, base_result: dict,
                               resolved: dict, started: float) -> None:
@@ -1473,6 +1717,7 @@ async def run_command(
     bypass_master_gate: bool = False,
     stdin_input: Optional[str] = None,
     shell_mode: bool = False,
+    shell_query: bool = False,
     bounce_plan: Optional[dict] = None,
 ) -> dict:
     """Execute ``command`` over SSH on the host resolved from ``host_id``.
@@ -1681,7 +1926,7 @@ async def run_command(
                               + sum(float(p or 0) for _, p in bounce_plan["steps"])
                               + 25.0)
         else:
-            _outer_timeout = (timeout + 10.0) if shell_mode else timeout
+            _outer_timeout = (timeout + 10.0) if (shell_mode or shell_query) else timeout
         async with asyncio.timeout(_outer_timeout) if hasattr(asyncio, "timeout") else _NoopTimeout(_outer_timeout):
             async with conn_ctx as conn:
                 # Pull the server host-key fingerprint into the result
@@ -1690,6 +1935,10 @@ async def run_command(
                 _stamp_server_fingerprint(conn, resolved)
                 if bounce_plan:
                     await _run_bounce_shell(conn, bounce_plan, base_result)
+                elif shell_query:
+                    await _run_shell_query(
+                        conn, command, timeout, base_result, resolved, started,
+                    )
                 elif shell_mode:
                     await _run_shell_sequence(
                         conn, command, stdin_input, timeout,

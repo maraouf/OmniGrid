@@ -869,6 +869,57 @@ async def _tool_get_host_detail(args: dict, _ctx: dict) -> dict:
     return {"host": detail}
 
 
+async def _tool_find_mac_port(args: dict, _ctx: dict) -> dict:
+    """Ask a switch which of its ports has seen a MAC address.
+
+    Exists so the AI can act on "bounce whatever port that device is on"
+    without the person having to look the port up and hand it over. It is the
+    read half of that pair: this resolves the port and the existing
+    bounce_interface action does the rest, so the model runs this first and
+    emits the bounce with the answer.
+
+    Read-only, but it opens an SSH session to the switch, so it routes through
+    the same inline-confirm gate as the other host-touching tools. Refusing to
+    guess when a MAC is on several ports is deliberate and lives in
+    :func:`logic.ssh.find_mac_interface` — see the reasoning there.
+    """
+    from logic import ssh as _ssh
+    host_id = (args.get("host_id") or "").strip()
+    mac = (args.get("mac") or "").strip()
+    if not host_id:
+        return {"error": "host_id is required (the switch to ask)"}
+    if not mac:
+        return {"error": "mac is required (the address to locate)"}
+    try:
+        from logic.db import get_setting
+        from logic.settings_keys import Settings
+        import json as _json_mac
+        try:
+            hosts_cfg_raw = _json_mac.loads(get_setting(Settings.HOSTS_CONFIG) or "[]")
+        except (TypeError, ValueError):
+            hosts_cfg_raw = []
+        result = await _ssh.find_mac_interface(
+            host_id=host_id, mac=mac,
+            hosts_config=hosts_cfg_raw if isinstance(hosts_cfg_raw, list) else [],
+        )
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"{type(e).__name__}: {e}"}
+    # The raw table is dropped on success: the port is the answer, and the
+    # listing is only worth prompt budget when we could not read a port out
+    # of it and the model has to explain why.
+    out = {
+        "host_id": host_id,
+        "mac": result.get("mac") or mac,
+        "interface": result.get("interface") or "",
+        "interfaces": result.get("interfaces") or [],
+        "commands": result.get("commands") or [],
+    }
+    if not result.get("ok"):
+        out["error"] = result.get("error") or "lookup failed"
+        out["output"] = str(result.get("output") or "")[:2000]
+    return out
+
+
 PALETTE_TOOL_CATALOGUE: dict = {
     "get_host_detail": _tool_get_host_detail,
     "get_recent_history": _tool_get_recent_history,
@@ -879,6 +930,7 @@ PALETTE_TOOL_CATALOGUE: dict = {
     "ssh_diag": _tool_ssh_diag,
     "docker_container_du": _tool_docker_container_du,
     "upcoming_releases": _tool_upcoming_releases,
+    "find_mac_port": _tool_find_mac_port,
 }
 
 # Tools whose dispatch is DESTRUCTIVE-adjacent — they touch the
@@ -887,7 +939,8 @@ PALETTE_TOOL_CATALOGUE: dict = {
 # orchestrator skips these on the SPA fast-path; the SPA must
 # emit them via the same confirm flow used for ACTION-class
 # destructive ops.
-PALETTE_TOOLS_REQUIRING_CONFIRM: frozenset[str] = frozenset({"ssh_diag", "docker_container_du"})
+PALETTE_TOOLS_REQUIRING_CONFIRM: frozenset[str] = frozenset(
+    {"ssh_diag", "docker_container_du", "find_mac_port"})
 
 
 async def dispatch_palette_tool(call: dict, ctx: Optional[dict] = None) -> dict:

@@ -826,6 +826,20 @@ export default {
   // the backend dispatcher actually fires the confirm-required tools
   // (ssh_diag / docker_container_du) and returns the second-round AI
   // reply composed from the tool output.
+  // What to show beside a tool name on its confirm chip. These calls
+  // touch a host, so the person approving one needs to see WHICH host and
+  // what against, not just that something called find_mac_port. Reading
+  // the arg per tool rather than growing a ternary chain, which is what
+  // this replaced and what it would have become again on the next tool.
+  aiToolChipDetail(tc) {
+    const a = (tc && tc.args) || {};
+    const bits = [];
+    if (a.host_id) bits.push(a.host_id);
+    const subject = a.preset || a.container_name || a.mac || a.unit || '';
+    if (subject) bits.push(subject);
+    return bits.length ? ': ' + bits.join(' ') : '';
+  },
+
   async confirmInlineToolDispatch(turnIdx) {
     const turn = this.aiConversation[turnIdx];
     if (!turn || !turn.pending_tool_confirms || !turn.pending_query) {

@@ -1337,6 +1337,7 @@ async def _ai_reply(
           "Example: 'resume sampling for HP654C46 (http_probe)' → write "
           "'Resuming http_probe on HP654C46.' then ACTION: resume_host_sampling, "
           "ACTION_HOSTS: HP654C46, ACTION_DATA: {\"provider\": \"http_probe\"}. "
+          "When asked to bounce the port a MAC / device is on, you do NOT know the port: emit `TOOL: find_mac_port` with `TOOL_ARGS: {\"host_id\":\"<switch>\",\"mac\":\"<addr>\"}` FIRST, then emit the bounce in your next reply using the `interface` it returns. Never guess a port. If it reports several ports, say so and ask which — one of them is probably a trunk.\n"
           "(6) ACTION: bounce_interface + ACTION_HOSTS: <host_id> + "
           "ACTION_DATA: {\"interface\": \"<name>\", \"down_seconds\": 30} to "
           "BOUNCE A SWITCH PORT (shut it, hold it down, bring it back) — for a "
