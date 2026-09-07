@@ -63,8 +63,15 @@ function bindInputValue(el, value) {
         }
     } else if (el.tagName === 'SELECT') {
         updateSelect(el, value)
+    } else if (el.tagName === 'OPTION') {
+        bindAttribute(el, 'value', value)
     } else {
-        if (el.value === value) return
+        // For non-null objects, reference equality doesn't imply state
+        // equality: reactive proxies can mutate internally while the
+        // top-level reference stays the same. Without this guard, custom
+        // elements receiving an object value via x-bind:value or x-model
+        // would never see those nested updates.
+        if (el.value === value && (typeof value !== 'object' || value === null)) return
 
         el.value = value === undefined ? '' : value
     }
@@ -92,6 +99,7 @@ function bindAttribute(el, name, value) {
         el.removeAttribute(name)
     } else {
         if (isBooleanAttr(name)) value = name
+        if (isObjectAttr(value)) value = JSON.stringify(value)
 
         setIfChanged(el, name, value)
     }
@@ -174,6 +182,10 @@ function isBooleanAttr(attrName) {
 
 function attributeShouldntBePreservedIfFalsy(name) {
     return ! ['aria-pressed', 'aria-checked', 'aria-expanded', 'aria-selected'].includes(name)
+}
+
+function isObjectAttr(value) {
+    return typeof value === 'object' && value !== null
 }
 
 export function getBinding(el, name, fallback) {

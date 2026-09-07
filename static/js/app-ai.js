@@ -946,7 +946,6 @@ export default {
             action_data: (t.action_data && typeof t.action_data === 'object') ? t.action_data : null,
             action_hosts: Array.isArray(t.action_hosts) ? t.action_hosts.slice() : [],
             action_query: (t.action_query || '').toString(),
-      action_query: (t.action_query || '').toString(),
             feedback: t.feedback || null,
             error: t.error || null,
             cancelled: !!t.cancelled,

@@ -13,14 +13,14 @@ fastapi>=0.139.0
 # `package-not-in-requirements` lint. Floor-pinned to 2.x so the v1-style
 # `.dict()` calls we already migrated stay valid; fastapi's own pin
 # bounds the upper edge.
-pydantic>=2.13.4
+pydantic>=2.13.5
 # ASGI server. The [standard] extras pull in `httptools` + `uvloop` for
 # the production-grade async performance path AND `websockets` for the
 # admin SSH terminal modal (logic/ssh.py drives an xterm-backed PTY
 # over a FastAPI WebSocket). Local dev runs `uvicorn main:app --reload`;
 # prod runs the same single-replica process behind NPM's reverse proxy.
 
-uvicorn[standard]>=0.51.0
+uvicorn[standard]>=0.52.4
 # Async HTTP client used for EVERY outbound call: Portainer REST API
 # (services / containers / stacks / registries proxy), Beszel Hub
 # (Pocketbase auth + paginated fetches), Pulse, Webmin (with cookie
@@ -57,7 +57,7 @@ python-multipart>=0.0.32
 # correctly. The repo is private, so .env is COMMITTED — see
 # CLAUDE.md "Secrets" for the private-repo trade-off + the rotate-
 # everything rule if visibility ever changes.
-python-dotenv>=1.2.2
+python-dotenv>=1.2.3
 # OIDC SSO (Authentik / any OIDC provider) — JWT signature verification
 # against the issuer's JWKS. PyJWT is used instead of authlib: smaller
 # surface, and we already own the discovery + token-exchange httpx calls.
@@ -78,7 +78,13 @@ asyncssh>=2.24.0
 # / asyncssh, so this is a no-op for the wheel size; pinned explicitly so
 # logic/totp.py has a hard contract on the Fernet API.
 pyotp>=2.10.0
-cryptography>=49.0.0
+# NOTE: this floor is NOT free to move on its own. `webauthn` below pulls in
+# pyOpenSSL, and pyOpenSSL's own cryptography range is what actually bounds
+# us -- 26.3.0 caps at `<50`, 26.4.0 widens to `<51`. A clean build resolves
+# the newest pyOpenSSL so this floor is satisfiable, but if you raise it
+# again, check pyOpenSSL's range first: an unsatisfiable pair fails the
+# image build, not a test.
+cryptography>=50.0.1
 # WebAuthn / FIDO2 passkeys as a 2FA factor. Duo Security's
 # `webauthn` package wraps the W3C ceremony in a small, dependency-light
 # API: generate_registration_options / verify_registration_response /
@@ -129,4 +135,4 @@ icmplib>=3.0.4
 # legacy `pysnmp.hlapi.asyncio` path — the legacy branch is now
 # unreachable under this pin but kept as defence-in-depth in case
 # pysnmp 8.x reorganises the namespace again.
-pysnmp>=7.1.27
+pysnmp>=7.1.29

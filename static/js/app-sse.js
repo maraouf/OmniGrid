@@ -183,7 +183,7 @@ export default {
       // button without the operator refreshing each tab by hand.
       this._scheduleCacheInvalidatedRefresh();
     });
-    es.addEventListener('cache:refreshed', (e) => {
+    es.addEventListener('cache:refreshed', () => {
       onAny();
       // A BACKGROUND gather just finished rebuilding the items cache. Re-fetch
       // NON-force so this tab picks up the fresh data IMMEDIATELY — instead of
