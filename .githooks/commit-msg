@@ -13,6 +13,17 @@
 # pre-commit shim has.
 set -eu
 
+# Match BYTES, not locale-decoded characters. Under a UTF-8 locale -- which
+# is what git's own hook environment uses -- grep handled the emoji in front
+# of the "Generated with [Claude Code]" footer differently and that line was
+# NOT refused, while the two plain-ASCII trailers matched fine. So the single
+# trailer that ships with an emoji was the one that could slip past. Every
+# pattern below is ASCII, so byte matching is the correct semantics rather
+# than a workaround, and it makes the result the same in every environment.
+# Found by the hook's own test fixture failing inside a real commit.
+LC_ALL=C
+export LC_ALL
+
 msg_file="${1:-}"
 if [ -z "$msg_file" ] || [ ! -f "$msg_file" ]; then
   # No message file (or an unexpected invocation) — don't block the commit
