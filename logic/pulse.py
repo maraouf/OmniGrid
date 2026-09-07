@@ -637,8 +637,44 @@ async def probe_pulse(
     """Fetch every PVE node from Pulse, keyed by node name.
 
     Returns ``{"hosts": {name: stats, ...}, "error": None}`` on success,
-    ``{"hosts": {}, "error": "..."}`` on failure. Never raises — lets
-    :mod:`logic.gather` keep going on any Pulse hiccup.
+    ``{"hosts": {}, "error": "..."}`` on failure. **Never raises** — the
+    callers depend on that: neither :mod:`logic.gather` nor the per-host
+    fan-out in ``hosts_merge_routes`` guards this call, and the fan-out
+    gathers it without ``return_exceptions``, so anything escaping here
+    becomes an HTTP 500 on every host row rather than one down provider.
+
+    That is not hypothetical. A schema-dump removal once left a loop
+    reading a variable whose assignment went with it, and the resulting
+    ``UnboundLocalError`` — a fault entirely inside the parser, with the
+    hub perfectly healthy — took out the whole Hosts page. The fetch was
+    already guarded; the parse was not, and the parse is the larger and
+    more frequently edited half.
+
+    The traceback is printed rather than swallowed, so a parser fault is
+    still loud in Admin → Logs; it just no longer decides whether the
+    page renders.
+    """
+    try:
+        return await _probe_pulse_impl(base_url, token, verify_tls, timeout)
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e:  # noqa: BLE001
+        import traceback as _tb
+        print(f"[pulse] probe: parser fault, treating Pulse as down — "
+              f"{type(e).__name__}: {e}\n{_tb.format_exc()}")
+        return {"hosts": {}, "error": f"{type(e).__name__}: {e}"}
+
+
+# noinspection DuplicatedCode
+# The signature deliberately mirrors the public `probe_pulse` wrapper above;
+# that pair IS the never-raises boundary, so the repetition is the point.
+async def _probe_pulse_impl(
+    base_url: str,
+    token: str,
+    verify_tls: bool = True,
+    timeout: float = 15.0,
+) -> dict:
+    """Fetch every PVE node from Pulse, keyed by node name.
 
     When the most recent probe was unreachable, the caller-supplied
     timeout is overridden with the short
@@ -816,13 +852,6 @@ async def probe_pulse(
     # that is settled, and they were emitting a 1,200-character JSON blob
     # every tick -- describing, on at least one deployment, an alert record
     # rather than a guest.
-        # Also dump sub-object keys since Pulse sometimes nests the
-        # OS-family data under ``info`` / ``agent`` / ``config``.
-        for nest_key in ("info", "agent", "config", "stats", "details"):
-            nested = g0.get(nest_key)
-            if isinstance(nested, dict):
-                print(f"[pulse] probe: sample guest.{nest_key} keys="
-                      f"{sorted(nested.keys())}")
     # Keyed by display name (preserves case). We also maintain a parallel
     # lowercased-trimmed index so the caller's ``_lookup`` helper can
     # match ``Docker`` / ``  docker `` / the guest's vmid without the

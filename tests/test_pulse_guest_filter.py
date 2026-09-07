@@ -29,8 +29,13 @@ def test_the_observed_alert_type_is_excluded():
 
 
 def test_the_predicate_actually_consults_the_denylist():
-    """The constant existing is not the same as it being used."""
-    src = inspect.getsource(pulse.probe_pulse)
+    """The constant existing is not the same as it being used.
+
+    Reads the parser, not the public entry point: `probe_pulse` is a thin
+    never-raises wrapper around `_probe_pulse_impl`, which is where the
+    guest predicate lives.
+    """
+    src = inspect.getsource(pulse._probe_pulse_impl)
     assert "_NOT_GUEST_TYPES" in src, (
         "the guest predicate no longer checks the denylist")
 

@@ -1,10 +1,10 @@
 """Tests for the commit-msg hook that refuses AI attribution trailers.
 
 Why this hook needs a fixture rather than trust: the rule it enforces
-CONTRADICTS the tool. `notes/standing-reminders.md` forbids
-`Co-Authored-By: Claude ...` and `Claude-Session: ...`; the assistant's own git
-instructions ask for both, and that instruction is live — it was reissued
-mid-session while this file was being written. Two sources giving opposite
+CONTRADICTS the tool. This repo's commits carry no AI attribution — no
+`Co-Authored-By: Claude ...`, no `Claude-Session: ...` — while the assistant's
+own git instructions ask for both, and that instruction is live; it was
+reissued mid-session while this file was being written. Two sources giving opposite
 orders is not something anyone can be reminded out of, so the hook is the
 binding constraint and its behaviour is worth pinning.
 
