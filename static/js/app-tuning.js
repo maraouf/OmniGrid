@@ -570,6 +570,7 @@ export default {
     // via `tuning_int(...)` per-call.
     'tuning_ai_max_tokens',
     'tuning_ai_fallback_max_depth',
+    'tuning_ai_fallback_prompt_cap_chars',
     // AI sidebar drawer width — also rendered under Admin → AI
     // Integration (NOT the generic Process tunables form) per user
     // preference: it's an AI-feature UI control, not a generic

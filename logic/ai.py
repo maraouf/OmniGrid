@@ -268,7 +268,14 @@ async def _with_retry(call_factory, *, provider: str, model: str) -> dict:
     if not (is_transient_status or is_transient_flag):
         return out
     status = out.get("status") or "TIMEOUT"
-    if elapsed_ms >= first_max_ms:
+    # 429 and 503 are the upstream REFUSING to start, not struggling to
+    # finish. The elapsed time there measures how long it took to say no,
+    # so the slow-first-attempt reasoning below does not apply to them and
+    # retrying costs about as little as a retry ever costs. A real 503 that
+    # took 5,509ms against a 5,000ms threshold was declined on exactly this
+    # confusion, and the operator saw a hard failure instead of a retry.
+    is_refusal = out.get("status") in (429, 503)
+    if elapsed_ms >= first_max_ms and not is_refusal:
         # Slow first attempt — log + propagate without retrying.
         # Word "warning" + no "fail/error" tokens → classifier picks WARN.
         print(f"[ai] retry-skipped warning — provider={provider} model={model} "
@@ -816,7 +823,7 @@ async def ask_provider_with_fallback(
     timeout: float = 30.0,
     fallback_enabled: bool = False,
     max_depth: int = 1,
-    prompt_size_cap_chars: int = 32000,
+    prompt_size_cap_chars: int = 0,
     native_tools: bool = False,
 ) -> dict:
     """Try `primary` first; on transient overload, walk `fallback_chain`
@@ -901,6 +908,15 @@ async def ask_provider_with_fallback(
         primary_out["fallback_used"] = False
         primary_out["fallback_chain"] = history
         return primary_out
+    # 0 (the default) means 'resolve the operator's setting'. Passing an
+    # explicit value stays supported for callers that want their own cap.
+    if prompt_size_cap_chars <= 0:
+        try:
+            from logic.tuning import Tunable, tuning_int
+            prompt_size_cap_chars = tuning_int(
+                Tunable.AI_FALLBACK_PROMPT_CAP_CHARS)
+        except Exception:  # noqa: BLE001
+            prompt_size_cap_chars = 200000
     if len(prompt or "") > prompt_size_cap_chars:
         # Prompt too large — capability-mismatch risk; surface a
         # transparent skip log line + return primary failure unchanged.

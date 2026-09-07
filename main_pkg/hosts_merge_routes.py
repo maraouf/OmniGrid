@@ -74,6 +74,7 @@ import json
 import os
 from logic.coerce import as_list
 from logic.merge import resolve_probe_target as _resolve_probe_target
+from logic.merge import dedupe_shared_pool_totals as _dedupe_shared_pool_totals
 import time
 from typing import Any, Iterable, Optional
 
@@ -1715,19 +1716,29 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
     mounts = merged.get("mounts") or []
     if isinstance(mounts, list) and mounts:
         gib = 1024 ** 3
-        m_total = 0.0
-        m_used = 0.0
+        # Pool-aware, not a plain sum. Datasets on one pool each report
+        # their own used plus the POOL's shared free space, so adding the
+        # sizes inflates the total by roughly the dataset count -- which is
+        # exactly what pushes it past the 1.5x threshold below and fires
+        # this override. Naively summed, this replaced node_exporter's
+        # correctly-deduped 0.86 TiB on a ZFS host with 8.60 TiB, and would
+        # have re-inflated any fix applied upstream in the providers.
+        _m_entries = []
         for _m in mounts:
             if not isinstance(_m, dict):
                 continue
             try:
-                m_total += float(_m.get("d") or 0)
-                m_used += float(_m.get("du") or 0)
+                _md = float(_m.get("d") or 0)
+                _mu = float(_m.get("du") or 0)
             except (TypeError, ValueError):
                 continue
+            _m_entries.append((int(_md * gib), int(_mu * gib)))
+        _m_total_b, _m_used_b = _dedupe_shared_pool_totals(_m_entries)
+        m_total = _m_total_b / gib
+        m_used = _m_used_b / gib
         if m_total > 0:
-            m_total_b = int(m_total * gib)
-            m_used_b = int(m_used * gib)
+            m_total_b = _m_total_b
+            m_used_b = _m_used_b
             cur_total = int(merged.get("host_disk_total") or 0)
             # Override when the mounts aggregate is meaningfully bigger
             # than the merged total. 1.5× threshold catches the

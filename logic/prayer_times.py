@@ -472,7 +472,12 @@ async def fetch(lat: float, lon: float, *, label: str = "",
             j = r.json() or {}
     except (httpx.HTTPError, ValueError) as e:
         _neg_until[key] = now + neg_ttl
-        print(f"[prayer_times] fetch error for {label or f'{qlat},{qlon}'}: {e} "
+        # Some httpx exceptions (timeouts especially) carry an EMPTY str(),
+        # which rendered as 'fetch error for Giza:  — negative-cached' and
+        # told the reader nothing about what failed. Fall back to the class
+        # name so the line always names something.
+        _why = str(e).strip() or type(e).__name__
+        print(f"[prayer_times] fetch error for {label or f'{qlat},{qlon}'}: {_why} "
               f"— negative-cached for {neg_ttl:.0f}s", flush=True)
         return {"configured": True, "error": str(e),
                 "location": {"lat": qlat, "lon": qlon, "label": label}}

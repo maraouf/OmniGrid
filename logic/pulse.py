@@ -618,6 +618,15 @@ def _mark_reachable() -> None:
     """Clear the Pulse hub unreachable flag."""
     _last_probe_unreachable[0] = False
 
+# Record `type` values that Pulse returns inside guest-shaped arrays but
+# which are not guests. Observed live: `resource-incident` (an alert).
+# Keep this list narrow -- it is a denylist so anything unrecognised is
+# still treated as a possible guest, which is the safe direction here.
+_NOT_GUEST_TYPES = frozenset({
+    "resource-incident", "incident", "alert", "alertspec", "notification",
+})
+
+
 
 async def probe_pulse(
     base_url: str,
@@ -711,6 +720,17 @@ async def probe_pulse(
         """
         if not isinstance(item, dict):
             return False
+        # Explicitly-not-a-guest record kinds. This is a DENYLIST on
+        # purpose: the allowlist below stays loose because tightening it
+        # once excluded Docker container records and auto-paused the fleet
+        # (see above). A container record's `type` is never one of these,
+        # so this cannot reproduce that failure. Live data showed alert
+        # records arriving in the guest arrays and being harvested as
+        # guests, which at best wastes an index slot and at worst shadows
+        # a real guest whose node name matches the alert's.
+        _kind = str(item.get("type") or "").strip().lower()
+        if _kind in _NOT_GUEST_TYPES:
+            return False
         if item.get("vmid") in (None, "", 0) and not item.get("id"):
             return False
         # A few marker fields PVE guest records always carry.
@@ -791,25 +811,11 @@ async def probe_pulse(
                 except (TypeError, ValueError):
                     raw = repr(sample)[:1200]
                 print(f"[pulse] probe: state.{top_key}[0] RAW={raw}")
-    # Dump the raw shape of the first node + guest so operators can
-    # see what fields Pulse actually emits.
-    if nodes:
-        print(f"[pulse] probe: sample node fields={sorted((nodes[0] or {}).keys())}")
-    if guests:
-        g0 = guests[0] or {}
-        print(f"[pulse] probe: sample guest fields={sorted(g0.keys())} "
-              f"name={g0.get('name')!r} vmid={g0.get('vmid')!r} "
-              f"type={g0.get('type')!r} node={g0.get('node')!r}")
-        # Dump the full raw record (truncated to 1200 chars per line
-        # to keep the log navigable) so we can see WHICH fields carry
-        # osName / kernel / arch / platform on this Pulse version.
-        # Only fires on the first guest so the log isn't flooded.
-        import json as _dbg_json
-        try:
-            raw = _dbg_json.dumps(g0, default=str)[:1200]
-        except (TypeError, ValueError):
-            raw = repr(g0)[:1200]
-        print(f"[pulse] probe: sample guest RAW={raw}")
+    # The raw node/guest schema dumps that used to print here were removed.
+    # They existed to discover which fields a given Pulse version carries;
+    # that is settled, and they were emitting a 1,200-character JSON blob
+    # every tick -- describing, on at least one deployment, an alert record
+    # rather than a guest.
         # Also dump sub-object keys since Pulse sometimes nests the
         # OS-family data under ``info`` / ``agent`` / ``config``.
         for nest_key in ("info", "agent", "config", "stats", "details"):

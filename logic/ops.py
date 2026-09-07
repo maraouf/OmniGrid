@@ -1540,7 +1540,7 @@ async def _notify_medium_app(
         # it up on the next /api/notifications round-trip. Verb stays
         # off the ERROR-severity regex per convention.
         print(f"[notify] app SSE publish dropped: {publish_err}")
-    print(f"[notify] app ok id={new_id} event={event!r} severity={severity}")
+    print(f"[notify] INFO app ok id={new_id} event={event!r} severity={severity}")
     return {"ok": True, "id": new_id, "unread_count": unread_count}
 
 

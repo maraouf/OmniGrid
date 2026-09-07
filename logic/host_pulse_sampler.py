@@ -168,7 +168,15 @@ def _shape_row_for_db(host_id: str, stats: dict, now: float) -> Optional[tuple]:
         # extract_guest_stats produced the host_* prefix at all.
         sample_keys = sorted(stats.keys())[:12] if isinstance(stats, dict) else []
         print(
-            f"[host_pulse_sampler] skip-empty {host_id}: "
+            # `INFO` right after the tag is load-bearing, not decoration:
+            # the severity classifier scans the body, and `stats_keys`
+            # lists provider field names -- one of which is
+            # `exporter_email`-shaped `exporter_error`. That made a routine
+            # per-host trace land in the ERROR bucket for ~20 hosts every
+            # tick, burying real errors. The declared level wins over the
+            # body scan, which is the documented fix for a line whose DATA
+            # trips the verb match.
+            f"[host_pulse_sampler] INFO skip-empty {host_id}: "
             f"cpu={cpu!r} mem_total={mem_total!r} mem_used={mem_used!r} "
             f"disk_total={disk_total!r} disk_used={disk_used!r} "
             f"rx={rx_total!r} tx={tx_total!r} "

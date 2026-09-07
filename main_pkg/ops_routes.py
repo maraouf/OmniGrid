@@ -1796,6 +1796,7 @@ class SettingsIn(BaseModel):
     # Admin → AI Integration via `relocatedTuningKeys`.
     tuning_ai_max_tokens: Optional[str] = None
     tuning_ai_fallback_max_depth: Optional[str] = None
+    tuning_ai_fallback_prompt_cap_chars: Optional[str] = None
     # Public-IP / ISP / ASN lookup module (standalone — NOT
     # AI-related; the AI palette + Telegram /ip command consume it
     # but the feature has its own Admin → Public IP section). The master

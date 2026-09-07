@@ -2864,6 +2864,10 @@
         "tuning_ai_conversation_persist_interval_ms": {
           "label": "AI conversation persist cadence (ms)",
           "help": "How often the AI sidebar checks for changes in the active conversation and writes the snapshot through to /api/me/ui-prefs. Default 2000ms (2 seconds). Operators on slow connections or low-power devices can raise this (e.g. 5000-10000ms) to reduce sync churn; aggressive setups wanting near-instant recovery on accidental tab close can lower toward the 500ms floor. Range 500..30000ms. Takes effect on the NEXT page load — the interval doesn't re-arm its cadence mid-session."
+        },
+        "tuning_ai_fallback_prompt_cap_chars": {
+          "label": "AI fallback prompt cap (characters)",
+          "help": "How large a prompt may be and still be handed to a fallback provider when the primary fails. The guard exists because a very long prompt sent to a less capable model wastes the call, so past this size a failure is reported rather than retried elsewhere. Raise it if you have configured a capable fallback and want it to cover the AI sidebar, whose prompt carries your whole fleet's context and runs well past 100,000 characters — at the old fixed 32,000 the fallback could never engage there at all. Lower it if your fallback is a smaller model you only want handling short questions. Default 200,000; takes effect on the next AI call."
         }
       },
       "totp": {
@@ -5266,8 +5270,8 @@
     "restart_command_placeholder": "sudo reboot",
     "restart_command_help": "The command the Telegram /restart runs to reboot a host. Blank uses `sudo reboot` (correct for Linux). Network gear that isn't a Unix shell — a Cisco SG300 reboots via `reload` — sets a per-host override in Admin → Hosts.",
     "restart_save_command_label": "Save configuration before reboot",
-    "restart_save_command_placeholder": "e.g. write memory (blank = don\u2019t save)",
-    "restart_save_command_help": "Run this on the device BEFORE the reboot command, so unsaved changes survive. Leave blank to reboot without saving \u2014 the device then comes back on its last saved configuration. Answering \u201cY\u201d to a switch\u2019s \u201cyou haven\u2019t saved your changes\u201d question does NOT save: it means \u201ccontinue anyway\u201d, i.e. discard them. Cisco gear uses \u201cwrite memory\u201d. Per-host override: hosts_config[].ssh.restart_save_command.",
+    "restart_save_command_placeholder": "e.g. write memory (blank = don’t save)",
+    "restart_save_command_help": "Run this on the device BEFORE the reboot command, so unsaved changes survive. Leave blank to reboot without saving — the device then comes back on its last saved configuration. Answering “Y” to a switch’s “you haven’t saved your changes” question does NOT save: it means “continue anyway”, i.e. discard them. Cisco gear uses “write memory”. Per-host override: hosts_config[].ssh.restart_save_command.",
     "clear_label": "Clear",
     "user_label": "Default user",
     "user_placeholder": "e.g. root · omnigrid · ubuntu",

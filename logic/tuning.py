@@ -70,6 +70,7 @@ class Tunable(str, Enum):
     AI_CONVERSATION_PERSIST_INTERVAL_MS = "tuning_ai_conversation_persist_interval_ms"
     AI_EXTENDED_HTTP_TIMEOUT_SECONDS = "tuning_ai_extended_http_timeout_seconds"
     AI_FALLBACK_MAX_DEPTH = "tuning_ai_fallback_max_depth"
+    AI_FALLBACK_PROMPT_CAP_CHARS = "tuning_ai_fallback_prompt_cap_chars"
     AI_HTTP_TIMEOUT_SECONDS = "tuning_ai_http_timeout_seconds"
     AI_LOG_CONTEXT_HOURS = "tuning_ai_log_context_hours"
     AI_LOG_CONTEXT_LINES = "tuning_ai_log_context_lines"
@@ -1360,6 +1361,8 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # latency on a true outage. Range 0..3 (0 effectively disables the
     # fallback chain even when the master toggle is on).
     "tuning_ai_fallback_max_depth": ("AI_FALLBACK_MAX_DEPTH", 1, 0, 3),
+    "tuning_ai_fallback_prompt_cap_chars": (
+        "AI_FALLBACK_PROMPT_CAP_CHARS", 200000, 1000, 2000000),
 
     # AI provider — outbound HTTP wall-clock for the lightweight
     # one-token "test connection" probe. Default 15s — enough for a

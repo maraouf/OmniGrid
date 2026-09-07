@@ -97,6 +97,9 @@ from logic.tuning import Tunable as _Tunable
 # dedicated `tuning_snmp_unreachable_cooldown_seconds` (default 300s,
 # range 30..3600). Per-(host, port) key.
 from logic.cooldown import Cooldown as _Cooldown
+from logic.merge import (
+    dedupe_shared_pool_totals as _dedupe_shared_pool_totals,
+)
 
 _unreachable_cooldown = _Cooldown(
     seconds_fn=lambda: _tuning.tuning_int(_Tunable.SNMP_UNREACHABLE_COOLDOWN_SECONDS)
@@ -1308,8 +1311,7 @@ def extract_vendor_info(walks: dict[str, Any], existing: Optional[dict[str, Any]
     if ucd_paths and not have.get("mounts"):
         gib = 1024 ** 3
         mounts = []
-        disk_total_sum = 0
-        disk_used_sum = 0
+        disk_entries: list = []
         for oid in ucd_paths:
             idx = oid.rsplit(".", 1)[-1]
             path = _coerce_str(_pick(ucd_paths, idx)).strip()
@@ -1320,8 +1322,7 @@ def extract_vendor_info(walks: dict[str, Any], existing: Optional[dict[str, Any]
                 continue
             total_b = total_kb * 1024
             used_b = max(0, min(used_kb * 1024, total_b))
-            disk_total_sum += total_b
-            disk_used_sum += used_b
+            disk_entries.append((total_b, used_b))
             mounts.append({
                 "n": path,
                 "d": total_b / gib,
@@ -1334,6 +1335,8 @@ def extract_vendor_info(walks: dict[str, Any], existing: Optional[dict[str, Any]
         if mounts:
             mounts.sort(key=lambda m: m.get("dp", 0), reverse=True)
             out["mounts"] = mounts
+            disk_total_sum, disk_used_sum = _dedupe_shared_pool_totals(
+                disk_entries)
             if not have.get("host_disk_total"):
                 out["host_disk_total"] = disk_total_sum
                 out["host_disk_used"] = disk_used_sum
@@ -1648,8 +1651,7 @@ def extract_storage(
     mounts: list[dict] = []
     mem_total = 0
     mem_used = 0
-    disk_total = 0
-    disk_used = 0
+    disk_entries: list = []
     gib = 1024 ** 3
     # Build the effective exclusion list once. Defaults are PREFIXES
     # (any mount whose path starts with one of these gets filtered);
@@ -1710,8 +1712,10 @@ def extract_storage(
             # mount stops contributing to host_disk_*.
             if _excluded(desc):
                 continue
-            disk_total += total_bytes
-            disk_used += used_bytes
+            # Collected rather than summed here: a pooled filesystem
+            # quotes the POOL's free space in every dataset's size, so
+            # adding sizes up multiplies it. Deduped after the loop.
+            disk_entries.append((total_bytes, used_bytes))
             pct = (used_bytes / total_bytes * 100) if total_bytes > 0 else 0.0
             mounts.append({
                 "n": desc or f"snmp-{idx}",
@@ -1728,6 +1732,7 @@ def extract_storage(
         out["host_mem_used"] = mem_used
         out["host_mem_avail"] = max(0, mem_total - mem_used)
         out["host_mem_percent"] = (mem_used / mem_total * 100) if mem_total else 0.0
+    disk_total, disk_used = _dedupe_shared_pool_totals(disk_entries)
     if disk_total > 0:
         out["host_disk_total"] = disk_total
         out["host_disk_used"] = disk_used

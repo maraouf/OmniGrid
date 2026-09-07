@@ -116,6 +116,71 @@ def lookup_host_tolerant(host_map: dict, needle: str) -> Optional[dict]:
     return None
 
 
+def dedupe_shared_pool_totals(entries) -> tuple:
+    """Sum filesystem sizes without counting a shared pool's free space twice.
+
+    A pooled filesystem (ZFS is the one that bites here, btrfs behaves the
+    same) reports every dataset as ``size = its own used + the POOL's free
+    space``. The free space is one shared number quoted N times, so adding the
+    sizes up multiplies it by N. A TrueNAS host with 18 datasets on one pool
+    reported 24.5 TiB of storage against a real 6.5 TiB, and the giveaway was
+    twelve mounts quoting an identical 1061.33 GiB.
+
+    The correct total per pool is every dataset's own used, plus the pool's
+    free space counted ONCE::
+
+        /mnt/POOL1/Veeam   6508.48 total   5447.15 used   -> 1061.33 free
+        /mnt/POOL1/homes   1061.33 total      0.00 used   -> 1061.33 free
+        ...                                                  (same pool)
+
+    Datasets are grouped by that free-space figure, in BYTES. This is an
+    inference, and it is worth being clear that it is one: the caller here is
+    SNMP, which reports neither a filesystem type nor a device name, so free
+    space is the only signal that siblings share anything. Byte-exact equality
+    is what makes it safe -- two unrelated filesystems agreeing to the byte on
+    free space is a coincidence you will not see, whereas rounding to GiB first
+    would merge things that merely look alike.
+
+    Two properties worth keeping if this is ever edited:
+
+    * A host with no pooling is untouched. Every filesystem has its own free
+      figure, so every group holds one entry and the result equals the naive
+      sum exactly.
+    * Full filesystems are never merged. Several at zero free would otherwise
+      group together; zero is excluded so each keeps its own size.
+
+    ``node_exporter`` does NOT use this. It has the real fstype and device
+    name, so it keys on the actual pool, which is strictly better than
+    inferring. Do not migrate it to this helper.
+
+    Takes an iterable of ``(total_bytes, used_bytes)``; returns
+    ``(deduped_total, summed_used)``.
+    """
+    seen_free = set()
+    total = 0
+    used_sum = 0
+    for raw_total, raw_used in entries:
+        try:
+            t = int(raw_total)
+            u = int(raw_used)
+        except (TypeError, ValueError):
+            continue
+        if t <= 0:
+            continue
+        u = max(0, min(u, t))
+        free = t - u
+        used_sum += u
+        if free > 0 and free in seen_free:
+            # A sibling on a pool already accounted for: its own used only,
+            # because the free space it quotes was counted with the first.
+            total += u
+        else:
+            if free > 0:
+                seen_free.add(free)
+            total += t
+    return total, used_sum
+
+
 def resolve_probe_target(
     host_id: str,
     aliases: dict,

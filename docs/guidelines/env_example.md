@@ -565,6 +565,13 @@ AI_RETRY_ENABLED = 1
 AI_RETRY_BACKOFF_MS = 2000
 AI_RETRY_FIRST_ATTEMPT_MAX_MS = 5000
 AI_FALLBACK_MAX_DEPTH = 1
+# Largest prompt, in characters, still handed to a fallback provider when the
+# primary fails. Past this size the failure is reported rather than retried
+# elsewhere, on the reasoning that a very long prompt sent to a less capable
+# model wastes the call. Was a fixed 32,000 (~8k tokens), which the AI
+# sidebar's fleet-context prompt clears several times over -- so on that
+# surface the fallback could never engage at all.
+AI_FALLBACK_PROMPT_CAP_CHARS = 200000
 # AI provider HTTP timeouts. Two tiers — standard (palette query,
 # host-filter translation, dashboard fetches) and extended (long-form
 # multi-tool conversations where the model thinks for longer between
@@ -1314,6 +1321,7 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `AI_RETRY_BACKOFF_MS`                          | Runtime    | `2000`                  | Backoff (ms) before the AI retry attempt. Range 0..30000.                                                                                                                                                                                                                                                                                                                                     |
 | `AI_RETRY_FIRST_ATTEMPT_MAX_MS`                | Runtime    | `5000`                  | First-attempt-max-duration gate — retry only fires when the first attempt resolved in < this many ms. Range 100..60000.                                                                                                                                                                                                                                                                       |
 | `AI_FALLBACK_MAX_DEPTH`                        | Runtime    | `1`                     | AI provider fallback chain depth — number of backup providers tried on transient overload. Range 0..3 (0 disables the chain).                                                                                                                                                                                                                                                                 |
+| `AI_FALLBACK_PROMPT_CAP_CHARS`                 | Runtime    | `200000`                | Largest prompt (characters) still eligible for the AI fallback chain. Range 1000..2000000. The AI sidebar's prompt runs past 180,000, so a low value disables fallback there entirely. |
 | `AI_HTTP_TIMEOUT_SECONDS`                      | Runtime    | `15`                    | AI provider HTTP timeout — standard tier (palette / host-filter / dashboard fetches). Range 2..120.                                                                                                                                                                                                                                                                                           |
 | `AI_EXTENDED_HTTP_TIMEOUT_SECONDS`             | Runtime    | `30`                    | AI provider HTTP timeout — extended tier (long-form multi-tool conversations). Range 5..300.                                                                                                                                                                                                                                                                                                  |
 | `APPS_EXTRAS_TTL_SECONDS`                      | Runtime    | `90`                    | Per-app expanded-card extras (Speedtest / APC) freshness TTL — the SPA background-refreshes a cached `/app-data` entry older than this (stale-while-revalidate). 0 = fetch-once. Range 0..3600.                                                                                                                                                                                               |

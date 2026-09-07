@@ -37,6 +37,7 @@ from typing import Any, Optional, TypedDict
 import httpx
 
 from logic.merge import (
+    dedupe_shared_pool_totals as _dedupe_shared_pool_totals,
     WEAK_KEYS_FIELD as _WEAK_KEYS_FIELD,
     lookup_host_tolerant as _lookup_host_tolerant,
     normalize_arch as _normalize_arch,
@@ -1087,25 +1088,30 @@ def extract_stats(info_in: Optional[dict] = None, stats_in: Optional[dict] = Non
         except Exception:  # noqa: BLE001
             pass
 
-    # Always-on probe-entry diagnostic — prints once per extract_stats
-    # call so the operator can verify the deployed image carries this
-    # code. Pre-fix the deployment has NO `[beszel] extract-stats` log
-    # line whatsoever; post-fix every Beszel host probe emits one. If
-    # the operator sees the chip showing pre-fix values AND no
-    # `[beszel] extract-stats` line, the running container is on the
-    # pre-fix image and a redeploy is the answer.
-    _emit_diag(
-        f"[beszel] extract-stats {_hk}: stats.d={_num(stats.get('d')):.1f} GiB "
-        f"efs_keys={list(efs_raw.keys())}"
-    )
+    # The per-call probe-entry diagnostic that used to print here was
+    # removed. It existed to confirm a shipped fix had reached the running
+    # container; that was answered long ago, and by then it was emitting a
+    # fifth of the entire log -- 364 lines in an 11-minute sample -- while
+    # printing `?` for every hostname, because the host key is not on
+    # `info` here. The efs-aggregate line below is kept: it fires only for
+    # hosts that have extra filesystems configured and reports a real
+    # computed value. If a future deploy needs verifying, `/api/version`
+    # answers that directly.
     if efs_raw:
-        efs_total_gib = 0.0
-        efs_used_gib = 0.0
-        for _name, _entry in efs_raw.items():
-            if not isinstance(_entry, dict):
-                continue
-            efs_total_gib += _num(_entry.get("d"))
-            efs_used_gib += _num(_entry.get("du"))
+        # Datasets on one pool each report their own used plus the POOL's
+        # shared free space, so adding the sizes counts that free space
+        # once per dataset. Deduped through the same helper the SNMP
+        # filesystem roll-up uses, on byte values so siblings compare
+        # exactly. A list of unrelated mounts -- which is the usual shape
+        # here, EXTRA_FILESYSTEMS being hand-picked -- is unaffected: each
+        # has its own free figure, so the result equals the plain sum.
+        _efs_entries = [
+            (int(_num(_e.get("d")) * gib), int(_num(_e.get("du")) * gib))
+            for _e in efs_raw.values() if isinstance(_e, dict)
+        ]
+        _efs_total_b, _efs_used_b = _dedupe_shared_pool_totals(_efs_entries)
+        efs_total_gib = _efs_total_b / gib
+        efs_used_gib = _efs_used_b / gib
         if efs_total_gib > 0:
             disk_total = efs_total_gib * gib
             disk_used = efs_used_gib * gib
