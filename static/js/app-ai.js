@@ -422,6 +422,95 @@ export default {
     }
     return false;
   },
+  // Stamp a long-running Operation onto an assistant turn and follow it to
+  // completion, so the chat says what is happening rather than only that
+  // something was dispatched.
+  //
+  // The case this exists for: bouncing a switch port. The route returns as
+  // soon as the op is spawned, because the port is deliberately held DOWN for
+  // `down_seconds` and only then brought back. So the POST returning 200 means
+  // "started", not "bounced" — and the chat used to render a green "Ran:"
+  // the instant it returned and never speak again, through the whole hold and
+  // past the actual result. Someone watching it could not tell a port that was
+  // still down from one that was back, or either from a failure.
+  //
+  // Anything that returns an `op_id` gets this for free; nothing else is
+  // touched, so a run() that returns a plain toast shape is a no-op here.
+  _stampOpWatchFromResult(turn, ret) {
+    if (!turn || !ret || typeof ret !== 'object' || !ret.op_id) {
+      return;
+    }
+    turn.op_watch = {
+      op_id: String(ret.op_id),
+      state: 'running',
+      interface: (ret.interface || '').toString(),
+      host_label: (ret.host_label || ret.host_id || '').toString(),
+      down_seconds: Number(ret.down_seconds) || 0,
+      error: '',
+    };
+    this.persistAiConversation();
+    const idx = this.aiConversation.indexOf(turn);
+    if (idx >= 0) {
+      this._watchOpUntilDone(idx);
+    }
+  },
+
+  // Poll ONE op to a terminal state. Deliberately its own poll rather than a
+  // hook into pollOps: this has to keep working while the sidebar is the only
+  // thing on screen, and the op it wants may complete during a window when
+  // nothing else is asking for ops.
+  //
+  // The budget is the hold plus a margin, so a port held down for 30s is given
+  // until well past when it should be back before we stop asking. Running out
+  // is reported as unknown, never as success — the whole point of this is to
+  // stop the chat claiming an outcome it does not have.
+  async _watchOpUntilDone(turnIdx) {
+    const turn = this.aiConversation[turnIdx];
+    const w = turn && turn.op_watch;
+    if (!w || w.state !== 'running') {
+      return;
+    }
+    const holdMs = (Number(w.down_seconds) || 0) * 1000;
+    const deadline = Date.now() + holdMs + 90000;
+    const finish = (state, error) => {
+      const t = this.aiConversation[turnIdx];
+      if (!t || !t.op_watch || t.op_watch.state !== 'running') {
+        return;
+      }
+      t.op_watch.state = state;
+      t.op_watch.error = (error || '').toString();
+      this.persistAiConversation();
+      this._scrollAiSidebarToBottom();
+    };
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const t = this.aiConversation[turnIdx];
+      if (!t || !t.op_watch || t.op_watch.state !== 'running') {
+        return;   // cleared by a reload or a newer run
+      }
+      let op = null;
+      try {
+        const r = await fetch('/api/ops/' + encodeURIComponent(w.op_id));
+        if (r.ok) {
+          op = await r.json();
+        } else if (r.status === 404) {
+          // Evicted from the capped in-memory op log before we looked. The
+          // work still happened; we just cannot say how it went.
+          finish('unknown', '');
+          return;
+        }
+      } catch (_e) {
+        continue;   // transient — keep asking until the deadline
+      }
+      const status = (op && op.status) || '';
+      if (status && status !== 'running') {
+        finish(status === 'success' ? 'done' : 'failed', (op && op.error) || '');
+        return;
+      }
+    }
+    finish('unknown', '');
+  },
+
   // Stamp a per-app skill's result onto an assistant turn's `skill_panel`
   // so its output (e.g. a Radarr status summary) renders inline in the chat
   // instead of vanishing into a toast. Shared by the slash-selected app-skill

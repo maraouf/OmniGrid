@@ -12282,6 +12282,73 @@
                     :disabled="aiSidebarBusy"
                     x-text="t('ai_sidebar.confirm_cancel')"></button>
           </div>
+          <!-- What a read-only tool FOUND, as a chip. The resolved switch
+               port was already on the turn and only ever appeared if the model
+               repeated it in prose; this states it plainly. -->
+          <template x-for="(fact, fi) in (turn.role === 'assistant' ? aiToolFacts(turn) : [])" :key="fi">
+            <div class="ai-bubble-action ai-bubble-action--fact">
+              <svg width="10" height="10" aria-hidden="true">
+                <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#' + fact.icon"/>
+              </svg>
+              <span x-text="fact.text"></span>
+            </div>
+          </template>
+          <!-- Live status of a long Operation this turn started. The bounce
+               route returns when the op is SPAWNED and the port stays down for
+               the hold, so "dispatched" is not "done" — this is the difference
+               between the two, and it says which port throughout. -->
+          <div x-show="turn.role === 'assistant' && turn.op_watch"
+               class="ai-bubble-action"
+               role="status"
+               aria-live="polite"
+               :class="!turn.op_watch ? '' : (turn.op_watch.state === 'done' ? ''
+                       : (turn.op_watch.state === 'failed' ? 'ai-bubble-action--failed'
+                          : 'ai-bubble-action--pending'))">
+            <template x-if="turn.op_watch && turn.op_watch.state === 'running'">
+              <span class="spin" aria-hidden="true"></span>
+            </template>
+            <template x-if="turn.op_watch && turn.op_watch.state !== 'running'">
+              <svg width="10" height="10" aria-hidden="true">
+                <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '')
+                     + (turn.op_watch.state === 'done' ? '#icon-check' : '#icon-alert-triangle')"/>
+              </svg>
+            </template>
+            <span x-show="turn.op_watch && turn.op_watch.state === 'running'"
+                  x-text="t('ai_sidebar.op_bouncing', {
+                    iface: turn.op_watch ? turn.op_watch.interface : '',
+                    host: turn.op_watch ? turn.op_watch.host_label : '',
+                    seconds: turn.op_watch ? turn.op_watch.down_seconds : 0 })"></span>
+            <span x-show="turn.op_watch && turn.op_watch.state === 'done'"
+                  x-text="t('ai_sidebar.op_bounced', {
+                    iface: turn.op_watch ? turn.op_watch.interface : '',
+                    host: turn.op_watch ? turn.op_watch.host_label : '' })"></span>
+            <span x-show="turn.op_watch && turn.op_watch.state === 'failed'"
+                  x-text="t('ai_sidebar.op_bounce_failed', {
+                    iface: turn.op_watch ? turn.op_watch.interface : '',
+                    error: turn.op_watch ? turn.op_watch.error : '' })"></span>
+            <span x-show="turn.op_watch && turn.op_watch.state === 'unknown'"
+                  x-text="t('ai_sidebar.op_bounce_unknown', {
+                    iface: turn.op_watch ? turn.op_watch.interface : '' })"></span>
+          </div>
+          <!-- Promised an action and dispatched nothing. The model is told
+               never to announce a lookup it has not emitted and does it
+               anyway, which used to end the exchange in silence — no chip, no
+               lookup, and a person waiting for a follow-up that never comes.
+               Say so, and offer the one thing that fixes it. -->
+          <div x-show="aiTurnStalled(turn, idx)"
+               class="ai-bubble-action ai-bubble-action--pending"
+               role="status"
+               aria-live="polite">
+            <svg width="10" height="10" aria-hidden="true">
+              <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-alert-triangle'"/>
+            </svg>
+            <span x-text="t('ai_sidebar.stalled_no_dispatch')"></span>
+            <button type="button"
+                    class="ai-confirm-btn ai-confirm-btn-yes"
+                    @click="retryStalledTurn(idx)"
+                    :disabled="aiSidebarBusy"
+                    x-text="t('ai_sidebar.stalled_retry')"></button>
+          </div>
           <!-- Cancelled — operator picked Cancel. Show a faint marker
                so the chat history accurately reflects what happened. -->
           <div x-show="turn.role === 'assistant' && turn.cancelled"

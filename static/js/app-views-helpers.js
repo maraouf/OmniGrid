@@ -803,6 +803,12 @@ export default {
         this._stampSkillPanelFromResult(turn, _runRet);
         this.persistAiConversation();
       }
+      // A run() that spawned a long Operation (bouncing a port holds it down
+      // for ~30s) gets followed to completion, so the chat reports the real
+      // outcome instead of stopping at "dispatched".
+      if (typeof this._stampOpWatchFromResult === 'function') {
+        this._stampOpWatchFromResult(turn, _runRet);
+      }
     } catch (e) {
       if (typeof this.showToast === 'function') {
         this.showToast(this.t('toasts.failed_with_error', {error: e.message}), 'error');
@@ -838,6 +844,103 @@ export default {
     const subject = a.preset || a.container_name || a.mac || a.unit || '';
     if (subject) bits.push(subject);
     return bits.length ? ': ' + bits.join(' ') : '';
+  },
+
+  // Facts a read-only tool established, as short chips under the reply.
+  //
+  // Exists because the answer was reaching the browser and not being shown.
+  // `find_mac_port` resolves which switch port a MAC is on and the SPA already
+  // stamps the whole result on the turn — but nothing rendered it, so the port
+  // appeared only if the model happened to repeat it in prose. Asking a switch
+  // "which port is this device on" and being told a paragraph that may or may
+  // not contain the port is not an answer you can act on.
+  //
+  // True when a reply PROMISED to do something and dispatched nothing.
+  //
+  // The model is instructed never to announce a lookup it has not emitted, and
+  // it does it anyway: "I'll query the switch to find which port is holding
+  // this MAC. Once the port is resolved, I will proceed with bouncing it." —
+  // with no TOOL directive behind it, so no confirm chip, no lookup, no bounce.
+  // Nothing marks the turn as finished-without-acting, so the chat just stops
+  // and the person waits for a second message that is never coming.
+  //
+  // Deliberately narrow. It needs a first-person promise to ACT, and every
+  // outcome marker absent — a turn that proposed an action, asked to confirm a
+  // tool, carried tool results, started an op or errored is not stalled. Only
+  // the newest turn is judged, because retrying anything else would re-run it
+  // out of order. A false positive costs one extra button; a missed one costs
+  // the silence this exists to break.
+  aiTurnStalled(turn, idx) {
+    if (!turn || turn.role !== 'assistant' || turn.error) {
+      return false;
+    }
+    if (idx !== this.aiConversation.length - 1 || this.aiSidebarBusy) {
+      return false;
+    }
+    if (turn.action_label || turn.pending_confirm || turn.cancelled
+      || turn.op_watch || turn.skill_panel || turn.skill_running
+      || turn.tool_results
+      || (turn.pending_tool_confirms && turn.pending_tool_confirms.length)) {
+      return false;
+    }
+    const text = (turn.text || '').toString();
+    if (!text.trim()) {
+      return false;
+    }
+    return /\b(I'?ll|I will|Let me|I'?m going to|I am going to)\b[^.!?]{0,80}\b(query|check|look\s?up|find|fetch|retrieve|ask|proceed|run|bounce|restart|reboot|resolve|locate)\b/i
+      .test(text);
+  },
+
+  // Re-send the question that produced a stalled reply. Re-asking is the whole
+  // remedy: the directive is emitted or not per attempt, so the same question
+  // usually lands the second time.
+  retryStalledTurn(idx) {
+    if (this.aiSidebarBusy) {
+      return;
+    }
+    let question = '';
+    for (let i = idx - 1; i >= 0; i--) {
+      const t = this.aiConversation[i];
+      if (t && t.role === 'user' && (t.text || '').trim()) {
+        question = t.text.toString();
+        break;
+      }
+    }
+    if (!question) {
+      return;
+    }
+    this.aiSidebarQuery = question;
+    if (typeof this.sendAiSidebarMessage === 'function') {
+      this.sendAiSidebarMessage();
+    }
+  },
+
+  // Only tools whose result has ONE obvious headline fact belong here; a chip
+  // is not the place for a diagnostic dump.
+  aiToolFacts(turn) {
+    const res = turn && turn.tool_results;
+    if (!res || typeof res !== 'object') {
+      return [];
+    }
+    const out = [];
+    // A tool called twice arrives as an array — flatten so both show.
+    const each = (v) => (Array.isArray(v) ? v : [v]).filter(
+      (x) => x && typeof x === 'object');
+    for (const r of each(res.find_mac_port)) {
+      const iface = (r.interface || '').toString().trim();
+      if (!iface) {
+        continue;   // no port resolved — the reply explains why; no chip
+      }
+      out.push({
+        icon: 'icon-search',
+        text: this.t('ai_sidebar.fact_mac_port', {
+          mac: (r.mac || '').toString(),
+          iface: iface,
+          host: (r.host_id || '').toString(),
+        }),
+      });
+    }
+    return out;
   },
 
   async confirmInlineToolDispatch(turnIdx) {

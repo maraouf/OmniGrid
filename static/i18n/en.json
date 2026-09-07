@@ -3346,7 +3346,14 @@
       "sr_current": "Current usage {pct}%",
       "sr_trend": "Trend: {trend}",
       "sr_exhaustion": "Projection: {msg}"
-    }
+    },
+    "fact_mac_port": "{mac} is on {iface} of {host}",
+    "op_bouncing": "Bouncing {iface} on {host} — down {seconds}s, waiting for it to come back…",
+    "op_bounced": "Bounced {iface} on {host} — the port is back up.",
+    "op_bounce_failed": "Bounce of {iface} failed: {error}",
+    "op_bounce_unknown": "Bounce of {iface} was started, but the result is no longer in the op log — check History.",
+    "stalled_no_dispatch": "The assistant described this but didn't start it.",
+    "stalled_retry": "Ask again"
   },
   "ai_memory": {
     "title": "AI Memory",

@@ -5000,6 +5000,41 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   white-space: nowrap;
 }
 
+/* Neither done nor failed — a long Operation still in flight (a port held
+   down mid-bounce). The base chip is green because it means "ran"; wearing
+   that while the port is still DOWN is the confusion this whole block exists
+   to remove, so in-flight is deliberately neutral. */
+.ai-bubble-action--pending {
+  color: var(--text-dim);
+  border-color: var(--border-bright);
+}
+
+.ai-bubble-action--failed {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+/* A fact a tool established (which port holds a MAC). Informational rather
+   than an outcome, and allowed to wrap — a MAC plus an interface plus a host
+   does not fit one line in a sidebar. */
+.ai-bubble-action--fact {
+  color: var(--info);
+  border-color: var(--info);
+  height: auto;
+  min-height: 16px;
+  white-space: normal;
+  text-align: start;
+}
+
+/* The shared spinner is sized for buttons; inside a 16px chip it needs to
+   match the chip's own glyphs. */
+.ai-bubble-action .spin {
+  width: 9px;
+  height: 9px;
+  border-width: 1.5px;
+  flex: 0 0 auto;
+}
+
 .ai-bubble-action--cancelled {
   color: var(--text-faint);
   border-color: var(--border);

@@ -667,7 +667,21 @@ export default {
       if (!sidebar && typeof this.showToast === 'function') {
         this.showToast(detail, 'success');
       }
-      return {ok: true, detail: detail};
+      // Return the operational detail, not just ok/detail. The route holds the
+      // port down for `down_seconds` and reports the real outcome through an
+      // Operation, so "started" is NOT the answer to "did it bounce" — the
+      // sidebar stamps these onto the turn and watches the op to completion.
+      // Without them the chat said "Ran: Bounce a switch interface" the instant
+      // the POST returned and never mentioned the port or the result again.
+      return {
+        ok: true,
+        detail: detail,
+        op_id: j.op_id || '',
+        interface: j.interface || iface,
+        host_id: hostId,
+        host_label: j.label || hostId,
+        down_seconds: Number(j.down_seconds) || seconds || 0,
+      };
     } catch (e) {
       const msg = (this.t('toasts.failed') || 'Failed') + ': ' + e.message;
       if (!sidebar && typeof this.showToast === 'function') {
