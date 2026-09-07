@@ -93,6 +93,12 @@ from logic import auth, backups, config_export, errors as _err, events as _event
 # satisfied when the handler also has positional-with-default params
 # before `_admin`. ~140 route handlers consume these aliases.
 AdminUser = Annotated[auth.User, Depends(auth.require_admin)]
+# Any authenticated caller, admin or readonly. For READ-ONLY diagnostic
+# endpoints where withholding the data from a readonly client makes that
+# client useless for the thing it exists to do -- reading logs, reading the
+# record of AI calls -- while granting it no ability to change anything.
+# Writes keep `AdminUser`.
+AuthedUser = Annotated[auth.User, Depends(auth.current_user)]
 CurrentUser = Annotated[auth.User, Depends(auth.current_user)]
 from logic import webauthn_helper as webauthn_h  # noqa: E402,F401  re-exported for users_routes / auth_routes
 from pydantic import BaseModel, field_validator  # noqa: E402,F401  field_validator re-exported for ops_routes' StackRetagIn

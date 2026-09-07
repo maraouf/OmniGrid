@@ -77,6 +77,7 @@ if TYPE_CHECKING:
         _logs,
         _ops_mod,
         AdminUser,
+        AuthedUser,
         Request,
         Settings,
         Tunable,
@@ -556,7 +557,7 @@ async def api_admin_ai_jobs(
     limit: int = 100,
     offset: int = 0,
     *,
-    _admin: AdminUser,
+    _user: AuthedUser,
 ):
     """Paginated job log for the dashboard's "Jobs" modal. Supports
     optional ``?provider=`` and ``?status=`` filters. Newest first.

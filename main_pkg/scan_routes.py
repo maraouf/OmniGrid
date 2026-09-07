@@ -71,6 +71,7 @@ from main import *  # noqa: E402,F401,F403
 from main import (  # noqa: E402,F401 — explicit for IDE; runtime via the * above
     sqlite3,
     AdminUser,
+    AuthedUser,
     BaseModel,
     FileResponse,
     HTTPException,
@@ -2594,7 +2595,7 @@ async def api_logs_clear(_admin: AdminUser):
 # so path-traversal attempts (../, absolute paths) bounce with 404.
 # ----------------------------------------------------------------------------
 @app.get("/api/admin/logs/files")
-async def api_admin_logs_files(_admin: AdminUser):
+async def api_admin_logs_files(_user: AuthedUser):
     """List the persistent log files on disk + the log directory."""
     return {"files": _logs.list_persistent_logs(), "log_dir": _logs.LOG_DIR}
 
@@ -2604,7 +2605,7 @@ async def api_admin_logs_file_view(
     name: str,
     tail: int = 0,
     *,
-    _admin: AdminUser,
+    _user: AuthedUser,
 ):
     """Read one persistent-log file by name (path-traversal guarded)."""
     # Defence-in-depth: a read exception (permissions, transient FS
@@ -2636,7 +2637,7 @@ async def api_admin_logs_file_view(
 @app.get("/api/admin/logs/files/{name}/download")
 async def api_admin_logs_file_download(
     name: str,
-    _admin: AdminUser,
+    _user: AuthedUser,
 ):
     """Stream one persistent log file. Name must be `<YYYY-MM-DD>.log` per
     `_logs.safe_log_path`'s validator; anything else 404s."""
