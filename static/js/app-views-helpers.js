@@ -873,9 +873,14 @@ export default {
           tool_confirm_granted: true,
         }),
       });
-      const j = await r.json().catch(() => ({}));
+      // Same reason as the sidebar path: a proxy error body is HTML, so
+      // json() throws and the bare fallback hides a printable cause.
+      const j = r.ok ? await r.json().catch(() => ({})) : {};
       if (!r.ok || !j.ok) {
-        let detail = (j && j.detail) || (this.t('toasts.failed') || 'Failed');
+        let detail = r.ok
+          ? ((j && (j.detail || j.error))
+             || (this.t('toasts.failed') || 'Failed'))
+          : await this.fmtResponseError(r);
         // Operator-helpful hint: when the AI provider timed out AND
         // the fallback chain wasn't engaged (either disabled OR no
         // viable secondary providers configured), tell the operator

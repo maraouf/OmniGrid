@@ -1291,12 +1291,27 @@ export default {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({query: q, context: ctx, conversation: priorTurns}),
       });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok || !j.ok) {
+      // A non-OK response may not carry json at all -- a reverse-proxy
+      // 502/504 answers with an HTML page regardless of what we asked
+      // for. Read it through the shared formatter BEFORE anything
+      // consumes the stream, so the operator gets the actual reason
+      // instead of a bare "Failed" produced by json() throwing.
+      if (!r.ok) {
         this.aiConversation.push({
           role: 'assistant',
           text: '',
-          error: (j && j.detail) || (this.t('toasts.failed') || 'Failed'),
+          error: await this.fmtResponseError(r),
+          ts: Date.now(),
+        });
+        return;
+      }
+      const j = await r.json().catch(() => ({}));
+      if (!j.ok) {
+        this.aiConversation.push({
+          role: 'assistant',
+          text: '',
+          error: (j && (j.detail || j.error))
+            || (this.t('toasts.failed') || 'Failed'),
           ts: Date.now(),
         });
         return;
