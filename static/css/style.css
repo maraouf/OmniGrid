@@ -5015,15 +5015,42 @@ body.ai-pinned > .og-app-shell--ai-pinned {
 }
 
 /* A fact a tool established (which port holds a MAC). Informational rather
-   than an outcome, and allowed to wrap — a MAC plus an interface plus a host
-   does not fit one line in a sidebar. */
+   than an outcome. */
 .ai-bubble-action--fact {
   color: var(--info);
   border-color: var(--info);
+}
+
+/* Both variants above are written by `aiToolFacts`, and both carry a SENTENCE
+   -- a MAC, a host, an interface, and for the failed one the switch's own
+   error text. The base chip is built for a two-word outcome ("Ran"), so it
+   pins `white-space: nowrap` and a 16px height; a sentence in that box runs
+   off the side of the sidebar instead of wrapping. The wrap belonged to both
+   from the start and was only ever applied to `--fact`, so a FAILED lookup --
+   the longest text of the lot, since it quotes the device -- was the one case
+   that overflowed.
+   Colour stays out of this rule deliberately: it sits after `--failed`, and
+   setting a colour here would repaint the red chip whichever variant matched.
+   `overflow-wrap` because a MAC and an FQDN carry no break opportunity of
+   their own, so wrapping alone still leaves one long token to push the box
+   wide. Icon pinned to the top and non-shrinking -- centred against a
+   three-line block it floats oddly, and it must not be squeezed by the
+   text beside it. */
+.ai-bubble-action--fact,
+.ai-bubble-action--failed {
+  align-items: flex-start;
   height: auto;
   min-height: 16px;
+  padding-block: 1px;
   white-space: normal;
+  overflow-wrap: anywhere;
   text-align: start;
+}
+
+.ai-bubble-action--fact > svg,
+.ai-bubble-action--failed > svg {
+  flex: none;
+  margin-top: 2px;
 }
 
 /* The shared spinner is sized for buttons; inside a 16px chip it needs to

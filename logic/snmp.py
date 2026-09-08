@@ -85,6 +85,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections import OrderedDict
 from typing import Any, Optional
 
 from logic import tuning as _tuning
@@ -2049,6 +2050,44 @@ _VALID_VENDOR_KEYS: frozenset[str] = frozenset(_VENDOR_SIGNATURES.keys())
 # validator + /api/me's `snmp_vendor_keys` block both consume this set).
 VALID_VENDOR_KEYS = _VALID_VENDOR_KEYS
 
+
+# Per-host memory for the success-path probe diagnostic. Bounded, oldest
+# evicted first — same shape as `beszel._efs_diag_changed`, which gates an
+# identical class of line for the same reason.
+_PROBE_DIAG_CAP = 1024
+_probe_diag_last: "OrderedDict[str, tuple]" = OrderedDict()
+
+
+def _probe_diag_changed(host: str, shape: tuple) -> bool:
+    """True when this host's probe SHAPE is new or has changed.
+
+    The line this gates printed on every successful probe of every SNMP
+    host: 332 lines across 28 hosts in a 21-minute window, 16% of the whole
+    log and its single largest source. For most of the fleet it also said
+    nothing — a switch has no `hrProcessorLoad` and no `hrStorage`, so the
+    line reads `cpu%=None mem_total=None disk_total=None` on every probe,
+    forever, and will never read anything else.
+
+    The question the diagnostic answers is "is this host returning what I
+    expect from it?", which is about the SHAPE of the reply — which fields
+    came back at all, and how many interfaces — not about what the CPU
+    happens to be right now. Live values are on the dashboard; repeating
+    them here every tick buries the one case worth seeing, which is a host
+    whose reply shape CHANGES (a switch that stops reporting interfaces, a
+    server that stops reporting memory).
+
+    So: log on first sight of a host, and whenever the shape moves.
+    """
+    prev = _probe_diag_last.get(host)
+    if prev == shape:
+        _probe_diag_last.move_to_end(host)
+        return False
+    _probe_diag_last[host] = shape
+    _probe_diag_last.move_to_end(host)
+    while len(_probe_diag_last) > _PROBE_DIAG_CAP:
+        _probe_diag_last.popitem(last=False)
+    return True
+
 # Per-vendor walk-concurrency global-default tunable, keyed by vendor.
 # A typed-enum map (NOT a bare f-string `tuning_snmp_walk_concurrency_<v>`)
 # so the consumer goes through `Tunable.X` per the typed-key rule AND the
@@ -2834,12 +2873,24 @@ async def probe_snmp(
 
     host_key = stats.get("host_hostname") or host_clean
     stats["snmp_name"] = host_key
-    print(f"[snmp] probe: host={host_clean!r} port={port_int} "
-          f"version={version} key={host_key!r} "
-          f"cpu%={stats.get('host_cpu_percent')} "
-          f"mem_total={stats.get('host_mem_total')} "
-          f"disk_total={stats.get('host_disk_total')} "
-          f"ifaces={len(stats.get('network_ifaces') or [])}")
+    # Gated on the reply's SHAPE, not its values — see `_probe_diag_changed`.
+    # Unconditional, this was the largest single source in the log while
+    # telling most operators nothing: a switch reports None for all three
+    # totals on every probe it will ever answer.
+    _iface_n = len(stats.get("network_ifaces") or [])
+    if _probe_diag_changed(host_clean, (
+        host_key,
+        stats.get("host_cpu_percent") is not None,
+        stats.get("host_mem_total") is not None,
+        stats.get("host_disk_total") is not None,
+        _iface_n,
+    )):
+        print(f"[snmp] probe: host={host_clean!r} port={port_int} "
+              f"version={version} key={host_key!r} "
+              f"cpu%={stats.get('host_cpu_percent')} "
+              f"mem_total={stats.get('host_mem_total')} "
+              f"disk_total={stats.get('host_disk_total')} "
+              f"ifaces={_iface_n}")
 
     # Vendor-pruning + budget diagnostics surface on the SUCCESS path
     # too — operators verifying a per-host `vendors` override or

@@ -73,6 +73,18 @@ def _sanitise_ident(value: object) -> str:
 # can't pile up megabytes of payload.
 _QUEUE_MAX = 256
 
+# Exact event types whose TRACE PRINT is silenced in `publish` — the event
+# itself still publishes and dispatches normally. Prefix-matched families
+# (`host:provider_*`, `tab:*`) are handled separately in the same gate;
+# this set is for individually-named types that are high-frequency without
+# being a family. Adding one is a deliberate call that the line's volume
+# outweighs its diagnostic value — check the sampler already logs the
+# underlying event with its measured VALUE before silencing the publish.
+_TRACE_SUPPRESSED_TYPES: frozenset[str] = frozenset({
+    "host:ping_sampled",
+    "host:history_appended",
+})
+
 
 class _Subscriber:
     """One SSE connection. Owns its queue + an overflow flag."""
@@ -223,13 +235,23 @@ def publish(
     # event still publishes + dispatches; only the trace print is
     # silenced.
     #
+    # `host:ping_sampled` and `host:history_appended` belong in the same
+    # bucket and were simply never added: one fires per curated host per
+    # ping tick, the other per host per history append, so together they
+    # were 15% of the log — 307 lines in a 21-minute sample — carrying no
+    # more than "a sampler that is demonstrably running just ran again".
+    # The samplers already log their own per-host outcome WITH the value
+    # measured, which is the line worth keeping; this one only says an
+    # event was dispatched about it.
+    #
     # PERF: the suppression gate runs FIRST so the high-frequency
     # suppressed types skip the identity lookup + the `_sanitise_ident`
     # regex entirely — that was thousands of wasted regex fullmatches per
     # minute on the hottest publish path. `_ident` is used ONLY for the
     # trace print, so it's computed lazily inside this branch; the
     # client_id stamping + bus.publish below stay unconditional.
-    if not type_.startswith("host:provider_") and not type_.startswith("tab:"):
+    if type_ not in _TRACE_SUPPRESSED_TYPES and not (
+            type_.startswith("host:provider_") or type_.startswith("tab:")):
         # Identity hint mirrors the failure-path's lookup order so the log
         # line stays useful regardless of which publisher fired. The value
         # is routed through `_sanitise_ident` (regex-match-then-group(0))
