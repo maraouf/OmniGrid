@@ -950,6 +950,45 @@ def latest_per_port_all_for_host(host_id: str) -> dict:
 # behaviour knob — so it stays a code constant rather than a TUNABLE.
 _APPS_SPARK_MAX_POINTS = 24
 
+# How much MORE history the rollup reads than the sparkline can draw. The
+# window it needs is `max_points * interval`; anything past that is scanned
+# and thrown away, and the query read the FULL retention — at the defaults
+# (24 points, 300s, 7 days) that is two hours of data out of a hundred and
+# sixty-eight, so roughly eighty-four times more rows than it uses.
+#
+# Twelve is headroom, not a guess at the right window: a chip whose probes
+# are spaced normally fills 24 points in two hours, and this tolerates gaps,
+# pauses and clock skew an order of magnitude larger before it could truncate
+# anything. A probe that FAILS still writes a row (`_persist_row` stores
+# alive=0), so a chip that is merely down keeps a dense series and is never
+# affected — only one that has stopped being probed at all goes quiet, and
+# the card already states that separately through `last_probe`.
+_ROLLUP_WINDOW_SAFETY = 12
+
+
+def _rollup_cutoff_ts(max_points: int) -> int:
+    """Oldest timestamp the sparkline could possibly need, or 0 for "no bound".
+
+    DERIVED rather than a fixed number of days on purpose. Raise the probe
+    interval to an hour and 24 points genuinely spans a day, at which point a
+    hardcoded 24h bound would start silently truncating charts. Computed, the
+    window grows with the interval — and once it reaches retention the bound
+    stops binding and behaviour is exactly what it was before, so this cannot
+    cost data at any interval setting.
+    """
+    try:
+        retention_days = int(tuning.tuning_int(_Tunable.STATS_HISTORY_DAYS))
+        interval_s = int(_resolve_service_probe_interval())
+    except Exception:  # noqa: BLE001
+        return 0  # unresolvable tunables — scan everything, as before
+    if retention_days <= 0 or interval_s <= 0 or max_points <= 0:
+        return 0
+    need_s = max_points * interval_s * _ROLLUP_WINDOW_SAFETY
+    retention_s = retention_days * 86400
+    if need_s >= retention_s:
+        return 0  # window covers retention — bounding would be a no-op
+    return int(time.time()) - need_s
+
 
 # noinspection DuplicatedCode
 def history_rollup_all_for_host(host_id: str,
@@ -968,7 +1007,9 @@ def history_rollup_all_for_host(host_id: str,
     Uses a ``ROW_NUMBER()`` window partitioned by ``service_idx`` so the
     per-chip cap is applied IN SQL (the ``idx_service_samples_host_idx_ts``
     index covers the partition) rather than fetching the whole retention
-    window and slicing in Python.
+    window and slicing in Python. The window is additionally bounded in TIME
+    by :func:`_rollup_cutoff_ts` — the cap alone still made the window sort
+    every row in retention before discarding all but the newest few.
     """
     if not host_id:
         return {}
@@ -976,6 +1017,7 @@ def history_rollup_all_for_host(host_id: str,
         n = max(1, int(max_points))
     except (TypeError, ValueError):
         n = _APPS_SPARK_MAX_POINTS
+    cutoff = _rollup_cutoff_ts(n)
     try:
         with db_conn() as c:
             rows = c.execute(
@@ -985,10 +1027,10 @@ def history_rollup_all_for_host(host_id: str,
                 "             PARTITION BY service_idx ORDER BY ts DESC"
                 "         ) AS rn "
                 "  FROM service_samples "
-                "  WHERE host_id = ? AND port = 0"
+                "  WHERE host_id = ? AND port = 0 AND ts >= ?"
                 ") WHERE rn <= ? "
                 "ORDER BY service_idx ASC, ts ASC",
-                (host_id, n),
+                (host_id, cutoff, n),
             ).fetchall()
     except (sqlite3.Error, OSError) as e:
         print(f"[service_sampler] history_rollup_all_for_host({host_id!r}) skipped: {e}")
@@ -1148,7 +1190,14 @@ def history_rollup_all_for_hosts(host_ids: list[str],
 
     ONE query for the WHOLE fleet. ROW_NUMBER() window partitioned by
     (host_id, service_idx) with the per-chip cap applied IN SQL
-    (`WHERE rn <= ?`). Empty list / empty result → empty dict.
+    (`WHERE rn <= ?`), and the input bounded in TIME by
+    :func:`_rollup_cutoff_ts`. Empty list / empty result → empty dict.
+
+    The time bound is what makes this affordable. A window operator sorts
+    everything it is given before the cap can discard any of it, so with the
+    whole retention in scope this was the slowest query on the deployment —
+    3.8 seconds in one sample — to draw sparklines that only ever show the
+    last couple of hours.
     """
     if not host_ids:
         return {}
@@ -1157,6 +1206,7 @@ def history_rollup_all_for_hosts(host_ids: list[str],
     except (TypeError, ValueError):
         n = _APPS_SPARK_MAX_POINTS
     in_clause, params = _hostid_in_clause(host_ids)
+    cutoff = _rollup_cutoff_ts(n)
     try:
         with db_conn() as c:
             rows = c.execute(
@@ -1165,10 +1215,11 @@ def history_rollup_all_for_hosts(host_ids: list[str],
                 "         ROW_NUMBER() OVER ("
                 "             PARTITION BY host_id, service_idx ORDER BY ts DESC"
                 "         ) AS rn "
-                f"  FROM service_samples WHERE {in_clause} AND port = 0"
+                f"  FROM service_samples WHERE {in_clause} AND port = 0 "
+                "    AND ts >= ?"
                 ") WHERE rn <= ? "
                 "ORDER BY host_id ASC, service_idx ASC, ts ASC",
-                params + [n],
+                params + [cutoff, n],
             ).fetchall()
     except (sqlite3.Error, OSError) as e:
         print(f"[service_sampler] history_rollup_all_for_hosts(n={len(host_ids)}) skipped: {e}")

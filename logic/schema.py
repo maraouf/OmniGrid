@@ -1437,12 +1437,16 @@ def init_db():
         -- number of ports per chip. Partial, so it costs nothing on the
         -- per-port rows it excludes.
         --
-        -- This does NOT fix that query's dominant cost: a ROW_NUMBER() window
-        -- materialises and sorts its whole input, and this one is unbounded in
-        -- time -- it reads the full retention to keep the newest 24 points per
-        -- chip. Bounding it by `ts` is the bigger lever and is deliberately
-        -- NOT done here, because it changes what a chip that stopped probing
-        -- days ago displays (its old sparkline, versus nothing).
+        -- The index was never the dominant cost, though: a ROW_NUMBER()
+        -- window sorts its whole input, and that input was unbounded in time
+        -- -- the full retention read to keep the newest 24 points per chip.
+        -- That half is now fixed in `service_sampler._rollup_cutoff_ts`, which
+        -- derives the window from `max_points * interval * safety` so it
+        -- widens with the probe interval instead of truncating. Measured on
+        -- 967,680 rows: 521ms -> 115ms, results identical. The accepted cost
+        -- is that a chip which stopped being PROBED for longer than the
+        -- window draws nothing; a chip that is merely DOWN is unaffected,
+        -- because a failed probe still writes a row.
         CREATE INDEX IF NOT EXISTS idx_service_samples_rollup_host_idx_ts
             ON service_samples(host_id, service_idx, ts DESC)
             WHERE port = 0;
