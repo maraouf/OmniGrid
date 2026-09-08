@@ -122,9 +122,15 @@
           <span class="fs-3xs text-[var(--text-faint)] mono"
                 x-text="t('apps.emby.streams_peak', { today: (Number(embyTrend(inst).peak_streams_today) || 0), peak: (Number(embyTrend(inst).peak_streams) || 0), days: (Number(embyTrend(inst).days) || 0) })"></span>
         </div>
-        <svg class="apps-spark apps-spark--trend" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
-          <polyline class="apps-spark-line" :points="embyTrendPath(embyTrend(inst).series_streams)"></polyline>
-        </svg>
+        <div class="og-chart"
+             x-data="{ axis: () => ogChartAxis(embyTrend(inst).series_streams) }">
+          <div class="og-chart-plot">
+            <svg class="apps-spark apps-spark--trend" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+            <polyline class="apps-spark-line" :points="embyTrendPath(embyTrend(inst).series_streams)"></polyline>
+            </svg>
+          </div>
+          <!-- INCLUDE: _components/og-chart-axes.html -->
+        </div>
       </div>
     </template>
   </div>

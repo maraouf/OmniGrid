@@ -168,15 +168,38 @@ const _unifiTrendMemo = new WeakMap();
 
 // SVG polyline points for a sparkline over a 0..200 × 0..32 viewBox, auto-scaled
 // to the series' own min/max. '' when < 2 points. Memoised on the array ref.
-function unifiTrendPath(arr) {
+// `peer` is the OTHER series sharing the same frame. Both lines used to be
+// normalised to their own min/max, which is wrong when they are the same kind
+// of thing at different magnitudes: wireless clients are a SUBSET of total
+// clients, so drawing each to its own range made the smaller one climb to the
+// top of the plot and the two read as equal. Passing the sibling makes one
+// scale cover both — which is also what lets a single axis label the frame
+// honestly. Called without a peer it behaves exactly as before.
+function unifiTrendPath(arr, peer) {
   if (!Array.isArray(arr) || arr.length < 2) {
     return '';
   }
-  if (_unifiTrendMemo.has(arr)) {
-    return _unifiTrendMemo.get(arr);
+  const peerArr = Array.isArray(peer) ? peer : null;
+  // Memo holds the peer it was computed against — a shared scale depends on
+  // BOTH arrays, so a hit keyed only on `arr` would serve a path drawn to the
+  // wrong range after the sibling changed.
+  const hit = _unifiTrendMemo.get(arr);
+  if (hit && hit.peer === peerArr) {
+    return hit.d;
   }
   const W = 200, H = 32, n = arr.length;
   let min = Infinity, max = -Infinity;
+  if (peerArr) {
+    for (let i = 0; i < peerArr.length; i++) {
+      const pv = Number(peerArr[i]) || 0;
+      if (pv < min) {
+        min = pv;
+      }
+      if (pv > max) {
+        max = pv;
+      }
+    }
+  }
   for (let i = 0; i < n; i++) {
     const v = Number(arr[i]) || 0;
     if (v < min) {
@@ -195,7 +218,7 @@ function unifiTrendPath(arr) {
     d += (i === 0 ? 'M' : 'L') + x + ',' + y + ' ';
   }
   d = d.trim();
-  _unifiTrendMemo.set(arr, d);
+  _unifiTrendMemo.set(arr, { peer: peerArr, d: d });
   return d;
 }
 

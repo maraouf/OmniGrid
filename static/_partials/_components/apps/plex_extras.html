@@ -83,9 +83,15 @@
       <div class="space-y-1 mt-2 pt-2 border-t border-[var(--border)]">
         <span class="fs-2xs text-[var(--text-faint)] block"
               x-text="t('apps.plex.streams_trend', { days: plexTrend(inst).days })"></span>
-        <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
-          <path :d="plexTrendPath(plexTrend(inst).series_streams)" fill="none" stroke="var(--success)" stroke-width="1.5"/>
-        </svg>
+        <div class="og-chart"
+             x-data="{ axis: () => ogChartAxis(plexTrend(inst).series_streams, { mode: 'minmax' }) }">
+          <div class="og-chart-plot">
+            <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+            <path :d="plexTrendPath(plexTrend(inst).series_streams)" fill="none" stroke="var(--success)" stroke-width="1.5"/>
+            </svg>
+          </div>
+          <!-- INCLUDE: _components/og-chart-axes.html -->
+        </div>
         <div class="fs-3xs text-[var(--text-faint)]"
              x-text="t('apps.plex.streams_peak', { peak: plexTrend(inst).peak_streams, latest: plexTrend(inst).latest_streams })"></div>
       </div>

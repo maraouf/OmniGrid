@@ -66,10 +66,16 @@
           <div class="space-y-1 mt-2 pt-2 border-t border-[var(--border)]">
             <div class="apps-card-stat-label"
                  x-text="t('apps.tracearr.violation_trend', { days: tracearrTrend(tracearrData(inst)).days })"></div>
-            <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8" role="img"
-                 :aria-label="t('apps.tracearr.violation_trend', { days: tracearrTrend(tracearrData(inst)).days })">
-              <path :d="tracearrTrendPath(tracearrTrend(tracearrData(inst)).series_violations)" fill="none" stroke="var(--danger)" stroke-width="1.5"/>
-            </svg>
+            <div class="og-chart"
+                 x-data="{ axis: () => ogChartAxis(tracearrTrend(tracearrData(inst)).series_violations, { mode: 'minmax' }) }">
+              <div class="og-chart-plot">
+                <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8" role="img"
+                :aria-label="t('apps.tracearr.violation_trend', { days: tracearrTrend(tracearrData(inst)).days })">
+                <path :d="tracearrTrendPath(tracearrTrend(tracearrData(inst)).series_violations)" fill="none" stroke="var(--danger)" stroke-width="1.5"/>
+                </svg>
+              </div>
+              <!-- INCLUDE: _components/og-chart-axes.html -->
+            </div>
             <div class="fs-3xs text-[var(--text-faint)]"
                  x-show="(Number(tracearrTrend(tracearrData(inst)).week_change_violations) || 0) !== 0"
                  x-text="(Number(tracearrTrend(tracearrData(inst)).week_change_violations) || 0) > 0
@@ -83,10 +89,16 @@
           <div class="space-y-1 mt-2 pt-2 border-t border-[var(--border)]">
             <div class="apps-card-stat-label"
                  x-text="t('apps.tracearr.streams_trend', { days: tracearrTrend(tracearrData(inst)).days })"></div>
-            <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8" role="img"
-                 :aria-label="t('apps.tracearr.streams_trend', { days: tracearrTrend(tracearrData(inst)).days })">
-              <path :d="tracearrTrendPath(tracearrTrend(tracearrData(inst)).series_streams)" fill="none" stroke="var(--info)" stroke-width="1.5"/>
-            </svg>
+            <div class="og-chart"
+                 x-data="{ axis: () => ogChartAxis(tracearrTrend(tracearrData(inst)).series_streams, { mode: 'minmax' }) }">
+              <div class="og-chart-plot">
+                <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8" role="img"
+                :aria-label="t('apps.tracearr.streams_trend', { days: tracearrTrend(tracearrData(inst)).days })">
+                <path :d="tracearrTrendPath(tracearrTrend(tracearrData(inst)).series_streams)" fill="none" stroke="var(--info)" stroke-width="1.5"/>
+                </svg>
+              </div>
+              <!-- INCLUDE: _components/og-chart-axes.html -->
+            </div>
             <div class="fs-3xs text-[var(--text-faint)]"
                  x-text="t('apps.tracearr.streams_peak', { peak: tracearrTrend(tracearrData(inst)).peak_streams, latest: tracearrTrend(tracearrData(inst)).latest_streams })"></div>
           </div>
@@ -101,10 +113,16 @@
         <!-- Plays-over-time sparkline (last 30 days) — drawer-only. -->
         <div x-show="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && tracearrHasPlays(tracearrData(inst))" class="mt-2">
           <div class="apps-card-stat-label mb-1" x-text="t('apps.tracearr.plays_chart') || 'Plays (last 30 days)'"></div>
-          <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="apps-tracearr-spark" role="img"
-               :aria-label="t('apps.tracearr.plays_chart') || 'Plays (last 30 days)'">
-            <path :d="tracearrPlaysPath(tracearrData(inst))" fill="none" stroke="var(--primary)" stroke-width="1.5"/>
-          </svg>
+          <div class="og-chart"
+               x-data="{ axis: () => ogChartAxis(tracearrData(inst).plays_series, { mode: 'minmax' }) }">
+            <div class="og-chart-plot">
+              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="apps-tracearr-spark" role="img"
+              :aria-label="t('apps.tracearr.plays_chart') || 'Plays (last 30 days)'">
+              <path :d="tracearrPlaysPath(tracearrData(inst))" fill="none" stroke="var(--primary)" stroke-width="1.5"/>
+              </svg>
+            </div>
+            <!-- INCLUDE: _components/og-chart-axes.html -->
+          </div>
         </div>
         <!-- Streaming-quality breakdown: Direct Play / Direct Stream / Transcode.
              (Tracearr's API reports the playback-tier split, not a 4k/1080p

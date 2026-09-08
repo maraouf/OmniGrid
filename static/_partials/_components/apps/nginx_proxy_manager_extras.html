@@ -130,16 +130,28 @@
                 :class="(Number(npmTrend(inst).hosts_week_change) || 0) > 0 ? 'text-[var(--success)]' : ((Number(npmTrend(inst).hosts_week_change) || 0) < 0 ? 'text-[var(--warning)]' : 'text-[var(--text-faint)]')"
                 x-text="((Number(npmTrend(inst).hosts_week_change) || 0) >= 0 ? t('apps.npm.hosts_up', { n: Math.abs(Number(npmTrend(inst).hosts_week_change) || 0) }) : t('apps.npm.hosts_down', { n: Math.abs(Number(npmTrend(inst).hosts_week_change) || 0) }))"></span>
         </div>
-        <svg class="apps-spark apps-spark--trend" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
-          <polyline class="apps-spark-line" :points="npmTrendPath(npmTrend(inst).series_hosts)"></polyline>
-        </svg>
+        <div class="og-chart"
+             x-data="{ axis: () => ogChartAxis(npmTrend(inst).series_hosts) }">
+          <div class="og-chart-plot">
+            <svg class="apps-spark apps-spark--trend" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+            <polyline class="apps-spark-line" :points="npmTrendPath(npmTrend(inst).series_hosts)"></polyline>
+            </svg>
+          </div>
+          <!-- INCLUDE: _components/og-chart-axes.html -->
+        </div>
         <!-- Plain-HTTP drift — only when the window saw any plain-HTTP host. -->
         <template x-if="(Number(npmTrend(inst).peak_plain_http) || 0) > 0 && (npmTrend(inst).series_plain_http || []).length > 1">
           <div class="mt-1">
             <div class="apps-card-stat-label text-[var(--warning)]" x-text="t('apps.npm.plain_http_trend') || 'Plain-HTTP hosts'"></div>
-            <svg class="apps-spark apps-spark--mini" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
-              <polyline class="apps-spark-line" style="stroke: var(--warning)" :points="npmTrendPath(npmTrend(inst).series_plain_http)"></polyline>
-            </svg>
+            <div class="og-chart"
+                 x-data="{ axis: () => ogChartAxis(npmTrend(inst).series_plain_http) }">
+              <div class="og-chart-plot">
+                <svg class="apps-spark apps-spark--mini" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+                <polyline class="apps-spark-line" style="stroke: var(--warning)" :points="npmTrendPath(npmTrend(inst).series_plain_http)"></polyline>
+                </svg>
+              </div>
+              <!-- INCLUDE: _components/og-chart-axes.html -->
+            </div>
           </div>
         </template>
       </div>

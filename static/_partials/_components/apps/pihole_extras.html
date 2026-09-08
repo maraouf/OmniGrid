@@ -142,12 +142,21 @@
               <div class="space-y-1 mt-1">
                 <span class="fs-2xs text-[var(--text-faint)] block"
                       x-text="t('apps.pihole.activity') || 'Queries vs blocked'"></span>
-                <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
-                  <path :d="piholeSeriesPath(agg.queriesSeries, piholeSeriesMax(agg.queriesSeries))"
-                        fill="none" stroke="var(--info)" stroke-width="1.5"/>
-                  <path :d="piholeSeriesPath(agg.blockedSeries, piholeSeriesMax(agg.queriesSeries))"
-                        fill="none" stroke="var(--danger)" stroke-width="1.5"/>
-                </svg>
+                <!-- Both paths share `piholeSeriesMax(agg.queriesSeries)`, so
+                     one axis is correct for both — same reasoning as the
+                     AdGuard queries-vs-blocked chart. -->
+                <div class="og-chart"
+                     x-data="{ axis: () => ogChartAxis(agg.queriesSeries) }">
+                  <div class="og-chart-plot">
+                    <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                      <path :d="piholeSeriesPath(agg.queriesSeries, piholeSeriesMax(agg.queriesSeries))"
+                            fill="none" stroke="var(--info)" stroke-width="1.5"/>
+                      <path :d="piholeSeriesPath(agg.blockedSeries, piholeSeriesMax(agg.queriesSeries))"
+                            fill="none" stroke="var(--danger)" stroke-width="1.5"/>
+                    </svg>
+                  </div>
+                  <!-- INCLUDE: _components/og-chart-axes.html -->
+                </div>
                 <div class="flex items-center justify-around fs-2xs text-[var(--text-faint)]">
                   <span><span class="inline-block w-2 h-2 rounded-full me-1" style="background: var(--info);"></span><span
                     x-text="t('apps.pihole.legend_queries') || 'queries'"></span></span>
@@ -198,9 +207,15 @@
               <div class="space-y-1 mt-1 pt-1 border-t border-[var(--border)]">
                 <span class="fs-2xs text-[var(--text-faint)] block"
                       x-text="t('apps.pihole.blocked_trend', { days: agg.trend.days }) || ('Blocked % trend (' + agg.trend.days + ' days)')"></span>
-                <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
-                  <path :d="piholeTrendPath(agg.trend.series)" fill="none" stroke="var(--success)" stroke-width="1.5"/>
-                </svg>
+                <div class="og-chart"
+                     x-data="{ axis: () => ogChartAxis(agg.trend.series, { unit: '%' }) }">
+                  <div class="og-chart-plot">
+                    <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                      <path :d="piholeTrendPath(agg.trend.series)" fill="none" stroke="var(--success)" stroke-width="1.5"/>
+                    </svg>
+                  </div>
+                  <!-- INCLUDE: _components/og-chart-axes.html -->
+                </div>
                 <div class="fs-3xs text-[var(--text-faint)]"
                      x-text="(t('apps.pihole.median_blocked') || 'Median blocked') + ': ' + piholePct(agg.trend.median_pct)"></div>
               </div>

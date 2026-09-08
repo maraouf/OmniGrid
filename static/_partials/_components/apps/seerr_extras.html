@@ -135,9 +135,15 @@
       <div class="space-y-1 mt-1 pt-1 border-t border-[var(--border)]">
         <span class="fs-2xs text-[var(--text-faint)] block"
               x-text="t('apps.seerr.backlog_trend', { days: seerrTrend(inst).days }) || ('Pending backlog (' + seerrTrend(inst).days + ' days)')"></span>
-        <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
-          <path :d="seerrTrendPath(seerrTrend(inst).series)" fill="none" stroke="var(--warning)" stroke-width="1.5"/>
-        </svg>
+        <div class="og-chart"
+             x-data="{ axis: () => ogChartAxis(seerrTrend(inst).series, { mode: 'minmax' }) }">
+          <div class="og-chart-plot">
+            <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+            <path :d="seerrTrendPath(seerrTrend(inst).series)" fill="none" stroke="var(--warning)" stroke-width="1.5"/>
+            </svg>
+          </div>
+          <!-- INCLUDE: _components/og-chart-axes.html -->
+        </div>
         <div class="fs-3xs text-[var(--text-faint)]"
              x-text="(t('apps.seerr.peak_pending') || 'Peak pending') + ': ' + seerrCount(seerrTrend(inst).peak_pending)"></div>
       </div>
@@ -150,9 +156,15 @@
       <div class="space-y-1 mt-1 pt-1 border-t border-[var(--border)]">
         <span class="fs-2xs text-[var(--text-faint)] block"
               x-text="t('apps.seerr.volume_trend', { days: seerrTrend(inst).days }) || ('Requests per day (' + seerrTrend(inst).days + ' days)')"></span>
-        <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
-          <path :d="seerrTrendPath(seerrTrend(inst).volume_series)" fill="none" stroke="var(--info)" stroke-width="1.5"/>
-        </svg>
+        <div class="og-chart"
+             x-data="{ axis: () => ogChartAxis(seerrTrend(inst).volume_series, { mode: 'minmax' }) }">
+          <div class="og-chart-plot">
+            <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+            <path :d="seerrTrendPath(seerrTrend(inst).volume_series)" fill="none" stroke="var(--info)" stroke-width="1.5"/>
+            </svg>
+          </div>
+          <!-- INCLUDE: _components/og-chart-axes.html -->
+        </div>
         <div class="fs-3xs text-[var(--text-faint)]"
              x-text="t('apps.seerr.volume_peak', { n: seerrCount(seerrTrend(inst).volume_peak) }) || ('Peak ' + seerrCount(seerrTrend(inst).volume_peak) + '/day')"></div>
       </div>

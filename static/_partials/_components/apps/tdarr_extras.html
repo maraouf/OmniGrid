@@ -149,9 +149,15 @@
             <div class="space-y-1">
               <span class="fs-2xs text-[var(--text-faint)] block"
                     x-text="t('apps.tdarr.saved_trend', { days: tdarrTrend(inst).days }) || ('Space reclaimed (' + tdarrTrend(inst).days + ' days)')"></span>
-              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
-                <path :d="tdarrTrendPath(tdarrTrend(inst).series_saved)" fill="none" stroke="var(--success)" stroke-width="1.5"/>
-              </svg>
+              <div class="og-chart"
+                   x-data="{ axis: () => ogChartAxis(tdarrTrend(inst).series_saved, { mode: 'minmax' }) }">
+                <div class="og-chart-plot">
+                  <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                  <path :d="tdarrTrendPath(tdarrTrend(inst).series_saved)" fill="none" stroke="var(--success)" stroke-width="1.5"/>
+                  </svg>
+                </div>
+                <!-- INCLUDE: _components/og-chart-axes.html -->
+              </div>
               <div class="fs-3xs text-[var(--text-faint)]"
                    x-text="(t('apps.tdarr.saved_total') || 'Total reclaimed') + ': ' + tdarrSpace({ space_saved_gb: tdarrTrend(inst).latest_saved_gb })"></div>
             </div>
@@ -159,9 +165,15 @@
             <div class="space-y-1">
               <span class="fs-2xs text-[var(--text-faint)] block"
                     x-text="t('apps.tdarr.queue_trend', { days: tdarrTrend(inst).days }) || ('Transcode queue (' + tdarrTrend(inst).days + ' days)')"></span>
-              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
-                <path :d="tdarrTrendPath(tdarrTrend(inst).series_queue)" fill="none" stroke="var(--info)" stroke-width="1.5"/>
-              </svg>
+              <div class="og-chart"
+                   x-data="{ axis: () => ogChartAxis(tdarrTrend(inst).series_queue, { mode: 'minmax' }) }">
+                <div class="og-chart-plot">
+                  <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                  <path :d="tdarrTrendPath(tdarrTrend(inst).series_queue)" fill="none" stroke="var(--info)" stroke-width="1.5"/>
+                  </svg>
+                </div>
+                <!-- INCLUDE: _components/og-chart-axes.html -->
+              </div>
               <div class="fs-3xs text-[var(--text-faint)]"
                    x-text="(t('apps.tdarr.queue_peak') || 'Peak') + ' ' + tdarrCount(tdarrTrend(inst).peak_queue) + ' · ' + (t('apps.tdarr.now_label') || 'now') + ' ' + tdarrCount(tdarrTrend(inst).latest_queue)"></div>
             </div>
@@ -169,9 +181,15 @@
             <div x-show="tdarrTrend(inst).series_throughput && tdarrTrend(inst).series_throughput.length >= 2" class="space-y-1">
               <span class="fs-2xs text-[var(--text-faint)] block"
                     x-text="t('apps.tdarr.throughput_trend', { days: tdarrTrend(inst).days }) || ('Throughput / day (' + tdarrTrend(inst).days + ' days)')"></span>
-              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
-                <path :d="tdarrTrendPath(tdarrTrend(inst).series_throughput)" fill="none" stroke="var(--text-dim)" stroke-width="1.5"/>
-              </svg>
+              <div class="og-chart"
+                   x-data="{ axis: () => ogChartAxis(tdarrTrend(inst).series_throughput, { mode: 'minmax' }) }">
+                <div class="og-chart-plot">
+                  <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                  <path :d="tdarrTrendPath(tdarrTrend(inst).series_throughput)" fill="none" stroke="var(--text-dim)" stroke-width="1.5"/>
+                  </svg>
+                </div>
+                <!-- INCLUDE: _components/og-chart-axes.html -->
+              </div>
               <div x-show="(Number(tdarrTrend(inst).window_throughput) || 0) > 0" class="fs-3xs text-[var(--text-faint)]"
                    x-text="t('apps.tdarr.window_throughput', { count: tdarrCount(tdarrTrend(inst).window_throughput), days: tdarrTrend(inst).days }) || (tdarrCount(tdarrTrend(inst).window_throughput) + ' transcoded in ' + tdarrTrend(inst).days + ' days')"></div>
             </div>

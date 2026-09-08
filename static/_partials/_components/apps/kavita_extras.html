@@ -93,9 +93,15 @@
             <div class="space-y-1">
               <span class="fs-2xs text-[var(--text-faint)] block"
                     x-text="t('apps.kavita.series_trend', { days: kavitaTrend(inst).days }) || ('Library growth (' + kavitaTrend(inst).days + ' days)')"></span>
-              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
-                <path :d="kavitaTrendPath(kavitaTrend(inst).series_series)" fill="none" stroke="var(--success)" stroke-width="1.5"/>
-              </svg>
+              <div class="og-chart"
+                   x-data="{ axis: () => ogChartAxis(kavitaTrend(inst).series_series, { mode: 'minmax' }) }">
+                <div class="og-chart-plot">
+                  <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                  <path :d="kavitaTrendPath(kavitaTrend(inst).series_series)" fill="none" stroke="var(--success)" stroke-width="1.5"/>
+                  </svg>
+                </div>
+                <!-- INCLUDE: _components/og-chart-axes.html -->
+              </div>
               <div x-show="(Number(kavitaTrend(inst).series_added) || 0) > 0" class="fs-3xs text-[var(--text-faint)]"
                    x-text="t('apps.kavita.series_added', { count: kavitaCount(kavitaTrend(inst).series_added), days: kavitaTrend(inst).days }) || ('+' + kavitaCount(kavitaTrend(inst).series_added) + ' series in ' + kavitaTrend(inst).days + ' days')"></div>
             </div>
@@ -103,9 +109,15 @@
             <div class="space-y-1">
               <span class="fs-2xs text-[var(--text-faint)] block"
                     x-text="t('apps.kavita.size_trend', { days: kavitaTrend(inst).days }) || ('Library size (' + kavitaTrend(inst).days + ' days)')"></span>
-              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
-                <path :d="kavitaTrendPath(kavitaTrend(inst).size_series)" fill="none" stroke="var(--info)" stroke-width="1.5"/>
-              </svg>
+              <div class="og-chart"
+                   x-data="{ axis: () => ogChartAxis(kavitaTrend(inst).size_series, { mode: 'minmax' }) }">
+                <div class="og-chart-plot">
+                  <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                  <path :d="kavitaTrendPath(kavitaTrend(inst).size_series)" fill="none" stroke="var(--info)" stroke-width="1.5"/>
+                  </svg>
+                </div>
+                <!-- INCLUDE: _components/og-chart-axes.html -->
+              </div>
               <div class="fs-3xs text-[var(--text-faint)]"
                    x-text="(t('apps.kavita.size_now') || 'Now') + ': ' + kavitaSize(kavitaTrend(inst).latest_size)"></div>
             </div>
@@ -115,9 +127,15 @@
             <div class="space-y-1" x-show="(Number(kavitaTrend(inst).reading_total) || 0) > 0 && (kavitaTrend(inst).reading_series || []).length >= 2">
               <span class="fs-2xs text-[var(--text-faint)] block"
                     x-text="t('apps.kavita.reading_trend', { days: kavitaTrend(inst).days }) || ('Reading activity (' + kavitaTrend(inst).days + ' days)')"></span>
-              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
-                <path :d="kavitaTrendPath(kavitaTrend(inst).reading_series)" fill="none" stroke="var(--primary)" stroke-width="1.5"/>
-              </svg>
+              <div class="og-chart"
+                   x-data="{ axis: () => ogChartAxis(kavitaTrend(inst).reading_series, { mode: 'minmax' }) }">
+                <div class="og-chart-plot">
+                  <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                  <path :d="kavitaTrendPath(kavitaTrend(inst).reading_series)" fill="none" stroke="var(--primary)" stroke-width="1.5"/>
+                  </svg>
+                </div>
+                <!-- INCLUDE: _components/og-chart-axes.html -->
+              </div>
               <div class="fs-3xs text-[var(--text-faint)]"
                    x-text="t('apps.kavita.reading_rate', { avg: kavitaReadingTime(kavitaTrend(inst).reading_avg) }) || ('~' + kavitaReadingTime(kavitaTrend(inst).reading_avg) + '/day')"></div>
             </div>

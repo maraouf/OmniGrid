@@ -11799,6 +11799,68 @@ select.field-invalid {
   stroke: var(--danger);
 }
 
+/* --- Axis furniture for the per-app drawer sparklines -------------------
+   Wraps an EXISTING chart rather than replacing it: `.og-chart-plot` keeps
+   the untouched <svg>, and the gridlines are this element's own top and
+   bottom borders. Drawing them in CSS is what lets every app gain a scale
+   without editing 46 chart elements — the risk there is not the effort, it
+   is that a mistake inside an <svg> blanks the whole page.
+
+   The y labels sit in a left gutter created by padding, so the plot keeps
+   its full width and the line shape is unchanged from before. */
+.og-chart {
+  position: relative;
+  padding-inline-start: 34px;
+  padding-bottom: 12px;
+}
+
+.og-chart-plot {
+  border-top: 1px dashed var(--border);
+  border-bottom: 1px solid var(--border-bright);
+}
+
+.og-chart-axes {
+  pointer-events: none;
+}
+
+.og-chart-y,
+.og-chart-x {
+  position: absolute;
+  font-size: var(--fs-3xs);
+  line-height: 1;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Aligned to the gridlines they name: the ceiling label to the dashed top
+   border, the floor label to the solid baseline. */
+.og-chart-y {
+  inset-inline-start: 0;
+  width: 30px;
+  text-align: end;
+}
+
+.og-chart-y--max {
+  top: 0;
+}
+
+.og-chart-y--min {
+  bottom: 12px;
+  transform: translateY(50%);
+}
+
+.og-chart-x {
+  bottom: 0;
+}
+
+.og-chart-x--start {
+  inset-inline-start: 34px;
+}
+
+.og-chart-x--end {
+  inset-inline-end: 0;
+}
+
 /* Success-tinted sparkline variant — for "up / healthy" trends (e.g. the
    ddns-updater up-vs-fail records trend's green line). */
 .apps-spark-line--ok {

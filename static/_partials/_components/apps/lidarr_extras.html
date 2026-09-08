@@ -120,25 +120,43 @@
             <div class="space-y-1">
               <span class="fs-2xs text-[var(--text-faint)] block"
                     x-text="t('apps.lidarr.library_trend', { days: lidarrTrend(inst).days }) || ('Library growth (' + lidarrTrend(inst).days + ' days)')"></span>
-              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
-                <path :d="lidarrTrendPath(lidarrTrend(inst).series_total)" fill="none" stroke="var(--info)" stroke-width="1.5"/>
-              </svg>
+              <div class="og-chart"
+                   x-data="{ axis: () => ogChartAxis(lidarrTrend(inst).series_total, { mode: 'minmax' }) }">
+                <div class="og-chart-plot">
+                  <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                  <path :d="lidarrTrendPath(lidarrTrend(inst).series_total)" fill="none" stroke="var(--info)" stroke-width="1.5"/>
+                  </svg>
+                </div>
+                <!-- INCLUDE: _components/og-chart-axes.html -->
+              </div>
             </div>
             <div class="space-y-1" x-show="(Number(lidarrTrend(inst).peak_missing) || 0) > 0">
               <span class="fs-2xs text-[var(--text-faint)] block"
                     x-text="t('apps.lidarr.missing_trend', { days: lidarrTrend(inst).days }) || ('Missing backlog (' + lidarrTrend(inst).days + ' days)')"></span>
-              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
-                <path :d="lidarrTrendPath(lidarrTrend(inst).series_missing)" fill="none" stroke="var(--warning)" stroke-width="1.5"/>
-              </svg>
+              <div class="og-chart"
+                   x-data="{ axis: () => ogChartAxis(lidarrTrend(inst).series_missing, { mode: 'minmax' }) }">
+                <div class="og-chart-plot">
+                  <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                  <path :d="lidarrTrendPath(lidarrTrend(inst).series_missing)" fill="none" stroke="var(--warning)" stroke-width="1.5"/>
+                  </svg>
+                </div>
+                <!-- INCLUDE: _components/og-chart-axes.html -->
+              </div>
               <div class="fs-3xs text-[var(--text-faint)]"
                    x-text="(t('apps.lidarr.peak_missing') || 'Peak missing') + ': ' + lidarrCount(lidarrTrend(inst).peak_missing)"></div>
             </div>
             <div class="space-y-1">
               <span class="fs-2xs text-[var(--text-faint)] block"
                     x-text="t('apps.lidarr.disk_trend', { days: lidarrTrend(inst).days }) || ('Free disk (' + lidarrTrend(inst).days + ' days)')"></span>
-              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
-                <path :d="lidarrTrendPath(lidarrTrend(inst).series_disk_free)" fill="none" stroke="var(--success)" stroke-width="1.5"/>
-              </svg>
+              <div class="og-chart"
+                   x-data="{ axis: () => ogChartAxis(lidarrTrend(inst).series_disk_free, { mode: 'minmax' }) }">
+                <div class="og-chart-plot">
+                  <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                  <path :d="lidarrTrendPath(lidarrTrend(inst).series_disk_free)" fill="none" stroke="var(--success)" stroke-width="1.5"/>
+                  </svg>
+                </div>
+                <!-- INCLUDE: _components/og-chart-axes.html -->
+              </div>
               <div x-show="(Number(lidarrTrend(inst).disk_runway_days) || 0) > 0"
                    class="fs-3xs text-[var(--warning)]"
                    x-text="t('apps.lidarr.disk_runway', { days: lidarrTrend(inst).disk_runway_days }) || ('Disk full in ~' + lidarrTrend(inst).disk_runway_days + ' days at this fill rate')"></div>
@@ -147,9 +165,15 @@
             <div class="space-y-1" x-show="(Number(lidarrTrend(inst).peak_queue) || 0) > 0">
               <span class="fs-2xs text-[var(--text-faint)] block"
                     x-text="t('apps.lidarr.queue_trend', { days: lidarrTrend(inst).days }) || ('Download queue (' + lidarrTrend(inst).days + ' days)')"></span>
-              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
-                <path :d="lidarrTrendPath(lidarrTrend(inst).series_queue)" fill="none" stroke="var(--primary)" stroke-width="1.5"/>
-              </svg>
+              <div class="og-chart"
+                   x-data="{ axis: () => ogChartAxis(lidarrTrend(inst).series_queue, { mode: 'minmax' }) }">
+                <div class="og-chart-plot">
+                  <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                  <path :d="lidarrTrendPath(lidarrTrend(inst).series_queue)" fill="none" stroke="var(--primary)" stroke-width="1.5"/>
+                  </svg>
+                </div>
+                <!-- INCLUDE: _components/og-chart-axes.html -->
+              </div>
               <div class="fs-3xs text-[var(--text-faint)]"
                    x-text="(t('apps.lidarr.peak_queue') || 'Peak queue') + ': ' + lidarrCount(lidarrTrend(inst).peak_queue)"></div>
             </div>

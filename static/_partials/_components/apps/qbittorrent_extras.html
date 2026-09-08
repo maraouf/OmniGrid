@@ -126,10 +126,16 @@
             <div class="space-y-1">
               <span class="fs-2xs text-[var(--text-faint)] block"
                     x-text="t('apps.qbittorrent.speed_trend', { days: qbittorrentTrend(inst).days }) || ('Transfer speed (' + qbittorrentTrend(inst).days + ' days)')"></span>
-              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
-                <path :d="qbittorrentTrendPath(qbittorrentTrend(inst).series_dl)" fill="none" stroke="var(--info)" stroke-width="1.5"/>
-                <path :d="qbittorrentTrendPath(qbittorrentTrend(inst).series_up)" fill="none" stroke="var(--success)" stroke-width="1.5"/>
-              </svg>
+              <div class="og-chart"
+                   x-data="{ axis: () => ogChartAxis(qbittorrentTrend(inst).series_dl, { mode: 'minmax' }) }">
+                <div class="og-chart-plot">
+                  <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                  <path :d="qbittorrentTrendPath(qbittorrentTrend(inst).series_dl, qbittorrentTrend(inst).series_up)" fill="none" stroke="var(--info)" stroke-width="1.5"/>
+                  <path :d="qbittorrentTrendPath(qbittorrentTrend(inst).series_up, qbittorrentTrend(inst).series_dl)" fill="none" stroke="var(--success)" stroke-width="1.5"/>
+                  </svg>
+                </div>
+                <!-- INCLUDE: _components/og-chart-axes.html -->
+              </div>
               <div class="fs-3xs text-[var(--text-faint)]"
                    x-text="'↓ ' + qbittorrentSpeed(qbittorrentTrend(inst).latest_dl) + ' · ↑ ' + qbittorrentSpeed(qbittorrentTrend(inst).latest_up) + ' · ' + (t('apps.qbittorrent.peak_dl') || 'peak ↓') + ' ' + qbittorrentSpeed(qbittorrentTrend(inst).peak_dl)"></div>
             </div>
@@ -137,9 +143,15 @@
             <div class="space-y-1">
               <span class="fs-2xs text-[var(--text-faint)] block"
                     x-text="t('apps.qbittorrent.disk_trend', { days: qbittorrentTrend(inst).days }) || ('Free disk (' + qbittorrentTrend(inst).days + ' days)')"></span>
-              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
-                <path :d="qbittorrentTrendPath(qbittorrentTrend(inst).series_free)" fill="none" stroke="var(--text-dim)" stroke-width="1.5"/>
-              </svg>
+              <div class="og-chart"
+                   x-data="{ axis: () => ogChartAxis(qbittorrentTrend(inst).series_free, { mode: 'minmax' }) }">
+                <div class="og-chart-plot">
+                  <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                  <path :d="qbittorrentTrendPath(qbittorrentTrend(inst).series_free)" fill="none" stroke="var(--text-dim)" stroke-width="1.5"/>
+                  </svg>
+                </div>
+                <!-- INCLUDE: _components/og-chart-axes.html -->
+              </div>
               <div x-show="(Number(qbittorrentTrend(inst).disk_runway_days) || 0) > 0"
                    class="fs-3xs text-[var(--warning)]"
                    x-text="t('apps.qbittorrent.disk_runway', { days: qbittorrentTrend(inst).disk_runway_days }) || ('Disk full in ~' + qbittorrentTrend(inst).disk_runway_days + ' days at this fill rate')"></div>

@@ -97,16 +97,28 @@
           <span class="fs-3xs text-[var(--text-faint)] mono"
                 x-text="t('apps.gitsync.mappings_caption', { now: (Number(gitsyncTrend(inst).latest_mappings) || 0), week: (Number(gitsyncTrend(inst).week_throughput) || 0), days: (Number(gitsyncTrend(inst).days) || 0) })"></span>
         </div>
-        <svg class="apps-spark apps-spark--trend" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
-          <polyline class="apps-spark-line" :points="gitsyncTrendPath(gitsyncTrend(inst).series_mappings)"></polyline>
-        </svg>
+        <div class="og-chart"
+             x-data="{ axis: () => ogChartAxis(gitsyncTrend(inst).series_mappings) }">
+          <div class="og-chart-plot">
+            <svg class="apps-spark apps-spark--trend" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+            <polyline class="apps-spark-line" :points="gitsyncTrendPath(gitsyncTrend(inst).series_mappings)"></polyline>
+            </svg>
+          </div>
+          <!-- INCLUDE: _components/og-chart-axes.html -->
+        </div>
         <!-- Alert-error trend — only when the window saw any errors. -->
         <template x-if="(Number(gitsyncTrend(inst).peak_alerts) || 0) > 0 && (gitsyncTrend(inst).series_alerts || []).length > 1">
           <div class="mt-1">
             <div class="apps-card-stat-label text-[var(--danger)]" x-text="t('apps.gitsync.alerts_trend') || 'Alert errors'"></div>
-            <svg class="apps-spark apps-spark--mini" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
-              <polyline class="apps-spark-line" style="stroke: var(--danger)" :points="gitsyncTrendPath(gitsyncTrend(inst).series_alerts)"></polyline>
-            </svg>
+            <div class="og-chart"
+                 x-data="{ axis: () => ogChartAxis(gitsyncTrend(inst).series_alerts) }">
+              <div class="og-chart-plot">
+                <svg class="apps-spark apps-spark--mini" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+                <polyline class="apps-spark-line" style="stroke: var(--danger)" :points="gitsyncTrendPath(gitsyncTrend(inst).series_alerts)"></polyline>
+                </svg>
+              </div>
+              <!-- INCLUDE: _components/og-chart-axes.html -->
+            </div>
           </div>
         </template>
       </div>

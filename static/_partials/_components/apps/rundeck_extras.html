@@ -98,9 +98,15 @@
             <div class="apps-card-stat-value" x-text="(Number(rundeckTrend(inst).avg) || 0) + '%'"></div>
           </div>
         </div>
-        <svg class="apps-spark" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
-          <polyline class="apps-spark-line apps-spark-line--danger" :points="rundeckSparkPoints(inst)"></polyline>
-        </svg>
+        <div class="og-chart"
+             x-data="{ axis: () => ogChartAxis(rundeckTrend(inst).series, { mode: 'fixed', unit: '%' }) }">
+          <div class="og-chart-plot">
+            <svg class="apps-spark" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+            <polyline class="apps-spark-line apps-spark-line--danger" :points="rundeckSparkPoints(inst)"></polyline>
+            </svg>
+          </div>
+          <!-- INCLUDE: _components/og-chart-axes.html -->
+        </div>
         <div class="fs-3xs text-[var(--text-faint)] mono"
              x-text="t('apps.rundeck.fr_caption', { days: rundeckTrend(inst).days }) || ('Failure rate, last ' + rundeckTrend(inst).days + ' days')"></div>
       </div>

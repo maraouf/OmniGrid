@@ -133,7 +133,15 @@ function speedtestProvenance(latest) {
 // SVG viewBox dimensions consumed by the matching template's
 // `<svg viewBox="0 0 200 32">` in the extras partial -- change
 // either side together if the chart card resizes.
-function sparkPath(series, key) {
+// `peerKey` is a SECOND field sharing this frame and this unit. Download
+// and upload are both Mbps, and the interesting thing about showing them
+// together is which is higher — but each was normalised to its own range,
+// so an upload a tenth the size of the download still filled the plot and
+// the two tracked each other. Passing the sibling key puts both on one
+// scale. Ping is deliberately NOT given a peer: it is milliseconds, a
+// different dimension, and forcing it onto a Mbps scale would be a worse
+// lie than leaving it on its own.
+function sparkPath(series, key, peerKey) {
   if (!Array.isArray(series) || series.length < 2) {
     return '';
   }
@@ -142,10 +150,17 @@ function sparkPath(series, key) {
   if (values.length < 2) {
     return '';
   }
+  let scale = values;
+  if (peerKey) {
+    const peerVals = series.map(_makeCoercer(peerKey)).filter(_isFiniteNumber);
+    if (peerVals.length) {
+      scale = values.concat(peerVals);
+    }
+  }
   const width = 200;
   const height = 32;
-  const min = Math.min(...values);
-  const max = Math.max(...values);
+  const min = Math.min(...scale);
+  const max = Math.max(...scale);
   const range = (max - min) || 1;
   const stepX = width / Math.max(1, values.length - 1);
   let d = '';
@@ -156,44 +171,6 @@ function sparkPath(series, key) {
     d += cmd + x + ',' + y + ' ';
   }
   return d.trim();
-}
-
-// Memo: stable `d` string per numeric trend-series array reference (the
-// canonical SVG-builder memo — avoids re-render flicker on every flush).
-const _stTrendMemo = new WeakMap();
-
-// SVG `d` path for the long-horizon trend sparkline over a numeric array
-// (daily-median download from speedtest_samples). 200x32 viewBox, normalised.
-// '' when < 2 points.
-function speedtestTrendSparkPath(arr) {
-  if (!Array.isArray(arr) || arr.length < 2) {
-    return '';
-  }
-  if (_stTrendMemo.has(arr)) {
-    return _stTrendMemo.get(arr);
-  }
-  const width = 200, height = 32, n = arr.length;
-  let min = Infinity, max = -Infinity;
-  for (let i = 0; i < n; i++) {
-    const v = Number(arr[i]) || 0;
-    if (v < min) {
-      min = v;
-    }
-    if (v > max) {
-      max = v;
-    }
-  }
-  const range = (max - min) || 1;
-  const stepX = width / Math.max(1, n - 1);
-  let d = '';
-  for (let i = 0; i < n; i++) {
-    const x = (i * stepX).toFixed(1);
-    const y = (height - ((Number(arr[i]) || 0) - min) / range * height).toFixed(1);
-    d += (i === 0 ? 'M' : 'L') + x + ',' + y + ' ';
-  }
-  d = d.trim();
-  _stTrendMemo.set(arr, d);
-  return d;
 }
 
 // Round a positive max UP to a friendly 1 / 2 / 5 x 10^n step so axis tick
@@ -239,10 +216,34 @@ function _fmtChartTs(ts) {
 // x-axis, with tick labels. Coordinates live in a fixed viewBox; the partial
 // draws the axis lines / gridlines / tick text / polylines from this model.
 // Returns null when < 2 points (caller hides the chart).
-function speedtestChartModel(series) {
-  if (!Array.isArray(series) || series.length < 2) {
-    return null;
+// Short local DATE label for an x-axis tick from an epoch-seconds value.
+// Used by the long-horizon trend chart, whose points are DAILY buckets — a
+// clock time there would claim a precision the bucket does not have.
+function _fmtChartDate(epochSeconds) {
+  const n = Number(epochSeconds) || 0;
+  if (n <= 0) {
+    return '';
   }
+  const d = new Date(n * 1000);
+  if (isNaN(d.getTime())) {
+    return '';
+  }
+  return d.toLocaleDateString([], {month: 'short', day: 'numeric'});
+}
+
+// Shared coordinate + tick builder behind BOTH axed charts. Takes three
+// parallel numeric arrays and the two x-axis end labels, and returns the model
+// the partial draws: axis extents, one path per metric, and the tick arrays.
+//
+// download + upload share ONE Mbps scale (left y-axis) so their relative
+// magnitudes read true; ping gets its OWN ms scale (right y-axis) because it
+// is a different dimension and forcing it onto the Mbps scale would misstate
+// it. That dual-axis treatment is the answer to "these lines are not the same
+// unit" — not leaving the frame unlabelled.
+//
+// `ul` / `pg` may be empty (an older history with no companion series): the
+// missing line's path comes back '' and it contributes nothing to the scale.
+function _axedModel(dl, ul, pg, xStartLabel, xEndLabel) {
   // Wide + SHORT viewBox. The SVG is rendered with preserveAspectRatio="none"
   // + a fixed CSS height equal to H, so it ALWAYS fills the tile width and is
   // exactly H px tall (no letterbox gap, no auto-height ambiguity). W is set
@@ -251,18 +252,21 @@ function speedtestChartModel(series) {
   const W = 460, H = 92, padL = 42, padR = 36, padT = 8, padB = 16;
   const plotW = W - padL - padR;
   const plotH = H - padT - padB;
-  const dl = series.map(function (p) {
-    return Number(p && p.download) || 0;
-  });
-  const ul = series.map(function (p) {
-    return Number(p && p.upload) || 0;
-  });
-  const pg = series.map(function (p) {
-    return Number(p && p.ping) || 0;
-  });
-  const mbpsMax = _niceMax(Math.max(1, Math.max.apply(null, dl), Math.max.apply(null, ul)));
-  const pingMax = _niceMax(Math.max(1, Math.max.apply(null, pg)));
-  const n = series.length;
+
+  function peak(arr) {
+    let m = 0;
+    for (let i = 0; i < arr.length; i++) {
+      const v = Number(arr[i]) || 0;
+      if (v > m) {
+        m = v;
+      }
+    }
+    return m;
+  }
+
+  const mbpsMax = _niceMax(Math.max(1, peak(dl), peak(ul)));
+  const pingMax = _niceMax(Math.max(1, peak(pg)));
+  const n = dl.length;
   const stepX = plotW / Math.max(1, n - 1);
 
   function xAt(i) {
@@ -280,7 +284,7 @@ function speedtestChartModel(series) {
   function path(vals, yf) {
     let d = '';
     for (let i = 0; i < vals.length; i++) {
-      d += (i === 0 ? 'M' : 'L') + xAt(i).toFixed(1) + ',' + yf(vals[i]).toFixed(1) + ' ';
+      d += (i === 0 ? 'M' : 'L') + xAt(i).toFixed(1) + ',' + yf(Number(vals[i]) || 0).toFixed(1) + ' ';
     }
     return d.trim();
   }
@@ -292,8 +296,8 @@ function speedtestChartModel(series) {
     return {y: yPing(v).toFixed(1), label: String(Math.round(v))};
   });
   const xTicks = [
-    {x: xAt(0).toFixed(1), label: _fmtChartTs(series[0].ts), anchor: 'start'},
-    {x: xAt(n - 1).toFixed(1), label: _fmtChartTs(series[n - 1].ts), anchor: 'end'},
+    {x: xAt(0).toFixed(1), label: xStartLabel, anchor: 'start'},
+    {x: xAt(Math.max(0, n - 1)).toFixed(1), label: xEndLabel, anchor: 'end'},
   ];
   return {
     w: W, h: H,
@@ -303,6 +307,69 @@ function speedtestChartModel(series) {
     pingPath: path(pg, yPing),
     yTicks: yTicks, pTicks: pTicks, xTicks: xTicks,
   };
+}
+
+// Build the AXED chart model for the wide-tall tiles (3x2 / 4x2) and the app
+// drawer, over the RECENT per-test series. The simple `sparkPath` chart has no
+// axes + normalises each line independently; this one is scaled and labelled.
+// Returns null when < 2 points (caller hides the chart).
+function speedtestChartModel(series) {
+  if (!Array.isArray(series) || series.length < 2) {
+    return null;
+  }
+  const dl = series.map(function (p) {
+    return Number(p && p.download) || 0;
+  });
+  const ul = series.map(function (p) {
+    return Number(p && p.upload) || 0;
+  });
+  const pg = series.map(function (p) {
+    return Number(p && p.ping) || 0;
+  });
+  return _axedModel(dl, ul, pg,
+                    _fmtChartTs(series[0].ts),
+                    _fmtChartTs(series[series.length - 1].ts));
+}
+
+// Memo: one model per trend block reference. The trend arrays are rebuilt only
+// when the payload is refetched, so keying on the block itself is stable and
+// keeps the model out of every Alpine flush.
+const _stTrendModelMemo = new WeakMap();
+
+// Build the AXED model for the LONG-HORIZON trend (daily medians out of
+// OmniGrid's own speedtest_samples history). Same dual-axis treatment as the
+// recent-series chart above.
+//
+// This frame previously drew its three lines through a builder that
+// normalised each array to its OWN min/max. Download and upload are both
+// Mbps — so an upload a fifth the size of the download still climbed to the top
+// of the plot and the two read as level. Sharing the Mbps scale is what makes
+// them comparable, and is what lets the frame carry an honest axis.
+//
+// Returns null when there are < 2 daily points (caller hides the chart).
+function speedtestTrendChartModel(trend) {
+  if (!trend || typeof trend !== 'object') {
+    return null;
+  }
+  const dl = Array.isArray(trend.series) ? trend.series : [];
+  if (dl.length < 2) {
+    return null;
+  }
+  const hit = _stTrendModelMemo.get(trend);
+  if (hit) {
+    return hit;
+  }
+  // The companion series share `series`' day buckets + stride, so they line up
+  // index-for-index when present. A short/absent one is simply not drawn.
+  const ul = (Array.isArray(trend.series_upload) && trend.series_upload.length === dl.length)
+    ? trend.series_upload : [];
+  const pg = (Array.isArray(trend.series_ping) && trend.series_ping.length === dl.length)
+    ? trend.series_ping : [];
+  const model = _axedModel(dl, ul, pg,
+                           _fmtChartDate(trend.first_ts),
+                           _fmtChartDate(trend.last_ts));
+  _stTrendModelMemo.set(trend, model);
+  return model;
 }
 
 // True when `app` is a Speedtest Tracker catalog template
@@ -346,6 +413,6 @@ export const helpers = {
   speedtestPctLabel: fmtPct,
   speedtestProvenance: speedtestProvenance,
   speedtestSparkPath: sparkPath,
-  speedtestTrendSparkPath: speedtestTrendSparkPath,
   speedtestChartModel: speedtestChartModel,
+  speedtestTrendChartModel: speedtestTrendChartModel,
 };

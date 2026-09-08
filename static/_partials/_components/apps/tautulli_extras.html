@@ -91,10 +91,16 @@
         <!-- Plays-over-time sparkline (last 30 days) — drawer-only. -->
         <div x-show="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && tautulliHasPlays(inst)" class="mt-2">
           <div class="apps-card-stat-label mb-1" x-text="t('apps.tautulli.plays_chart') || 'Plays (last 30 days)'"></div>
-          <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="apps-tautulli-spark" role="img"
-               :aria-label="t('apps.tautulli.plays_chart') || 'Plays (last 30 days)'">
-            <path :d="tautulliPlaysPath(inst)" fill="none" stroke="var(--primary)" stroke-width="1.5"/>
-          </svg>
+          <div class="og-chart"
+               x-data="{ axis: () => ogChartAxis(tautulliData(inst).plays_series, { mode: 'minmax' }) }">
+            <div class="og-chart-plot">
+              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="apps-tautulli-spark" role="img"
+              :aria-label="t('apps.tautulli.plays_chart') || 'Plays (last 30 days)'">
+              <path :d="tautulliPlaysPath(inst)" fill="none" stroke="var(--primary)" stroke-width="1.5"/>
+              </svg>
+            </div>
+            <!-- INCLUDE: _components/og-chart-axes.html -->
+          </div>
         </div>
         <!-- Analytics: top watchers / most-played + play-distribution charts
              (the signature Tautulli insight). Drawer-only (`appsExtrasInDrawer`)
@@ -131,20 +137,32 @@
             <!-- Plays by day-of-week (bar chart) + busiest-day caption. -->
             <div x-show="tautulliPeak(tautulliData(inst).dayofweek)" class="space-y-1">
               <div class="apps-card-stat-label" x-text="t('apps.tautulli.dayofweek') || 'Plays by day'"></div>
-              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8" role="img"
-                   :aria-label="t('apps.tautulli.dayofweek') || 'Plays by day'">
-                <path :d="tautulliBarsPath((tautulliData(inst).dayofweek || {}).values)" fill="var(--info)"/>
-              </svg>
+              <div class="og-chart"
+                   x-data="{ axis: () => ogChartAxis((tautulliData(inst).dayofweek || {}).values) }">
+                <div class="og-chart-plot">
+                  <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8" role="img"
+                  :aria-label="t('apps.tautulli.dayofweek') || 'Plays by day'">
+                  <path :d="tautulliBarsPath((tautulliData(inst).dayofweek || {}).values)" fill="var(--info)"/>
+                  </svg>
+                </div>
+                <!-- INCLUDE: _components/og-chart-axes.html -->
+              </div>
               <div class="fs-3xs text-[var(--text-faint)]"
                    x-text="t('apps.tautulli.busiest', { label: (tautulliPeak(tautulliData(inst).dayofweek) || {}).label, n: tautulliCount((tautulliPeak(tautulliData(inst).dayofweek) || {}).value) })"></div>
             </div>
             <!-- Plays by hour-of-day (bar chart) + busiest-hour caption. -->
             <div x-show="tautulliPeak(tautulliData(inst).hourofday)" class="space-y-1">
               <div class="apps-card-stat-label" x-text="t('apps.tautulli.hourofday') || 'Plays by hour'"></div>
-              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8" role="img"
-                   :aria-label="t('apps.tautulli.hourofday') || 'Plays by hour'">
-                <path :d="tautulliBarsPath((tautulliData(inst).hourofday || {}).values)" fill="var(--success)"/>
-              </svg>
+              <div class="og-chart"
+                   x-data="{ axis: () => ogChartAxis((tautulliData(inst).hourofday || {}).values) }">
+                <div class="og-chart-plot">
+                  <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8" role="img"
+                  :aria-label="t('apps.tautulli.hourofday') || 'Plays by hour'">
+                  <path :d="tautulliBarsPath((tautulliData(inst).hourofday || {}).values)" fill="var(--success)"/>
+                  </svg>
+                </div>
+                <!-- INCLUDE: _components/og-chart-axes.html -->
+              </div>
               <div class="fs-3xs text-[var(--text-faint)]"
                    x-text="t('apps.tautulli.busiest_hour', { label: (tautulliPeak(tautulliData(inst).hourofday) || {}).label, n: tautulliCount((tautulliPeak(tautulliData(inst).hourofday) || {}).value) })"></div>
             </div>
@@ -153,13 +171,19 @@
                  justifies a faster CPU / GPU. -->
             <div x-show="tautulliHasStreamType(inst)" class="space-y-1">
               <div class="apps-card-stat-label" x-text="t('apps.tautulli.stream_type_chart') || 'Direct vs transcode (30d)'"></div>
-              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8" role="img"
-                   :aria-label="t('apps.tautulli.stream_type_chart') || 'Direct vs transcode (30d)'">
-                <path :d="tautulliStreamTypePath(tautulliStreamType(inst).direct, tautulliStreamTypeMax(inst))"
-                      fill="none" stroke="var(--success)" stroke-width="1.5"/>
-                <path :d="tautulliStreamTypePath(tautulliStreamType(inst).transcode, tautulliStreamTypeMax(inst))"
-                      fill="none" stroke="var(--warning)" stroke-width="1.5"/>
-              </svg>
+              <div class="og-chart"
+                   x-data="{ axis: () => ogChartAxis(tautulliStreamType(inst).direct, { mode: 'fixed', fixedMax: tautulliStreamTypeMax(inst) }) }">
+                <div class="og-chart-plot">
+                  <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8" role="img"
+                  :aria-label="t('apps.tautulli.stream_type_chart') || 'Direct vs transcode (30d)'">
+                  <path :d="tautulliStreamTypePath(tautulliStreamType(inst).direct, tautulliStreamTypeMax(inst))"
+                  fill="none" stroke="var(--success)" stroke-width="1.5"/>
+                  <path :d="tautulliStreamTypePath(tautulliStreamType(inst).transcode, tautulliStreamTypeMax(inst))"
+                  fill="none" stroke="var(--warning)" stroke-width="1.5"/>
+                  </svg>
+                </div>
+                <!-- INCLUDE: _components/og-chart-axes.html -->
+              </div>
               <div class="flex items-center justify-around fs-2xs text-[var(--text-faint)]">
                 <span><span class="inline-block w-2 h-2 rounded-full me-1" style="background: var(--success);"></span><span
                   x-text="t('apps.tautulli.direct_legend') || 'direct'"></span></span>
@@ -179,9 +203,15 @@
           <div class="space-y-1 mt-2 pt-2 border-t border-[var(--border)]">
             <span class="fs-2xs text-[var(--text-faint)] block"
                   x-text="t('apps.tautulli.streams_trend', { days: tautulliTrend(inst).days })"></span>
-            <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
-              <path :d="tautulliTrendPath(tautulliTrend(inst).series_streams)" fill="none" stroke="var(--success)" stroke-width="1.5"/>
-            </svg>
+            <div class="og-chart"
+                 x-data="{ axis: () => ogChartAxis(tautulliTrend(inst).series_streams, { mode: 'minmax' }) }">
+              <div class="og-chart-plot">
+                <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                <path :d="tautulliTrendPath(tautulliTrend(inst).series_streams)" fill="none" stroke="var(--success)" stroke-width="1.5"/>
+                </svg>
+              </div>
+              <!-- INCLUDE: _components/og-chart-axes.html -->
+            </div>
             <div class="fs-3xs text-[var(--text-faint)]"
                  x-text="t('apps.tautulli.streams_peak', { peak: tautulliTrend(inst).peak_streams, latest: tautulliTrend(inst).latest_streams })"></div>
           </div>

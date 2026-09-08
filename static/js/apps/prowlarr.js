@@ -119,15 +119,33 @@ const _prowlarrTrendMemo = new WeakMap();
 
 // SVG polyline points for a sparkline over a 0..200 × 0..32 viewBox, auto-scaled
 // to the series' own min/max. '' when < 2 points. Memoised on the array ref.
-function prowlarrTrendPath(arr) {
+// `peer` is the OTHER series sharing this frame. Both lines used to be
+// normalised to their own min/max, which is wrong here: queries and grabs are both counts of the same indexer activity, and a grab is a SUBSET of a query.
+// Drawing each to its own range made them track each other however far
+// apart they actually were. Passing the sibling puts both on one scale,
+// which is also what lets a single axis label the frame honestly.
+// Called without a peer it behaves exactly as before.
+function prowlarrTrendPath(arr, peer) {
   if (!Array.isArray(arr) || arr.length < 2) {
     return '';
   }
-  if (_prowlarrTrendMemo.has(arr)) {
-    return _prowlarrTrendMemo.get(arr);
+  const peerArr = Array.isArray(peer) ? peer : null;
+  // The memo records which peer it was computed against — a shared scale
+  // depends on BOTH arrays, so a hit keyed only on `arr` could serve a
+  // path drawn to the wrong range after the sibling changed.
+  const _hit = _prowlarrTrendMemo.get(arr);
+  if (_hit && _hit.peer === peerArr) {
+    return _hit.d;
   }
   const W = 200, H = 32, n = arr.length;
   let min = Infinity, max = -Infinity;
+  if (peerArr) {
+    for (let i = 0; i < peerArr.length; i++) {
+      const pv = Number(peerArr[i]) || 0;
+      if (pv < min) { min = pv; }
+      if (pv > max) { max = pv; }
+    }
+  }
   for (let i = 0; i < n; i++) {
     const v = Number(arr[i]) || 0;
     if (v < min) {
@@ -146,7 +164,7 @@ function prowlarrTrendPath(arr) {
     d += (i === 0 ? 'M' : 'L') + x + ',' + y + ' ';
   }
   d = d.trim();
-  _prowlarrTrendMemo.set(arr, d);
+  _prowlarrTrendMemo.set(arr, { peer: peerArr, d: d });
   return d;
 }
 

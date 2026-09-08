@@ -72,9 +72,15 @@
             <div class="apps-card-stat-value" x-text="flaresolverrCount(flaresolverrUsage(inst).active_days)"></div>
           </div>
         </div>
-        <svg class="apps-fs-spark" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
-          <polyline class="apps-fs-spark-line" :points="flaresolverrSparkPoints(inst)"></polyline>
-        </svg>
+        <div class="og-chart"
+             x-data="{ axis: () => ogChartAxis(flaresolverrUsage(inst).series) }">
+          <div class="og-chart-plot">
+            <svg class="apps-fs-spark" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+            <polyline class="apps-fs-spark-line" :points="flaresolverrSparkPoints(inst)"></polyline>
+            </svg>
+          </div>
+          <!-- INCLUDE: _components/og-chart-axes.html -->
+        </div>
         <div class="fs-3xs text-[var(--text-faint)] mono"
              x-text="t('apps.flaresolverr.usage_caption', { days: flaresolverrUsage(inst).days }) || ('Open sessions, last ' + flaresolverrUsage(inst).days + ' days')"></div>
       </div>

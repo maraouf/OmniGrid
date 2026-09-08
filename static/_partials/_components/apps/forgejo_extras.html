@@ -92,9 +92,15 @@
                 :class="(Number(forgejoTrend(inst).week_change) || 0) > 0 ? 'text-[var(--warning)]' : ((Number(forgejoTrend(inst).week_change) || 0) < 0 ? 'text-[var(--success)]' : 'text-[var(--text-faint)]')"
                 x-text="((Number(forgejoTrend(inst).week_change) || 0) >= 0 ? t('apps.forgejo.backlog_up', { n: Math.abs(Number(forgejoTrend(inst).week_change) || 0) }) : t('apps.forgejo.backlog_down', { n: Math.abs(Number(forgejoTrend(inst).week_change) || 0) }))"></span>
         </div>
-        <svg class="apps-spark apps-spark--trend" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
-          <polyline class="apps-spark-line" :points="forgejoTrendPath(forgejoTrend(inst).series_backlog)"></polyline>
-        </svg>
+        <div class="og-chart"
+             x-data="{ axis: () => ogChartAxis(forgejoTrend(inst).series_backlog) }">
+          <div class="og-chart-plot">
+            <svg class="apps-spark apps-spark--trend" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+            <polyline class="apps-spark-line" :points="forgejoTrendPath(forgejoTrend(inst).series_backlog)"></polyline>
+            </svg>
+          </div>
+          <!-- INCLUDE: _components/og-chart-axes.html -->
+        </div>
         <div class="fs-3xs text-[var(--text-faint)] mono"
              x-text="t('apps.forgejo.backlog_caption', { now: (Number(forgejoTrend(inst).latest_backlog) || 0), peak: (Number(forgejoTrend(inst).peak_backlog) || 0), days: (Number(forgejoTrend(inst).days) || 0) })"></div>
       </div>
@@ -105,9 +111,15 @@
     <template x-if="appsExtrasInDrawer && (forgejoData(inst).activity_series || []).length > 1 && (forgejoData(inst).activity_series || []).some(v => Number(v) > 0)">
       <div class="mt-2">
         <span class="apps-card-stat-label" x-text="t('apps.forgejo.activity_trend') || 'Activity (14 days)'"></span>
-        <svg class="apps-spark apps-spark--trend" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
-          <polyline class="apps-spark-line" :style="'stroke: var(--success)'" :points="forgejoTrendPath(forgejoData(inst).activity_series)"></polyline>
-        </svg>
+        <div class="og-chart"
+             x-data="{ axis: () => ogChartAxis(forgejoData(inst).activity_series) }">
+          <div class="og-chart-plot">
+            <svg class="apps-spark apps-spark--trend" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+            <polyline class="apps-spark-line" :style="'stroke: var(--success)'" :points="forgejoTrendPath(forgejoData(inst).activity_series)"></polyline>
+            </svg>
+          </div>
+          <!-- INCLUDE: _components/og-chart-axes.html -->
+        </div>
       </div>
     </template>
     <!-- Version footnote. -->

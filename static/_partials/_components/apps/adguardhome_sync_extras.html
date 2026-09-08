@@ -115,9 +115,15 @@
                     x-text="(adguardsyncHistory(inst).reliability_pct != null ? adguardsyncHistory(inst).reliability_pct : 0) + '%'"></span>
             </div>
             <template x-if="(adguardsyncHistory(inst).sync_pct_series || []).length > 1">
-              <svg class="apps-spark apps-spark--mini" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
-                <polyline class="apps-spark-line" :points="adguardsyncSyncSpark(inst)"></polyline>
-              </svg>
+              <div class="og-chart"
+                   x-data="{ axis: () => ogChartAxis(adguardsyncHistory(inst).sync_pct_series, { mode: 'fixed', unit: '%' }) }">
+                <div class="og-chart-plot">
+                  <svg class="apps-spark apps-spark--mini" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+                  <polyline class="apps-spark-line" :points="adguardsyncSyncSpark(inst)"></polyline>
+                  </svg>
+                </div>
+                <!-- INCLUDE: _components/og-chart-axes.html -->
+              </div>
             </template>
             <div class="fs-3xs text-[var(--text-faint)] mono"
                  x-text="t('apps.adguardsync.reliability_caption', { days: adguardsyncHistory(inst).days, n: adguardsyncHistory(inst).out_of_sync_days }) || ('Last ' + adguardsyncHistory(inst).days + ' days · ' + adguardsyncHistory(inst).out_of_sync_days + ' out-of-sync day(s)')"></div>

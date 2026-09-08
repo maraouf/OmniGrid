@@ -129,12 +129,19 @@ const _ddnsSparkMemo = new WeakMap();
 
 // SVG polyline points for a daily-count series over a 0..100 × 0..24 viewBox,
 // auto-scaled to its own max (min pinned at 0). '' when < 2 points.
-function _ddnsSpark(series) {
+// `peer` is the other series in the same frame — the up-to-date count and
+// the failing count are both counts of the SAME set of records, so drawing
+// each to its own maximum made one failure look as tall as a hundred
+// successes. Sharing a scale is what makes the two comparable at a glance,
+// and what lets a single axis label the frame honestly.
+function _ddnsSpark(series, peer) {
   if (!Array.isArray(series) || series.length < 2) {
     return '';
   }
-  if (_ddnsSparkMemo.has(series)) {
-    return _ddnsSparkMemo.get(series);
+  const peerArr = Array.isArray(peer) ? peer : null;
+  const _hit = _ddnsSparkMemo.get(series);
+  if (_hit && _hit.peer === peerArr) {
+    return _hit.pts;
   }
   const W = 100, H = 24, n = series.length;
   let max = 1;
@@ -144,6 +151,14 @@ function _ddnsSpark(series) {
       max = v;
     }
   }
+  if (peerArr) {
+    for (let i = 0; i < peerArr.length; i++) {
+      const pv = Number(peerArr[i]) || 0;
+      if (pv > max) {
+        max = pv;
+      }
+    }
+  }
   const parts = [];
   for (let i = 0; i < n; i++) {
     const x = (i / (n - 1)) * W;
@@ -151,7 +166,7 @@ function _ddnsSpark(series) {
     parts.push((Math.round(x * 100) / 100) + ',' + (Math.round(y * 100) / 100));
   }
   const pts = parts.join(' ');
-  _ddnsSparkMemo.set(series, pts);
+  _ddnsSparkMemo.set(series, { peer: peerArr, pts: pts });
   return pts;
 }
 
@@ -159,14 +174,16 @@ function _ddnsSpark(series) {
 function ddnsFailSparkPoints(inst) {
   /* jshint validthis: true */
   const h = ddnsHistory.call(this, inst);
-  return _ddnsSpark((h && Array.isArray(h.fail_series)) ? h.fail_series : null);
+  return _ddnsSpark((h && Array.isArray(h.fail_series)) ? h.fail_series : null,
+                    (h && Array.isArray(h.up_series)) ? h.up_series : null);
 }
 
 // Up-to-date-count sparkline points (the up-vs-fail trend companion line).
 function ddnsUpSparkPoints(inst) {
   /* jshint validthis: true */
   const h = ddnsHistory.call(this, inst);
-  return _ddnsSpark((h && Array.isArray(h.up_series)) ? h.up_series : null);
+  return _ddnsSpark((h && Array.isArray(h.up_series)) ? h.up_series : null,
+                    (h && Array.isArray(h.fail_series)) ? h.fail_series : null);
 }
 
 // Extender record -- consumed by the generic helpers in

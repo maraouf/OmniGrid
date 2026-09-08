@@ -155,10 +155,16 @@
       <div class="space-y-1 mt-2 pt-2 border-t border-[var(--border)]">
         <span class="fs-2xs text-[var(--text-faint)] block"
               x-text="t('apps.unifi.clients_trend', { days: unifiTrend(inst).days }) || ('Clients (' + unifiTrend(inst).days + ' days)')"></span>
-        <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
-          <path :d="unifiTrendPath(unifiTrend(inst).series_clients)" fill="none" stroke="var(--info)" stroke-width="1.5"/>
-          <path :d="unifiTrendPath(unifiTrend(inst).series_wireless)" fill="none" stroke="var(--success)" stroke-width="1.5"/>
-        </svg>
+        <div class="og-chart"
+             x-data="{ axis: () => ogChartAxis(unifiTrend(inst).series_clients, { mode: 'minmax' }) }">
+          <div class="og-chart-plot">
+            <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+            <path :d="unifiTrendPath(unifiTrend(inst).series_clients, unifiTrend(inst).series_wireless)" fill="none" stroke="var(--info)" stroke-width="1.5"/>
+            <path :d="unifiTrendPath(unifiTrend(inst).series_wireless, unifiTrend(inst).series_clients)" fill="none" stroke="var(--success)" stroke-width="1.5"/>
+            </svg>
+          </div>
+          <!-- INCLUDE: _components/og-chart-axes.html -->
+        </div>
         <div class="fs-3xs text-[var(--text-faint)]"
              x-text="t('apps.unifi.clients_peak', { peak: unifiTrend(inst).peak_clients, latest: unifiTrend(inst).latest_clients })"></div>
       </div>

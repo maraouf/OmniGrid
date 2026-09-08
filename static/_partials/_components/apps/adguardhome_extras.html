@@ -151,12 +151,24 @@
               <div class="space-y-1 mt-1">
                 <span class="fs-2xs text-[var(--text-faint)] block"
                       x-text="t('apps.adguard.activity') || 'Queries vs blocked'"></span>
-                <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
-                  <path :d="adguardSeriesPath(agg.queriesSeries, adguardSeriesMax(agg.queriesSeries))"
-                        fill="none" stroke="var(--info)" stroke-width="1.5"/>
-                  <path :d="adguardSeriesPath(agg.blockedSeries, adguardSeriesMax(agg.queriesSeries))"
-                        fill="none" stroke="var(--danger)" stroke-width="1.5"/>
-                </svg>
+                <!-- Two lines, ONE scale: both paths are handed the SAME
+                     `adguardSeriesMax(agg.queriesSeries)`, so blocked is drawn
+                     as a true proportion of queries and a single axis is
+                     correct for both. That is what separates this from the
+                     multi-series charts left unlabelled, where each line is
+                     normalised to its own range. -->
+                <div class="og-chart"
+                     x-data="{ axis: () => ogChartAxis(agg.queriesSeries) }">
+                  <div class="og-chart-plot">
+                    <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                      <path :d="adguardSeriesPath(agg.queriesSeries, adguardSeriesMax(agg.queriesSeries))"
+                            fill="none" stroke="var(--info)" stroke-width="1.5"/>
+                      <path :d="adguardSeriesPath(agg.blockedSeries, adguardSeriesMax(agg.queriesSeries))"
+                            fill="none" stroke="var(--danger)" stroke-width="1.5"/>
+                    </svg>
+                  </div>
+                  <!-- INCLUDE: _components/og-chart-axes.html -->
+                </div>
                 <div class="flex items-center justify-around fs-2xs text-[var(--text-faint)]">
                   <span><span class="inline-block w-2 h-2 rounded-full me-1" style="background: var(--info);"></span><span
                     x-text="t('apps.adguard.legend_queries') || 'queries'"></span></span>
@@ -172,9 +184,15 @@
               <div class="space-y-1 mt-1 pt-1 border-t border-[var(--border)]">
                 <span class="fs-2xs text-[var(--text-faint)] block"
                       x-text="t('apps.adguard.blocked_trend', { days: agg.trend.days }) || ('Blocked % trend (' + agg.trend.days + ' days)')"></span>
-                <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
-                  <path :d="adguardTrendPath(agg.trend.series)" fill="none" stroke="var(--success)" stroke-width="1.5"/>
-                </svg>
+                <div class="og-chart"
+                     x-data="{ axis: () => ogChartAxis(agg.trend.series, { unit: '%' }) }">
+                  <div class="og-chart-plot">
+                    <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                      <path :d="adguardTrendPath(agg.trend.series)" fill="none" stroke="var(--success)" stroke-width="1.5"/>
+                    </svg>
+                  </div>
+                  <!-- INCLUDE: _components/og-chart-axes.html -->
+                </div>
                 <div class="fs-3xs text-[var(--text-faint)]"
                      x-text="(t('apps.adguard.median_blocked') || 'Median blocked') + ': ' + adguardPct(agg.trend.median_pct)"></div>
               </div>

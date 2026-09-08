@@ -88,9 +88,15 @@
           <span class="fs-3xs text-[var(--text-faint)] mono"
                 x-text="t('apps.grafana.firing_caption', { now: (Number(grafanaTrend(inst).latest_firing) || 0), peak: (Number(grafanaTrend(inst).peak_firing) || 0), days: (Number(grafanaTrend(inst).days) || 0) })"></span>
         </div>
-        <svg class="apps-spark apps-spark--trend" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
-          <polyline class="apps-spark-line" style="stroke: var(--danger)" :points="grafanaTrendPath(grafanaTrend(inst).series_firing)"></polyline>
-        </svg>
+        <div class="og-chart"
+             x-data="{ axis: () => ogChartAxis(grafanaTrend(inst).series_firing) }">
+          <div class="og-chart-plot">
+            <svg class="apps-spark apps-spark--trend" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+            <polyline class="apps-spark-line" style="stroke: var(--danger)" :points="grafanaTrendPath(grafanaTrend(inst).series_firing)"></polyline>
+            </svg>
+          </div>
+          <!-- INCLUDE: _components/og-chart-axes.html -->
+        </div>
       </div>
     </template>
     <!-- Org + version footnote. -->

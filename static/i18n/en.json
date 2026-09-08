@@ -5980,6 +5980,7 @@
       "axis_mbps": "Mbps (down / up)",
       "axis_ms": "ms (ping)",
       "chart_aria": "Speedtest trend: download and upload in Mbps, ping in ms, over time",
+      "trend_chart_aria": "Long-term speedtest trend: daily median download and upload in Mbps, ping in ms, over time",
       "jitter": "Jitter",
       "packet_loss": "Packet loss",
       "longterm": "Long-term trend ({days} days)",
@@ -6726,6 +6727,7 @@
       "standby_gateways_placeholder": "e.g. WAN_CELL_DHCP",
       "standby_gateways_hint": "Comma-separated gateway names (or substrings) you run as passive failover. They are not counted as down when offline.",
       "usage_title": "Throughput trend ({days}d)",
+      "span_days": "{days}d ago",
       "usage_total": "↓ {down} · ↑ {up} total",
       "usage_peak": "Peak ↓ {down} · ↑ {up}",
       "usage_avg": "Avg ↓ {down} · ↑ {up}",
@@ -7388,6 +7390,10 @@
     "port_state_up": "open",
     "port_state_down": "closed",
     "port_state_unknown": "unknown",
+    "charts": {
+      "now": "now",
+      "oldest": "oldest"
+    },
     "diagnostics": {
       "title": "Endpoint diagnostics",
       "hint": "If a value reads 0 but the service shows data elsewhere, this is the upstream's actual per-endpoint response (HTTP status + row count + body snippet) — the cause (privilege / endpoint / credential) is identifiable from it."

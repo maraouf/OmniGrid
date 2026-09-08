@@ -98,9 +98,9 @@
                     x-text="t('apps.speedtest.trend') || 'Trend (last ' + appsAppData(inst).series.length + ' tests)'"></span>
               <svg viewBox="0 0 200 32" preserveAspectRatio="none"
                    class="w-full h-8 apps-card-speedtest-chart">
-                <path :d="speedtestSparkPath(appsAppData(inst).series, 'download')"
+                <path :d="speedtestSparkPath(appsAppData(inst).series, 'download', 'upload')"
                       fill="none" stroke="var(--success)" stroke-width="1.5"/>
-                <path :d="speedtestSparkPath(appsAppData(inst).series, 'upload')"
+                <path :d="speedtestSparkPath(appsAppData(inst).series, 'upload', 'download')"
                       fill="none" stroke="var(--info)" stroke-width="1.5"/>
                 <path :d="speedtestSparkPath(appsAppData(inst).series, 'ping')"
                       fill="none" stroke="var(--warning)" stroke-width="1.5"
@@ -207,20 +207,41 @@
           <div class="space-y-1 pt-1 border-t border-[var(--border)]">
             <span class="fs-2xs text-[var(--text-faint)] block"
                   x-text="t('apps.speedtest.longterm', { days: appsAppData(inst).trend.days }) || ('Long-term trend (' + appsAppData(inst).trend.days + ' days)')"></span>
-            <!-- Daily-median download (green) + upload (blue) + ping (amber,
-                 dashed), each scaled to its own range so the trend SHAPE of each
-                 metric is visible (toggle/overlay view). -->
-            <svg viewBox="0 0 200 32" preserveAspectRatio="none"
-                 class="w-full h-8 apps-card-speedtest-chart">
-              <path :d="speedtestTrendSparkPath(appsAppData(inst).trend.series)"
-                    fill="none" stroke="var(--success)" stroke-width="1.5"/>
-              <path x-show="(appsAppData(inst).trend.series_upload || []).length >= 2"
-                    :d="speedtestTrendSparkPath(appsAppData(inst).trend.series_upload)"
-                    fill="none" stroke="var(--info)" stroke-width="1.5"/>
-              <path x-show="(appsAppData(inst).trend.series_ping || []).length >= 2"
-                    :d="speedtestTrendSparkPath(appsAppData(inst).trend.series_ping)"
-                    fill="none" stroke="var(--warning)" stroke-width="1.5" stroke-dasharray="2 2"/>
-            </svg>
+            <!-- Daily-median download + upload on a SHARED Mbps left axis
+                 (they are the same unit, so scaling each to its own range made
+                 a small upload climb as high as a large download and the two
+                 read as level), ping on its own ms right axis, over a date
+                 x-axis. Same dual-axis model as the recent-series chart above.
+                 Axes are EXPLICIT (non-x-for) SVG children and the viewBox is a
+                 STATIC attribute — see that chart's comment for why both of
+                 those matter inside an inline <svg>. Tick arrays are
+                 fixed-length (yTicks 3 / pTicks 2 / xTicks 2) so we index them
+                 directly; tm is non-null here (the outer x-if gates on
+                 series.length >= 2). -->
+            <template x-for="tm in [speedtestTrendChartModel(appsAppData(inst).trend)]" :key="'sttrend'">
+              <svg viewBox="0 0 460 92" preserveAspectRatio="none" width="100%"
+                   class="w-full apps-card-speedtest-axchart-svg" role="img"
+                   :aria-label="t('apps.speedtest.trend_chart_aria') || 'Long-term speedtest trend: daily median download and upload in Mbps, ping in ms, over time'">
+                <!-- Mbps gridlines + left y-axis ticks (0 / half / max) -->
+                <line :x1="tm.axisX0" :y1="tm.yTicks[0].y" :x2="tm.axisX1" :y2="tm.yTicks[0].y" class="apps-axchart-grid"/>
+                <line :x1="tm.axisX0" :y1="tm.yTicks[1].y" :x2="tm.axisX1" :y2="tm.yTicks[1].y" class="apps-axchart-grid"/>
+                <line :x1="tm.axisX0" :y1="tm.yTicks[2].y" :x2="tm.axisX1" :y2="tm.yTicks[2].y" class="apps-axchart-grid"/>
+                <text :x="tm.axisX0 - 3" :y="tm.yTicks[0].y" text-anchor="end" dominant-baseline="middle" class="apps-axchart-tick" x-text="tm.yTicks[0].label"></text>
+                <text :x="tm.axisX0 - 3" :y="tm.yTicks[1].y" text-anchor="end" dominant-baseline="middle" class="apps-axchart-tick" x-text="tm.yTicks[1].label"></text>
+                <text :x="tm.axisX0 - 3" :y="tm.yTicks[2].y" text-anchor="end" dominant-baseline="middle" class="apps-axchart-tick" x-text="tm.yTicks[2].label"></text>
+                <!-- ping right y-axis ticks (0 / max), ms -->
+                <text :x="tm.axisX1 + 3" :y="tm.pTicks[0].y" text-anchor="start" dominant-baseline="middle" class="apps-axchart-tick apps-axchart-tick--ping" x-text="tm.pTicks[0].label"></text>
+                <text :x="tm.axisX1 + 3" :y="tm.pTicks[1].y" text-anchor="start" dominant-baseline="middle" class="apps-axchart-tick apps-axchart-tick--ping" x-text="tm.pTicks[1].label"></text>
+                <!-- x-axis baseline + first/last date labels -->
+                <line :x1="tm.axisX0" :y1="tm.axisY1" :x2="tm.axisX1" :y2="tm.axisY1" class="apps-axchart-axis"/>
+                <text :x="tm.xTicks[0].x" :y="tm.h - 4" class="apps-axchart-tick apps-axchart-tick--start" x-text="tm.xTicks[0].label"></text>
+                <text :x="tm.xTicks[1].x" :y="tm.h - 4" class="apps-axchart-tick apps-axchart-tick--end" x-text="tm.xTicks[1].label"></text>
+                <!-- data lines: download + upload (Mbps, left), ping (ms, right, dashed) -->
+                <path :d="tm.downPath" fill="none" stroke="var(--success)" stroke-width="1.5" vector-effect="non-scaling-stroke"/>
+                <path :d="tm.upPath" fill="none" stroke="var(--info)" stroke-width="1.5" vector-effect="non-scaling-stroke"/>
+                <path :d="tm.pingPath" fill="none" stroke="var(--warning)" stroke-width="1.5" stroke-dasharray="2 2" vector-effect="non-scaling-stroke"/>
+              </svg>
+            </template>
             <div class="flex items-center justify-around fs-2xs text-[var(--text-faint)]">
               <span><span class="inline-block w-2 h-2 rounded-full me-1" style="background: var(--success);"></span><span x-text="t('apps.speedtest.legend_download') || 'down'"></span></span>
               <span><span class="inline-block w-2 h-2 rounded-full me-1" style="background: var(--info);"></span><span x-text="t('apps.speedtest.legend_upload') || 'up'"></span></span>

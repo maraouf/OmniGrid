@@ -155,9 +155,15 @@
         <div class="fs-3xs mono text-[var(--text-faint)]"
              x-text="t('apps.opnsense.usage_avg', { down: opnsenseBps(opnsenseUsage(inst).avg_rx_bps), up: opnsenseBps(opnsenseUsage(inst).avg_tx_bps) })"></div>
         <!-- Daily-average download throughput sparkline. -->
-        <svg class="apps-spark apps-spark--trend mt-1" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
-          <polyline class="apps-spark-line" :points="opnsenseUsagePath(opnsenseUsage(inst).series_rx)"></polyline>
-        </svg>
+        <div class="og-chart mt-1"
+             x-data="{ axis: () => ogChartAxis(opnsenseUsage(inst).series_rx, { unit: 'B/s', span: t('apps.opnsense.span_days', { days: opnsenseUsage(inst).days }) }) }">
+          <div class="og-chart-plot">
+            <svg class="apps-spark apps-spark--trend" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+              <polyline class="apps-spark-line" :points="opnsenseUsagePath(opnsenseUsage(inst).series_rx)"></polyline>
+            </svg>
+          </div>
+          <!-- INCLUDE: _components/og-chart-axes.html -->
+        </div>
       </div>
     </template>
     <!-- System-health trend — daily-average pf state-table count + CPU/mem%/load
@@ -171,14 +177,26 @@
              x-text="t('apps.opnsense.health_peak', { states: opnsenseUsage(inst).peak_pf_states, cpu: opnsenseUsage(inst).peak_cpu_pct, mem: opnsenseUsage(inst).peak_mem_pct, load: opnsenseUsage(inst).peak_load_1m })"></div>
         <!-- pf state-table count daily sparkline. -->
         <div class="fs-3xs text-[var(--text-faint)] mt-1" x-text="t('apps.opnsense.health_states_label') || 'Firewall states'"></div>
-        <svg class="apps-spark apps-spark--trend" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
-          <polyline class="apps-spark-line" :points="opnsenseUsagePath(opnsenseUsage(inst).series_pf)"></polyline>
-        </svg>
+        <div class="og-chart"
+             x-data="{ axis: () => ogChartAxis(opnsenseUsage(inst).series_pf, { span: t('apps.opnsense.span_days', { days: opnsenseUsage(inst).days }) }) }">
+          <div class="og-chart-plot">
+            <svg class="apps-spark apps-spark--trend" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+              <polyline class="apps-spark-line" :points="opnsenseUsagePath(opnsenseUsage(inst).series_pf)"></polyline>
+            </svg>
+          </div>
+          <!-- INCLUDE: _components/og-chart-axes.html -->
+        </div>
         <!-- CPU % daily sparkline. -->
         <div class="fs-3xs text-[var(--text-faint)] mt-1" x-text="t('apps.opnsense.health_cpu_label') || 'CPU %'"></div>
-        <svg class="apps-spark apps-spark--trend" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
-          <polyline class="apps-spark-line" :points="opnsenseUsagePath(opnsenseUsage(inst).series_cpu)"></polyline>
-        </svg>
+        <div class="og-chart"
+             x-data="{ axis: () => ogChartAxis(opnsenseUsage(inst).series_cpu, { unit: '%', span: t('apps.opnsense.span_days', { days: opnsenseUsage(inst).days }) }) }">
+          <div class="og-chart-plot">
+            <svg class="apps-spark apps-spark--trend" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+              <polyline class="apps-spark-line" :points="opnsenseUsagePath(opnsenseUsage(inst).series_cpu)"></polyline>
+            </svg>
+          </div>
+          <!-- INCLUDE: _components/og-chart-axes.html -->
+        </div>
       </div>
     </template>
     <!-- Temperature trend — daily-average MAX CPU temperature (°C) from the same
@@ -191,9 +209,15 @@
              x-text="t('apps.opnsense.temp_title', { days: opnsenseUsage(inst).days })"></div>
         <div class="fs-3xs mono text-[var(--text-faint)]"
              x-text="t('apps.opnsense.temp_peak', { peak: opnsenseUsage(inst).peak_temp_c, avg: opnsenseUsage(inst).avg_temp_c })"></div>
-        <svg class="apps-spark apps-spark--trend mt-1" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
-          <polyline class="apps-spark-line" :points="opnsenseUsagePath(opnsenseUsage(inst).series_temp)"></polyline>
-        </svg>
+        <div class="og-chart mt-1"
+             x-data="{ axis: () => ogChartAxis(opnsenseUsage(inst).series_temp, { unit: '°C', span: t('apps.opnsense.span_days', { days: opnsenseUsage(inst).days }) }) }">
+          <div class="og-chart-plot">
+            <svg class="apps-spark apps-spark--trend" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+              <polyline class="apps-spark-line" :points="opnsenseUsagePath(opnsenseUsage(inst).series_temp)"></polyline>
+            </svg>
+          </div>
+          <!-- INCLUDE: _components/og-chart-axes.html -->
+        </div>
       </div>
     </template>
     <!-- Gateway detail list (status dot + name + latency / loss). DRAWER-ONLY

@@ -1146,6 +1146,74 @@ async def api_ai_palette(
                 if new_pending:
                     out["pending_tool_confirms"] = new_pending
 
+        # --- One corrective re-ask when the model narrates instead of acting.
+        # Observed repeatedly against a real switch: the operator asks to find
+        # the port holding a MAC and bounce it, the lookup runs and SUCCEEDS
+        # (`find_mac_port -> ok`, gi3), the port even renders in the chat — and
+        # the reply is still "I will search ... before initiating the bounce".
+        # An announcement, with the answer already in hand, and no directive
+        # under it. Nothing fires, and the exchange ends there.
+        #
+        # The system prompt already carries a worked locate-then-bounce example
+        # and a rule forbidding exactly this. Restating it more loudly is not
+        # the lever: the model has stopped mid-task and cannot be told about it
+        # in advance. What it has never had is the ONE thing that would make it
+        # obvious — its own reply, quoted back, with the results still present
+        # and an instruction to finish or explain.
+        #
+        # Strictly bounded: fires only when tool results EXIST (so there is an
+        # answer to act on), the reply emitted NO action and NO further tool,
+        # and the text reads as an announcement of work not done. One extra
+        # call, never a loop — the re-ask's own reply is final whatever it says.
+        if isinstance(out, dict) and tool_results:
+            _t2 = (out.get("text") or "")
+            _acts, _ = _ai.parse_palette_actions(_t2)
+            _more, _ = _ai.parse_palette_tool_calls(_t2)
+            if (not _acts) and (not _more) and _ai.reply_announces_without_acting(_t2):
+                print("[ai] palette: reply announced work with tool results in "
+                      "hand but emitted no directive — re-asking once")
+                _fix = (
+                    build_palette_user_prompt(query, ctx, conversation=conversation)
+                    + "\n\nYOUR PREVIOUS REPLY WAS:\n"
+                    + _t2.strip()[:1500]
+                    + "\n\nThat reply describes work instead of doing it. The tool "
+                      "results above are already in hand — nothing further needs "
+                      "fetching to act on them. Reply again and either emit the "
+                      "directive the operator asked for (ACTION: / ACTION_HOSTS: / "
+                      "ACTION_DATA:, using the values that came back), or state "
+                      "plainly that you cannot and why. Do NOT describe what you "
+                      "are about to do: this is the last round, and anything you "
+                      "only promise here will never happen."
+                )
+                _retry = await _ai.ask_provider_with_fallback(
+                    active,
+                    fallback_chain=fb_chain,
+                    provider_creds=provider_creds,
+                    prompt=_fix,
+                    system_prompt=sys_prompt,
+                    max_tokens=max_toks,
+                    fallback_enabled=fb_enabled,
+                    max_depth=fb_max_depth,
+                )
+                # Only take the retry when it actually improved on the reply it
+                # replaced. A second announcement is not progress, and keeping
+                # the first at least leaves the chat consistent with the chip
+                # showing the value that WAS resolved.
+                if isinstance(_retry, dict):
+                    _rt = (_retry.get("text") or "")
+                    _racts, _ = _ai.parse_palette_actions(_rt)
+                    if _rt.strip() and (_racts or not _ai.reply_announces_without_acting(_rt)):
+                        out["text"] = _rt
+                        out["reasked"] = True
+                        # The retry response is a fresh envelope, so carry the
+                        # results forward: the chat renders the resolved value
+                        # (the port) from them, and losing them would drop the
+                        # one thing on screen that was already correct.
+                        out["tool_results"] = tool_results
+                    else:
+                        print("[ai] palette: re-ask produced another announcement "
+                              "— keeping the original reply")
+
     # Split the optional `ACTION: <id>` trailer(s) off the visible
     # text. Multi-action queries ("refresh and cleanup") emit one
     # line per action; the parser returns them all in order so the

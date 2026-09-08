@@ -60,9 +60,15 @@
             <div class="apps-card-stat-value" x-text="fingCount(fingHistory(inst).new_event_days)"></div>
           </div>
         </div>
-        <svg class="apps-spark" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
-          <polyline class="apps-spark-line" :points="fingSparkPoints(inst)"></polyline>
-        </svg>
+        <div class="og-chart"
+             x-data="{ axis: () => ogChartAxis(fingHistory(inst).online_series) }">
+          <div class="og-chart-plot">
+            <svg class="apps-spark" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+            <polyline class="apps-spark-line" :points="fingSparkPoints(inst)"></polyline>
+            </svg>
+          </div>
+          <!-- INCLUDE: _components/og-chart-axes.html -->
+        </div>
         <div class="fs-3xs text-[var(--text-faint)] mono"
              x-text="t('apps.fing.trend_caption', { days: fingHistory(inst).days }) || ('Online devices, last ' + fingHistory(inst).days + ' days')"></div>
       </div>

@@ -106,9 +106,15 @@
       <div class="space-y-1 mt-2 pt-2 border-t border-[var(--border)]">
         <span class="fs-2xs text-[var(--text-faint)] block"
               x-text="t('apps.bazarr.backlog_trend', { days: bazarrTrend(inst).days }) || ('Subtitle backlog (' + bazarrTrend(inst).days + ' days)')"></span>
-        <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
-          <path :d="bazarrTrendPath(bazarrTrend(inst).series_backlog)" fill="none" stroke="var(--warning)" stroke-width="1.5"/>
-        </svg>
+        <div class="og-chart"
+             x-data="{ axis: () => ogChartAxis(bazarrTrend(inst).series_backlog, { mode: 'minmax' }) }">
+          <div class="og-chart-plot">
+            <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+            <path :d="bazarrTrendPath(bazarrTrend(inst).series_backlog)" fill="none" stroke="var(--warning)" stroke-width="1.5"/>
+            </svg>
+          </div>
+          <!-- INCLUDE: _components/og-chart-axes.html -->
+        </div>
         <div class="fs-3xs text-[var(--text-faint)]"
              x-text="t('apps.bazarr.backlog_peak', { latest: bazarrCount(bazarrTrend(inst).latest_backlog), peak: bazarrCount(bazarrTrend(inst).peak_backlog) })"></div>
       </div>
@@ -119,9 +125,15 @@
       <div class="space-y-1 mt-2 pt-2 border-t border-[var(--border)]">
         <span class="fs-2xs text-[var(--text-faint)] block"
               x-text="t('apps.bazarr.downloaded_trend') || 'Subtitles downloaded (7 days)'"></span>
-        <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
-          <path :d="bazarrTrendPath(bazarrData(inst).downloaded_week_series)" fill="none" stroke="var(--success)" stroke-width="1.5"/>
-        </svg>
+        <div class="og-chart"
+             x-data="{ axis: () => ogChartAxis(bazarrData(inst).downloaded_week_series, { mode: 'minmax' }) }">
+          <div class="og-chart-plot">
+            <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+            <path :d="bazarrTrendPath(bazarrData(inst).downloaded_week_series)" fill="none" stroke="var(--success)" stroke-width="1.5"/>
+            </svg>
+          </div>
+          <!-- INCLUDE: _components/og-chart-axes.html -->
+        </div>
         <div class="fs-3xs text-[var(--text-faint)]"
              x-text="t('apps.bazarr.downloaded_week_n', { n: bazarrCount(bazarrData(inst).downloaded_this_week) })"></div>
       </div>

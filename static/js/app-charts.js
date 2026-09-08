@@ -137,6 +137,105 @@ function _buildHostSpark(series, pickValue) {
 }
 
 export default {
+  // --- Shared axis furniture for the per-app drawer sparklines ------------
+  // Those charts drew a shape and nothing else: no scale, no baseline, no
+  // time span. A rising line told you something grew, but not from what to
+  // what, so "24.6 TB total" beside a wiggle left the wiggle unreadable.
+  //
+  // One helper for every app because the maths is genuinely the same one:
+  // each per-app path builder normalises its series into the SAME 100x24
+  // viewBox scaled from zero to the series maximum. So the axis is always
+  // 0 .. max(series) vertically, and oldest .. newest horizontally, and can
+  // be derived HERE from the same array the path was built from rather than
+  // re-stated per app.
+  //
+  // Deliberately does NOT touch the <svg>: the gridlines are drawn by CSS on
+  // the wrapper. Editing 46 chart elements to add axis lines would risk the
+  // one mistake that blanks the entire page (see the STRICT rule about
+  // Alpine templates inside <svg>), and buys nothing over a border.
+  // `mode` MUST match how the chart's own path builder scaled the series, or
+  // the numbers describe a different picture than the one drawn. There are
+  // three families in the tree and they disagree about the FLOOR:
+  //   'zero'   — `y = H - v / max * H`. Bottom of the plot is 0.
+  //   'minmax' — `y = H - (v - min) / range * H`. Bottom is the series
+  //              MINIMUM, so labelling it 0 would be simply false; on a disk
+  //              chart that never drops below 4 TB it would invent a floor
+  //              the line never approaches.
+  //   'fixed'  — `y = H - v / 100 * H`. Ceiling is 100 whatever the data does.
+  // There is no safe default across all three, so a caller whose builder has
+  // not been checked passes none and gets no axis: an unlabelled chart is the
+  // status quo, a mislabelled one is worse than what it replaced.
+  ogChartAxis(series, opts) {
+    const o = opts || {};
+    const arr = Array.isArray(series) ? series : [];
+    const mode = o.mode || 'zero';
+    let max = 0;
+    let min = Infinity;
+    for (let i = 0; i < arr.length; i++) {
+      const v = Number(arr[i]);
+      if (Number.isFinite(v)) {
+        if (v > max) {
+          max = v;
+        }
+        if (v < min) {
+          min = v;
+        }
+      }
+    }
+    if (!Number.isFinite(min)) {
+      min = 0;
+    }
+    let floor = 0;
+    let ceil = max;
+    if (mode === 'minmax') {
+      floor = min;
+      // A flat series has zero range; its builder pins the line mid-plot, so
+      // report the single value rather than a range of nothing.
+      ceil = (max > min) ? max : min;
+    } else if (mode === 'fixed') {
+      ceil = Number(o.fixedMax) || 100;
+    }
+    const fmt = typeof o.format === 'function'
+      ? o.format
+      : (v) => this._ogChartNum(v, o.unit);
+    return {
+      has: arr.length > 1,
+      max: ceil,
+      min: floor,
+      // Top and bottom of the plot AS DRAWN — see the mode note above.
+      maxLabel: fmt(ceil),
+      minLabel: fmt(floor),
+      // Oldest reading on the left, newest on the right. `span` is the app's
+      // own window label (it already prints "90D" in the heading), and the
+      // right edge is always the latest sample.
+      // When the app knows its own window it passes one ("90d ago"); when it
+      // does not, say which END this is rather than inventing a duration.
+      startLabel: o.span || (this.t('apps.charts.oldest') || 'oldest'),
+      endLabel: this.t('apps.charts.now') || 'now',
+      points: arr.length,
+    };
+  },
+
+  // Compact number for an axis label — these sit in a ~40px gutter, so a raw
+  // toLocaleString would wrap and push the plot around.
+  _ogChartNum(v, unit) {
+    const n = Number(v) || 0;
+    const u = unit ? String(unit) : '';
+    let s;
+    if (n >= 1e9) {
+      s = (n / 1e9).toFixed(n >= 1e10 ? 0 : 1) + 'G';
+    } else if (n >= 1e6) {
+      s = (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + 'M';
+    } else if (n >= 1e3) {
+      s = (n / 1e3).toFixed(n >= 1e4 ? 0 : 1) + 'k';
+    } else if (n >= 10 || n === 0) {
+      s = String(Math.round(n));
+    } else {
+      s = n.toFixed(1);
+    }
+    return u ? (s + u) : s;
+  },
+
   // Stacked-area chart for fleet network throughput. Two series:
   // rx (incoming, primary colour) and tx (outgoing, success colour),
   // stacked so the top edge is the sum. Same gridline + axis style

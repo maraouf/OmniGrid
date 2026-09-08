@@ -1,0 +1,42 @@
+<!--
+  og-chart-axes — scale + time labels for a per-app drawer sparkline.
+
+  WHY: those charts drew a shape with no scale on it. A rising line said
+  something grew; it did not say from what, to what, or over how long, so the
+  number printed beside the chart ("24.6 TB total") could not be related to
+  any point on it.
+
+  HOW TO USE. Wrap the EXISTING chart — do not modify the <svg> itself:
+
+    <div class="og-chart"
+         x-data="{ axis: () => ogChartAxis(myAppUsage(inst).series_rx,
+                                           { unit: 'B/s', span: '90d' }) }">
+      <div class="og-chart-plot">
+        ... the existing <svg class="apps-spark"> ...
+      </div>
+      ...then the INCLUDE marker for this file (written out in full it would
+      match the expander's own regex and make this partial include ITSELF —
+      the expander is not comment-aware, so an example marker in a comment is
+      a real edge in the include graph)...
+    </div>
+
+  The consumer supplies ONE expression, `axis()`, returning what
+  `ogChartAxis(series, opts)` produced from the same array the chart's path
+  was built from. Nothing here knows which app it is rendering for.
+
+  The gridlines are CSS on `.og-chart-plot`, not SVG elements. Adding
+  elements inside 46 chart <svg>s to draw two lines would risk the failure
+  documented as STRICT in the project conventions — an Alpine template inside
+  an <svg> takes down the whole page — and a border renders identically.
+
+  Hidden when the series is too short to plot, so an app with no history
+  shows an empty chart rather than an axis around nothing.
+-->
+<template x-if="axis().has">
+  <div class="og-chart-axes" aria-hidden="true">
+    <span class="og-chart-y og-chart-y--max" x-text="axis().maxLabel"></span>
+    <span class="og-chart-y og-chart-y--min" x-text="axis().minLabel"></span>
+    <span class="og-chart-x og-chart-x--start" x-text="axis().startLabel"></span>
+    <span class="og-chart-x og-chart-x--end" x-text="axis().endLabel"></span>
+  </div>
+</template>

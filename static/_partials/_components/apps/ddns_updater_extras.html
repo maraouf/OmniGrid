@@ -99,10 +99,16 @@
               <div class="mt-2">
                 <div class="apps-card-stat-label mb-1"
                      x-text="t('apps.ddns.up_trend_title') || 'Records trend'"></div>
-                <svg class="apps-spark" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
-                  <polyline class="apps-spark-line apps-spark-line--ok" :points="ddnsUpSparkPoints(inst)"></polyline>
-                  <polyline x-show="ddnsHistory(inst).fail_peak > 0" class="apps-spark-line apps-spark-line--danger" :points="ddnsFailSparkPoints(inst)"></polyline>
-                </svg>
+                <div class="og-chart"
+                     x-data="{ axis: () => ogChartAxis(ddnsHistory(inst).up_series) }">
+                  <div class="og-chart-plot">
+                    <svg class="apps-spark" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+                    <polyline class="apps-spark-line apps-spark-line--ok" :points="ddnsUpSparkPoints(inst)"></polyline>
+                    <polyline x-show="ddnsHistory(inst).fail_peak > 0" class="apps-spark-line apps-spark-line--danger" :points="ddnsFailSparkPoints(inst)"></polyline>
+                    </svg>
+                  </div>
+                  <!-- INCLUDE: _components/og-chart-axes.html -->
+                </div>
                 <div class="fs-3xs text-[var(--text-faint)]"
                      x-text="t('apps.ddns.up_trend_caption', { days: ddnsHistory(inst).days })"></div>
               </div>

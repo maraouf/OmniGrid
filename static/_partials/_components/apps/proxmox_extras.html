@@ -88,11 +88,22 @@
       <div class="space-y-1 mt-2 pt-2 border-t border-[var(--border)]">
         <span class="fs-2xs text-[var(--text-faint)] block"
               x-text="t('apps.proxmox.resource_trend', { days: proxmoxTrend(inst).days }) || ('Cluster load (' + proxmoxTrend(inst).days + ' days)')"></span>
-        <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
-          <path :d="proxmoxTrendPath(proxmoxTrend(inst).series_cpu)" fill="none" stroke="var(--warning)" stroke-width="1.5"/>
-          <path :d="proxmoxTrendPath(proxmoxTrend(inst).series_mem)" fill="none" stroke="var(--info)" stroke-width="1.5"/>
-          <path :d="proxmoxTrendPath(proxmoxTrend(inst).series_storage)" fill="none" stroke="var(--success)" stroke-width="1.5"/>
-        </svg>
+        <!-- Three series in ONE plot, and the axis is honest for all three
+             because proxmoxTrendPath pins every one of them to a fixed 0-100
+             scale rather than to its own range. That is what makes a single
+             shared scale correct here and wrong for the other multi-series
+             charts, where each line is normalised independently. -->
+        <div class="og-chart"
+             x-data="{ axis: () => ogChartAxis(proxmoxTrend(inst).series_cpu, { mode: 'fixed', unit: '%' }) }">
+          <div class="og-chart-plot">
+            <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+              <path :d="proxmoxTrendPath(proxmoxTrend(inst).series_cpu)" fill="none" stroke="var(--warning)" stroke-width="1.5"/>
+              <path :d="proxmoxTrendPath(proxmoxTrend(inst).series_mem)" fill="none" stroke="var(--info)" stroke-width="1.5"/>
+              <path :d="proxmoxTrendPath(proxmoxTrend(inst).series_storage)" fill="none" stroke="var(--success)" stroke-width="1.5"/>
+            </svg>
+          </div>
+          <!-- INCLUDE: _components/og-chart-axes.html -->
+        </div>
         <div class="fs-3xs text-[var(--text-faint)] inline-flex flex-wrap gap-x-2">
           <span class="text-[var(--warning)]" x-text="t('apps.proxmox.trend_cpu', { peak: proxmoxTrend(inst).peak_cpu, latest: proxmoxTrend(inst).latest_cpu })"></span>
           <span class="text-[var(--info)]" x-text="t('apps.proxmox.trend_mem', { peak: proxmoxTrend(inst).peak_mem, latest: proxmoxTrend(inst).latest_mem })"></span>

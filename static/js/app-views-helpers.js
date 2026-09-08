@@ -893,7 +893,10 @@ export default {
     if (!text.trim()) {
       return false;
     }
-    return /\b(I'?ll|I will|Let me|I'?m going to|I am going to)\b[^.!?]{0,80}\b(query|check|look\s?up|find|fetch|retrieve|ask|proceed|run|bounce|restart|reboot|resolve|locate)\b/i
+    // Kept in lock-step with `reply_announces_without_acting` in
+    // logic/ai_extras.py — the backend uses the same shape to decide whether
+    // to re-ask once, and the two must agree about what an announcement is.
+    return /\b(I'?ll|I will|Let me(?!\s+know)|I'?m going to|I am going to)\b[^.!?]{0,80}\b(query|check|look\s?up|find|fetch|retrieve|ask|proceed|run|bounce|restart|reboot|resolve|locate|search)\b/i
       .test(text);
   },
 

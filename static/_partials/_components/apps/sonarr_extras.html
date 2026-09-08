@@ -131,25 +131,43 @@
             <div class="space-y-1">
               <span class="fs-2xs text-[var(--text-faint)] block"
                     x-text="t('apps.sonarr.library_trend', { days: sonarrTrend(inst).days }) || ('Library growth (' + sonarrTrend(inst).days + ' days)')"></span>
-              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
-                <path :d="sonarrTrendPath(sonarrTrend(inst).series_total)" fill="none" stroke="var(--info)" stroke-width="1.5"/>
-              </svg>
+              <div class="og-chart"
+                   x-data="{ axis: () => ogChartAxis(sonarrTrend(inst).series_total, { mode: 'minmax' }) }">
+                <div class="og-chart-plot">
+                  <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                  <path :d="sonarrTrendPath(sonarrTrend(inst).series_total)" fill="none" stroke="var(--info)" stroke-width="1.5"/>
+                  </svg>
+                </div>
+                <!-- INCLUDE: _components/og-chart-axes.html -->
+              </div>
             </div>
             <div class="space-y-1" x-show="(Number(sonarrTrend(inst).peak_missing) || 0) > 0">
               <span class="fs-2xs text-[var(--text-faint)] block"
                     x-text="t('apps.sonarr.missing_trend', { days: sonarrTrend(inst).days }) || ('Missing backlog (' + sonarrTrend(inst).days + ' days)')"></span>
-              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
-                <path :d="sonarrTrendPath(sonarrTrend(inst).series_missing)" fill="none" stroke="var(--warning)" stroke-width="1.5"/>
-              </svg>
+              <div class="og-chart"
+                   x-data="{ axis: () => ogChartAxis(sonarrTrend(inst).series_missing, { mode: 'minmax' }) }">
+                <div class="og-chart-plot">
+                  <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                  <path :d="sonarrTrendPath(sonarrTrend(inst).series_missing)" fill="none" stroke="var(--warning)" stroke-width="1.5"/>
+                  </svg>
+                </div>
+                <!-- INCLUDE: _components/og-chart-axes.html -->
+              </div>
               <div class="fs-3xs text-[var(--text-faint)]"
                    x-text="(t('apps.sonarr.peak_missing') || 'Peak missing') + ': ' + sonarrCount(sonarrTrend(inst).peak_missing)"></div>
             </div>
             <div class="space-y-1">
               <span class="fs-2xs text-[var(--text-faint)] block"
                     x-text="t('apps.sonarr.disk_trend', { days: sonarrTrend(inst).days }) || ('Free disk (' + sonarrTrend(inst).days + ' days)')"></span>
-              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
-                <path :d="sonarrTrendPath(sonarrTrend(inst).series_disk_free)" fill="none" stroke="var(--success)" stroke-width="1.5"/>
-              </svg>
+              <div class="og-chart"
+                   x-data="{ axis: () => ogChartAxis(sonarrTrend(inst).series_disk_free, { mode: 'minmax' }) }">
+                <div class="og-chart-plot">
+                  <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                  <path :d="sonarrTrendPath(sonarrTrend(inst).series_disk_free)" fill="none" stroke="var(--success)" stroke-width="1.5"/>
+                  </svg>
+                </div>
+                <!-- INCLUDE: _components/og-chart-axes.html -->
+              </div>
               <div x-show="(Number(sonarrTrend(inst).disk_runway_days) || 0) > 0"
                    class="fs-3xs text-[var(--warning)]"
                    x-text="t('apps.sonarr.disk_runway', { days: sonarrTrend(inst).disk_runway_days }) || ('Disk full in ~' + sonarrTrend(inst).disk_runway_days + ' days at this fill rate')"></div>
@@ -158,9 +176,15 @@
             <div class="space-y-1" x-show="(Number(sonarrTrend(inst).peak_queue) || 0) > 0">
               <span class="fs-2xs text-[var(--text-faint)] block"
                     x-text="t('apps.sonarr.queue_trend', { days: sonarrTrend(inst).days }) || ('Download queue (' + sonarrTrend(inst).days + ' days)')"></span>
-              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
-                <path :d="sonarrTrendPath(sonarrTrend(inst).series_queue)" fill="none" stroke="var(--primary)" stroke-width="1.5"/>
-              </svg>
+              <div class="og-chart"
+                   x-data="{ axis: () => ogChartAxis(sonarrTrend(inst).series_queue, { mode: 'minmax' }) }">
+                <div class="og-chart-plot">
+                  <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                  <path :d="sonarrTrendPath(sonarrTrend(inst).series_queue)" fill="none" stroke="var(--primary)" stroke-width="1.5"/>
+                  </svg>
+                </div>
+                <!-- INCLUDE: _components/og-chart-axes.html -->
+              </div>
               <div class="fs-3xs text-[var(--text-faint)]"
                    x-text="(t('apps.sonarr.peak_queue') || 'Peak queue') + ': ' + sonarrCount(sonarrTrend(inst).peak_queue)"></div>
             </div>

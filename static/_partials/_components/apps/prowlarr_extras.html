@@ -132,10 +132,16 @@
             <div class="space-y-1">
               <span class="fs-2xs text-[var(--text-faint)] block"
                     x-text="t('apps.prowlarr.throughput_trend', { days: prowlarrTrend(inst).days }) || ('Queries / grabs per day (' + prowlarrTrend(inst).days + ' days)')"></span>
-              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
-                <path :d="prowlarrTrendPath(prowlarrTrend(inst).series_queries)" fill="none" stroke="var(--info)" stroke-width="1.5"/>
-                <path :d="prowlarrTrendPath(prowlarrTrend(inst).series_grabs)" fill="none" stroke="var(--success)" stroke-width="1.5"/>
-              </svg>
+              <div class="og-chart"
+                   x-data="{ axis: () => ogChartAxis(prowlarrTrend(inst).series_queries, { mode: 'minmax' }) }">
+                <div class="og-chart-plot">
+                  <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                  <path :d="prowlarrTrendPath(prowlarrTrend(inst).series_queries, prowlarrTrend(inst).series_grabs)" fill="none" stroke="var(--info)" stroke-width="1.5"/>
+                  <path :d="prowlarrTrendPath(prowlarrTrend(inst).series_grabs, prowlarrTrend(inst).series_queries)" fill="none" stroke="var(--success)" stroke-width="1.5"/>
+                  </svg>
+                </div>
+                <!-- INCLUDE: _components/og-chart-axes.html -->
+              </div>
               <div class="fs-3xs text-[var(--text-faint)]"
                    x-text="t('apps.prowlarr.window_totals', { queries: prowlarrCount(prowlarrTrend(inst).window_queries), grabs: prowlarrCount(prowlarrTrend(inst).window_grabs), days: prowlarrTrend(inst).days })"></div>
             </div>
@@ -143,9 +149,15 @@
             <div class="space-y-1">
               <span class="fs-2xs text-[var(--text-faint)] block"
                     x-text="t('apps.prowlarr.failrate_trend', { days: prowlarrTrend(inst).days }) || ('Failure rate per day (' + prowlarrTrend(inst).days + ' days)')"></span>
-              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
-                <path :d="prowlarrTrendPath(prowlarrTrend(inst).series_fail_rate)" fill="none" stroke="var(--warning)" stroke-width="1.5"/>
-              </svg>
+              <div class="og-chart"
+                   x-data="{ axis: () => ogChartAxis(prowlarrTrend(inst).series_fail_rate, { mode: 'minmax' }) }">
+                <div class="og-chart-plot">
+                  <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                  <path :d="prowlarrTrendPath(prowlarrTrend(inst).series_fail_rate)" fill="none" stroke="var(--warning)" stroke-width="1.5"/>
+                  </svg>
+                </div>
+                <!-- INCLUDE: _components/og-chart-axes.html -->
+              </div>
               <div x-show="(Number(prowlarrTrend(inst).avg_fail_rate) || 0) > 0" class="fs-3xs text-[var(--text-faint)]"
                    x-text="t('apps.prowlarr.avg_failrate', { pct: (Number(prowlarrTrend(inst).avg_fail_rate) || 0).toFixed(1) })"></div>
             </div>
@@ -156,9 +168,15 @@
                  x-show="prowlarrTrend(inst).series_response_ms && prowlarrTrend(inst).series_response_ms.length >= 2 && (Number(prowlarrTrend(inst).peak_response_ms) || 0) > 0">
               <span class="fs-2xs text-[var(--text-faint)] block"
                     x-text="t('apps.prowlarr.response_trend', { days: prowlarrTrend(inst).days }) || ('Avg response time (' + prowlarrTrend(inst).days + ' days)')"></span>
-              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
-                <path :d="prowlarrTrendPath(prowlarrTrend(inst).series_response_ms)" fill="none" stroke="var(--info)" stroke-width="1.5"/>
-              </svg>
+              <div class="og-chart"
+                   x-data="{ axis: () => ogChartAxis(prowlarrTrend(inst).series_response_ms, { mode: 'minmax' }) }">
+                <div class="og-chart-plot">
+                  <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                  <path :d="prowlarrTrendPath(prowlarrTrend(inst).series_response_ms)" fill="none" stroke="var(--info)" stroke-width="1.5"/>
+                  </svg>
+                </div>
+                <!-- INCLUDE: _components/og-chart-axes.html -->
+              </div>
               <div class="fs-3xs text-[var(--text-faint)]"
                    x-text="t('apps.prowlarr.response_latest', { latest: prowlarrCount(prowlarrTrend(inst).latest_response_ms), peak: prowlarrCount(prowlarrTrend(inst).peak_response_ms) })"></div>
             </div>

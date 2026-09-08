@@ -64,9 +64,15 @@
             <div class="apps-card-stat-value" x-text="rustdeskUsage(inst).avg"></div>
           </div>
         </div>
-        <svg class="apps-spark" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
-          <polyline class="apps-spark-line" :points="rustdeskSparkPoints(inst)"></polyline>
-        </svg>
+        <div class="og-chart"
+             x-data="{ axis: () => ogChartAxis(rustdeskUsage(inst).series) }">
+          <div class="og-chart-plot">
+            <svg class="apps-spark" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+            <polyline class="apps-spark-line" :points="rustdeskSparkPoints(inst)"></polyline>
+            </svg>
+          </div>
+          <!-- INCLUDE: _components/og-chart-axes.html -->
+        </div>
         <div class="fs-3xs text-[var(--text-faint)] mono"
              x-text="t('apps.rustdesk.usage_caption', { days: rustdeskUsage(inst).days }) || ('Online devices, last ' + rustdeskUsage(inst).days + ' days')"></div>
       </div>

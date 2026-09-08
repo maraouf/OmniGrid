@@ -229,6 +229,40 @@ def _infer_tool_from_args(args: dict) -> str:
     return ""
 
 
+# A reply that says it is ABOUT to do something. Kept deliberately close to
+# the SPA's own stalled-turn detector in `static/js/app-views-helpers.js`
+# (`aiTurnStalled`) — the two answer the same question on opposite sides of
+# the wire, the backend to decide whether to re-ask and the browser to decide
+# whether to warn, and they should not disagree about what an announcement
+# looks like. Change one, change the other.
+#
+# The window between the pronoun and the verb is bounded so a sentence that
+# merely CONTAINS "I will" much earlier does not match, and sentence-enders
+# are excluded from it so the two halves have to belong to one clause.
+_ANNOUNCE_RE = _re.compile(
+    # "Let me KNOW" is the opposite of an announcement — it hands the next
+    # step back to the operator, which is the correct close for a reply that
+    # already answered. Without this carve-out "The port is gi3. Let me know
+    # if you want me to bounce it." re-asks on a perfectly good answer.
+    r"\b(?:I'?ll|I will|Let me(?!\s+know)|I'?m going to|I am going to)\b"
+    r"[^.!?]{0,80}"
+    r"\b(?:query|check|look\s?up|find|fetch|retrieve|ask|proceed|run|bounce"
+    r"|restart|reboot|resolve|locate|search)\b",
+    _re.I,
+)
+
+
+def reply_announces_without_acting(text: str) -> bool:
+    """True when a reply DESCRIBES work rather than emitting it.
+
+    Used to decide whether a round that already holds tool results deserves
+    one corrective re-ask. Caller must ALSO have established that no action
+    and no further tool call were emitted — this looks only at the prose, and
+    a reply that both announces and acts is perfectly fine.
+    """
+    return bool(text) and bool(_ANNOUNCE_RE.search(text))
+
+
 def parse_palette_tool_calls(text: str) -> tuple[list[dict], str]:
     """Parse `TOOL: <name>` + `TOOL_ARGS: {<json>}` directive pairs.
 
