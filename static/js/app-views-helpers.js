@@ -879,10 +879,16 @@ export default {
     }
     if (turn.action_label || turn.pending_confirm || turn.cancelled
       || turn.op_watch || turn.skill_panel || turn.skill_running
-      || turn.tool_results
       || (turn.pending_tool_confirms && turn.pending_tool_confirms.length)) {
       return false;
     }
+    // `tool_results` deliberately does NOT veto. It was in the list above
+    // on the reasoning that a turn which ran a tool had acted — but running
+    // a LOOKUP is not acting on what it found. The observed failure was a
+    // turn that ran find_mac_port, got an error back, and then re-announced
+    // the lookup: tool_results was set, so this stood down, and the operator
+    // was left with a sentence and no outcome. A turn that fetched and still
+    // only describes what it is about to do is the case this exists for.
     const text = (turn.text || '').toString();
     if (!text.trim()) {
       return false;
@@ -929,16 +935,55 @@ export default {
     for (const r of each(res.find_mac_port)) {
       const iface = (r.interface || '').toString().trim();
       if (!iface) {
-        continue;   // no port resolved — the reply explains why; no chip
+        // A lookup that found nothing is the OUTCOME, not an absence of
+        // one. This used to render nothing on the assumption the reply
+        // would explain — it does not: the model tends to re-announce the
+        // lookup it just made, so a failed probe reached the operator as
+        // a confident sentence with no result under it. Say it failed.
+        const err = (r.error || '').toString().trim();
+        if (!err) {
+          continue;
+        }
+        out.push({
+          icon: 'icon-alert-triangle',
+          failed: true,
+          text: this.t('ai_sidebar.fact_mac_port_failed', {
+            mac: (r.mac || '').toString(),
+            host: (r.host_id || '').toString(),
+            error: err,
+          }),
+        });
+        continue;
       }
       out.push({
         icon: 'icon-search',
+        failed: false,
         text: this.t('ai_sidebar.fact_mac_port', {
           mac: (r.mac || '').toString(),
           iface: iface,
           host: (r.host_id || '').toString(),
         }),
       });
+    }
+    // Every OTHER tool gets the same treatment, because the silence is a
+    // property of the surface rather than of any one tool: a failed fetch
+    // left the reply looking answered. Only errors are surfaced here —
+    // successful results are the model's to narrate.
+    for (const [name, val] of Object.entries(res)) {
+      if (name === 'find_mac_port') {
+        continue;   // reported above, with its own wording
+      }
+      for (const r of each(val)) {
+        const err = (r.error || '').toString().trim();
+        if (!err) {
+          continue;
+        }
+        out.push({
+          icon: 'icon-alert-triangle',
+          failed: true,
+          text: this.t('ai_sidebar.fact_tool_failed', { tool: name, error: err }),
+        });
+      }
     }
     return out;
   },

@@ -85,6 +85,34 @@ _token_cache: dict[str, tuple[str, float]] = {}
 # slightly, a forward jump expires it slightly early; both re-HEAD cheaply.
 _digest_cache: dict[str, tuple[str, float]] = {}
 
+# Tags that are republished in place rather than pointing at one build for
+# good. A digest resolved for one of these before a restart says what the tag
+# meant then, not what it means now — see seed_digest_cache_from_db.
+_MOVING_TAGS = frozenset({
+    "latest", "main", "master", "edge", "nightly", "stable", "dev",
+    "develop", "rolling", "unstable", "beta", "canary", "test",
+})
+
+
+def _tag_is_moving(cache_key: str) -> bool:
+    """True when ``cache_key``'s tag is republished in place.
+
+    The key is ``registry|repo|tag`` (see ``_get_remote_digest``). A tag that
+    is only a major or major.minor line — ``3``, ``3.11``, ``v2`` — moves too:
+    it follows its newest patch. A fully-qualified ``1.6.16`` does not.
+    """
+    tag = cache_key.rsplit("|", 1)[-1].strip().lower() if cache_key else ""
+    if not tag or tag in _MOVING_TAGS:
+        return True
+    base = tag[1:] if tag.startswith("v") else tag
+    # Two-or-fewer version parts is a line, not a release. Suffixed forms
+    # (`1.6-alpine`) are left alone — that is a variant, not a claim of
+    # immutability either way, and re-resolving is the safe reading.
+    parts = base.split(".")
+    if parts and all(p.isdigit() for p in parts):
+        return len(parts) <= 2
+    return False
+
 
 def parse_image_ref(ref: str) -> tuple[str, str, str]:
     """Return (registry, repo, tag) from an image reference.
@@ -743,13 +771,35 @@ def seed_digest_cache_from_db() -> int:
     from logic.db import db_conn # noqa: PLC0415
     now = time.time()
     loaded = 0
+    skipped = 0
     try:
         with db_conn() as c:
             cur = c.execute("SELECT cache_key, digest, ts FROM registry_digest_cache")
             for key, digest, ts in cur.fetchall():
-                if digest and (now - float(ts)) < ttl:
-                    _digest_cache[key] = (digest, float(ts))
-                    loaded += 1
+                if not digest or (now - float(ts)) >= ttl:
+                    continue
+                # A MOVING tag is exactly the thing that can have changed
+                # while this process was not running, so a digest resolved
+                # before the restart is not evidence about the tag now. The
+                # restart is often BECAUSE it moved: OmniGrid deploying
+                # itself pushes a new `:latest` and then rolls the container
+                # that would have re-read it. Warming that entry made the app
+                # report an update available for its own freshly-deployed
+                # image, comparing the new container against the digest its
+                # predecessor had resolved for the old one.
+                #
+                # Version-pinned tags cannot have moved, so they keep the
+                # whole point of this cache — not re-HEADing every image on
+                # the first gather after a restart.
+                if _tag_is_moving(key):
+                    skipped += 1
+                    continue
+                _digest_cache[key] = (digest, float(ts))
+                loaded += 1
+        if skipped:
+            print(f"[digest] INFO boot warm skipped {skipped} moving-tag "
+                  f"entr{'y' if skipped == 1 else 'ies'} (re-resolved on the "
+                  f"first gather); loaded {loaded}")
     except Exception as e: # noqa: BLE001
         print(f"[digest] seed_digest_cache_from_db failed: {e}")
     return loaded

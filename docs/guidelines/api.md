@@ -1087,12 +1087,12 @@ Admin → Prayer Times.
 |--------|-----------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `GET`  | `/api/auth/providers` | Public. Tells the login page which paths are live — `{local: bool, oidc: bool, ...}`. OIDC is hidden when the request's hostname doesn't match the configured `oidc_redirect_uri` host (multi-FQDN deploys). |
 
-### Logs (admin-only)
+### Logs (reads: any authenticated caller, including a read-only token · writes: admin-only)
 
 | Method   | Route                                   | Purpose                                                                                                 |
 |----------|-----------------------------------------|---------------------------------------------------------------------------------------------------------|
 | `GET`    | `/api/logs?limit=N`                     | Tail of the in-memory ring buffer. Filterable by severity / source-tag.                                 |
-| `DELETE` | `/api/logs`                             | Clear the in-memory ring buffer. Persistent on-disk daily files under `/app/data/logs/` are unaffected. |
+| `DELETE` | `/api/logs`                             | **Admin only.** Clear the in-memory ring buffer. Persistent on-disk daily files under `/app/data/logs/` are unaffected. |
 | `GET`    | `/api/admin/logs/files`                 | List on-disk daily log files (`omnigrid-YYYY-MM-DD.log`) with size + modified-time.                     |
 | `GET`    | `/api/admin/logs/files/{name}`          | Stream the contents of one file.                                                                        |
 | `GET`    | `/api/admin/logs/files/{name}/download` | Download one file as an attachment.                                                                     |

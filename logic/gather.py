@@ -794,7 +794,24 @@ def seed_items_cache_from_snapshot() -> int:
         if k not in existing_ni:
             existing_ni[k] = v
     _cache["nodes_info"] = existing_ni
-    _cache["ts"] = ts
+    # Deliberately 0, NOT the snapshot's own timestamp. `/api/items` decides
+    # whether to refresh with `(now - _cache["ts"]) > CACHE_TTL_SECONDS`, so
+    # inheriting the timestamp meant a container that had just replaced itself
+    # counted the OUTGOING container's gather as its own and skipped the
+    # refresh entirely — for the remainder of a 900s TTL. Nothing was
+    # refreshing in the background despite this seed existing to be replaced;
+    # the snapshot was simply served as current.
+    #
+    # What that looked like: OmniGrid's own row claimed an update was
+    # available for minutes after it had just deployed that very update. The
+    # verdict was computed by the previous container, against the previous
+    # image, and then inherited by the one that superseded it.
+    #
+    # Zero preserves the point of the seed — `has_cached_data` is still true,
+    # so the first request serves this instantly rather than blocking — while
+    # marking it as what it is: last-known values, not a fresh reading.
+    _cache["ts"] = 0.0
+    _cache["_snapshot_ts"] = ts
     _cache["_stale"] = True
     return len(items)
 

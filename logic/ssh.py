@@ -386,7 +386,24 @@ DEFAULT_INTERFACE_UP_COMMANDS = ("configure", "interface {iface}", "no shutdown"
 # offered as a placeholder so switching vendor is a settings edit, not a code
 # change. Placeholders: {mac} colon, {mac_dot} Cisco dotted, {mac_dash},
 # {mac_bare}.
-DEFAULT_MAC_LOOKUP_COMMANDS = ("show mac address-table address {mac}",)
+# Paging OFF first, then the query. The pager is why this feature did not
+# work: a Cisco SG300 answers `show mac address-table` one screen at a time
+# and then waits at `More: <space>`, so the read ended — on the quiet timer —
+# with the table's HEADER captured and the row underneath it still unsent.
+# The address was reported as absent from a switch it was plainly on. Nothing
+# upstream could see this, because the bounce commands next to it print no
+# output at all and so never meet the pager.
+#
+# Both spellings are sent because the two Cisco CLI families disagree and the
+# device is not known ahead of time: `terminal datadump` is the small-business
+# one, `terminal length 0` the classic-IOS one. Whichever does not apply is
+# rejected as an unrecognised command and costs a line of output that carries
+# no MAC and is therefore invisible to the parser.
+DEFAULT_MAC_LOOKUP_COMMANDS = (
+    "terminal datadump",
+    "terminal length 0",
+    "show mac address-table address {mac}",
+)
 
 # Words that appear on a MAC-table row but are never a port. Checked
 # case-insensitively against whole tokens, so a port genuinely named e.g.
@@ -659,27 +676,47 @@ async def find_mac_interface(host_id: str, mac: str, hosts_config: list[dict], *
     # exec outright — which is why the bounce this feeds runs its commands
     # through a shell too. Sending a read-only `show` down the exec path
     # would fail on exactly the hardware the feature exists for.
-    result = await run_command(host_id, "; ".join(cmds), hosts_config,
+    # One command per line, NOT `; `-joined. These are typed into an
+    # interactive shell verbatim, and a switch CLI has no statement separator
+    # — `a; b` is one unrecognised command, not two. It only looked correct
+    # while the default was a single command.
+    result = await run_command(host_id, "\n".join(cmds), hosts_config,
                                timeout=timeout, shell_query=True)
     out = str(result.get("stdout") or "")
+    # Every outcome below is logged. This ran silent until a lookup failed in
+    # production and the only trace anywhere was the AI audit row's truncated
+    # "-> error" — the reason had nowhere to be read from, so the switch's own
+    # answer is what these lines carry. `INFO` is explicit on the two
+    # not-found paths because the tag-level prefix outranks the body scan, and
+    # an address that is simply absent from a table is an ordinary answer, not
+    # a fault to colour red in Admin -> Logs.
     if not result.get("ok"):
+        err = result.get("error") or "the lookup command failed"
+        print(f"[ssh] mac lookup on {host_id} could not run: {err} "
+              f"(commands={cmds!r})")
         return {"ok": False, "mac": forms["mac"], "interface": "",
                 "interfaces": [], "commands": cmds, "output": out,
-                "error": result.get("error") or "the lookup command failed"}
+                "error": err}
     ports = parse_mac_table(out, mac)
     if not ports:
+        print(f"[ssh] INFO mac lookup on {host_id}: {forms['mac']} not present "
+              f"in the table read by {cmds!r} — {len(out)} bytes came back, "
+              f"first 200: {out[:200]!r}")
         return {"ok": False, "mac": forms["mac"], "interface": "",
                 "interfaces": [], "commands": cmds, "output": out,
                 "error": (f"{forms['mac']} is not in {host_id}'s MAC table — "
                           f"the device may be off, on another switch, or "
                           f"aged out")}
     if len(ports) > 1:
+        print(f"[ssh] INFO mac lookup on {host_id}: {forms['mac']} seen on "
+              f"{len(ports)} ports ({', '.join(ports)}) — not choosing")
         return {"ok": False, "mac": forms["mac"], "interface": "",
                 "interfaces": ports, "commands": cmds, "output": out,
                 "error": (f"{forms['mac']} appears on {len(ports)} ports "
                           f"({', '.join(ports)}) — refusing to choose, since "
                           f"one of them is likely a trunk toward another "
                           f"switch")}
+    print(f"[ssh] INFO mac lookup on {host_id}: {forms['mac']} is on {ports[0]}")
     return {"ok": True, "mac": forms["mac"], "interface": ports[0],
             "interfaces": ports, "commands": cmds, "output": out, "error": ""}
 
@@ -1489,7 +1526,45 @@ async def _run_shell_query(conn, command: str, timeout: float,
     the ordinary exec path is not available for them.
     """
     QUIET_S = 1.2
+    # Let the device finish its login banner before typing into it. These
+    # switches print a multi-line welcome on connect, and the command was
+    # being written into the middle of it — seen live as
+    # `Server Room / Rackshow mac address-table ...`, the banner's last line
+    # and the command run together on one line. It was accepted every time,
+    # but only because this device echoes and buffers; one that discards input
+    # while printing would swallow the command, and the result would look like
+    # a device that answered nothing rather than one that was never asked.
+    #
+    # Bounded from both ends so a quiet device costs nothing: give up waiting
+    # after BANNER_SILENT_S if NOTHING has arrived (a device that says nothing
+    # until spoken to is normal), and stop as soon as a banner that did arrive
+    # has been quiet for BANNER_QUIET_S. BANNER_MAX_S caps the whole wait.
+    BANNER_QUIET_S = 0.4
+    BANNER_SILENT_S = 0.8
+    BANNER_MAX_S = 3.0
     proc = await conn.create_process(term_type="xterm", term_size=(200, 4000))
+    banner_chunks: list[str] = []
+    _b_start = time.time()
+    _b_last = _b_start
+    while (time.time() - _b_start) < BANNER_MAX_S:
+        try:
+            data = await asyncio.wait_for(proc.stdout.read(4096), timeout=0.2)
+        except (asyncio.TimeoutError, TimeoutError):
+            if banner_chunks:
+                if (time.time() - _b_last) >= BANNER_QUIET_S:
+                    break
+            elif (time.time() - _b_start) >= BANNER_SILENT_S:
+                break
+            continue
+        except (BrokenPipeError, ConnectionResetError, asyncssh.Error, OSError):
+            break
+        if not data:
+            break
+        banner_chunks.append(data if isinstance(data, str)
+                             else data.decode("utf-8", "replace"))
+        _b_last = time.time()
+    banner = "".join(banner_chunks)
+
     chunks: list[str] = []
     try:
         proc.stdin.write(command if command.endswith(("\n", "\r"))
@@ -1522,9 +1597,15 @@ async def _run_shell_query(conn, command: str, timeout: float,
     except (BrokenPipeError, ConnectionResetError, asyncssh.Error, OSError):
         pass
     out = "".join(chunks)[: 256 * 1024]
+    # `stdout` is now the reply to the COMMAND, with the login banner drained
+    # separately above rather than sitting in front of it. That makes `ok`
+    # mean what it says: previously any connection that printed a welcome
+    # satisfied `bool(out.strip())`, so a command that returned nothing at all
+    # still reported success on the strength of the banner. The banner stays
+    # in `transcript`, which is the field for reading afterwards.
     base_result["ok"] = bool(out.strip())
     base_result["stdout"] = out
-    base_result["transcript"] = out
+    base_result["transcript"] = (banner + out) if banner else out
     if not base_result["ok"]:
         base_result["error"] = (
             "the device returned nothing before the timeout — it may be "
@@ -1532,8 +1613,13 @@ async def _run_shell_query(conn, command: str, timeout: float,
     print(f"[ssh] query DONE host={resolved.get('host')!r} "
           f"user={resolved.get('user')!r} "
           f"duration_ms={int((time.time() - started) * 1000)} "
-          f"len_out={len(out)}")
-    preview = out[:400].replace("\n", " | ")
+          f"len_out={len(out)} len_banner={len(banner)}")
+    # 800, not 400. These devices open with a multi-line welcome banner, so
+    # the first few hundred characters are furniture and the answer starts
+    # after it. At 400 a truncated MAC-table reply ended one character into
+    # the word "Port", which read as a complete-looking header and hid that
+    # the rows under it had never arrived.
+    preview = out[:800].replace("\n", " | ")
     if preview:
         print(f"[ssh] query stdout: {preview}")
 

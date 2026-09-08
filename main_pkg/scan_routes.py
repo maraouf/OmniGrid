@@ -2553,9 +2553,23 @@ async def api_logs(
     limit: int = 500,
     since: float = 0.0,
     *,
-    _admin: AdminUser,
+    _user: AuthedUser,
 ):
-    """Return recent persistent-log lines filtered by severity / tag prefix."""
+    """Return recent persistent-log lines filtered by severity / tag prefix.
+
+    Any authenticated caller, INCLUDING a read-only token — matching the three
+    `/api/admin/logs/files*` reads beside it. It was the only read in the
+    family still gated on admin, which had the protection inverted: those
+    endpoints serve whole log FILES on disk, so a read-only token could
+    already download a full day's log while being refused the much smaller
+    in-memory tail of the same content. Widening this removes an
+    inconsistency rather than granting anything new.
+
+    Diagnostics are the read-only role's purpose — it exists for automated and
+    assistive clients that must be able to explain a failure and cannot cause
+    one. WRITES stay admin-only: `DELETE /api/logs` clears this buffer and
+    keeps `AdminUser`, as does every other mutating route.
+    """
     # Clamp limit to a sane upper bound so a misconfigured client can't
     # pull the whole buffer repeatedly at poll rate.
     limit = max(1, min(int(limit), _logs.MAX_LINES))

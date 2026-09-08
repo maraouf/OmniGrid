@@ -47,12 +47,27 @@ class _FakeStdout:
     Each script entry is (delay_seconds, text). ``None`` text means the
     channel closed. Once the script runs out the device is silent, which is
     what the runner uses to decide the answer is complete.
+
+    The script does not start until something has been TYPED. A device answers
+    a command it was given; it does not volunteer the answer first. That
+    ordering used to be unmodelled, and the runner now drains the login banner
+    before writing — against the old fake it read the scripted REPLY during
+    that drain, so every test saw an empty answer. The fake was the part that
+    was wrong: it replayed on the first read regardless of the stdin it was
+    supposedly responding to.
+
+    Before the write this behaves as a device that has finished its banner and
+    is sitting at a prompt: silent.
     """
 
-    def __init__(self, script):
+    def __init__(self, script, stdin):
         self._script = list(script)
+        self._stdin = stdin
 
     async def read(self, _n):
+        if not self._stdin.written:
+            await asyncio.sleep(10)      # not asked yet; the poll times out
+            return ""
         if not self._script:
             await asyncio.sleep(10)      # silent; the runner's poll times out
             return ""
@@ -66,7 +81,7 @@ class _FakeStdout:
 class _FakeProc:
     def __init__(self, script):
         self.stdin = _FakeStdin()
-        self.stdout = _FakeStdout(script)
+        self.stdout = _FakeStdout(script, self.stdin)
 
 
 class _FakeConn:

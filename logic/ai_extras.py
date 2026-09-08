@@ -1000,13 +1000,20 @@ async def dispatch_palette_tool(call: dict, ctx: Optional[dict] = None) -> dict:
         _assert_op_type("ai_tool_call")
         target_id = (args.get("host_id") or args.get("target_id")
                      or args.get("preset") or "")
-        status = "ok" if not (isinstance(result, dict) and result.get("error")) else "error"
+        failed = bool(isinstance(result, dict) and result.get("error"))
+        status = "error" if failed else "ok"
         actor = (ctx.get("actor") if isinstance(ctx, dict) else None) or "ai_palette"
         with db_conn() as c:
             _write_admin_audit(
                 c, "ai_tool_call",
                 target_kind=name, target_name=str(target_id)[:128],
                 actor=actor,
+                # The row's own status column, not just the prose. This was
+                # computed and then spent only on the message, so every failed
+                # tool call was filed as a success and filtering History by
+                # status hid exactly the calls worth finding.
+                status="error" if failed else "success",
+                error=(str(result.get("error", ""))[:500] if failed else None),
                 message=f"AI dispatched {name}({str(args)[:200]}) → {status}",
             )
     except Exception as _audit_err:  # noqa: BLE001

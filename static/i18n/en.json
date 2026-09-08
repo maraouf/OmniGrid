@@ -3348,6 +3348,8 @@
       "sr_exhaustion": "Projection: {msg}"
     },
     "fact_mac_port": "{mac} is on {iface} of {host}",
+    "fact_mac_port_failed": "Couldn't find {mac} on {host}: {error}",
+    "fact_tool_failed": "{tool} failed: {error}",
     "op_bouncing": "Bouncing {iface} on {host} — down {seconds}s, waiting for it to come back…",
     "op_bounced": "Bounced {iface} on {host} — the port is back up.",
     "op_bounce_failed": "Bounce of {iface} failed: {error}",

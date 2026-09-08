@@ -12286,7 +12286,8 @@
                port was already on the turn and only ever appeared if the model
                repeated it in prose; this states it plainly. -->
           <template x-for="(fact, fi) in (turn.role === 'assistant' ? aiToolFacts(turn) : [])" :key="fi">
-            <div class="ai-bubble-action ai-bubble-action--fact">
+            <div class="ai-bubble-action"
+                 :class="fact.failed ? 'ai-bubble-action--failed' : 'ai-bubble-action--fact'">
               <svg width="10" height="10" aria-hidden="true">
                 <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#' + fact.icon"/>
               </svg>

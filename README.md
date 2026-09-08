@@ -452,7 +452,7 @@ POST                          /api/prayer-times/test                  probe the 
 GET                           /api/auth/providers                     {local, oidc, ...} for login page rendering
 
 # Logs (admin-only)
-GET / DELETE                  /api/logs                                tail / clear the in-memory ring buffer
+GET / DELETE                  /api/logs                                tail (any authed caller) / clear (admin) the in-memory ring buffer
 GET                           /api/admin/logs/files                    list on-disk daily log files
 GET                           /api/admin/logs/files/{name}             stream one file
 GET                           /api/admin/logs/files/{name}/download    download one file
