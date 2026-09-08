@@ -272,9 +272,30 @@ function apcHistory(inst) {
 // SVG-builder memo — avoids re-render flicker on every Alpine flush).
 const _apcSparkMemo = new WeakMap();
 
+// Minimum height of the input-voltage window, in volts. Mains that never
+// leaves a couple of volts either side of nominal is the NORMAL case, and
+// magnifying that drift to fill a plot would report a healthy supply as a
+// wildly unstable one. Twenty volts is about a tenth of a 230 V nominal and
+// comfortably inside the ±10% a UPS tolerates, so genuine excursions still
+// break out of the band while ordinary wander stays visibly small.
+const APC_VOLTAGE_MIN_SPAN_V = 20;
+
+// The markup's axis has to be told the SAME span the line is drawn with, and
+// a number written twice is a number that will eventually disagree with
+// itself. The partial reads it from here rather than repeating the literal.
+function apcVoltageMinSpan() {
+  return APC_VOLTAGE_MIN_SPAN_V;
+}
+
 // SVG polyline points for one APC trend series (`'battery'` | `'load'` |
-// `'runtime'`) over a 0..100 × 0..24 viewBox. '' when < 2 points. Each series
-// is scaled to its OWN max so the shape reads regardless of unit (% vs minutes).
+// `'runtime'`) over a 0..100 × 0..24 viewBox. '' when < 2 points.
+//
+// ZERO-floored, scaled to each series' own max — and for these three that is
+// the honest choice, because zero MEANS something in every one of them: a
+// battery at 0%, a UPS carrying no load, and above all runtime reaching zero,
+// which is the whole thing the operator is watching for. A line sitting high
+// above the floor is the reassurance. Voltage is the metric where that stops
+// being true, and it is drawn by `apcVoltagePoints` below instead.
 function apcSparkPoints(inst, key) {
   /* jshint validthis: true */
   const h = apcHistory.call(this, inst);
@@ -301,6 +322,48 @@ function apcSparkPoints(inst, key) {
   }
   const pts = parts.join(' ');
   _apcSparkMemo.set(series, pts);
+  return pts;
+}
+
+// Memo for the voltage line — separate map so it cannot collide with the
+// zero-floored series above even if both were ever handed the same array.
+const _apcVoltageMemo = new WeakMap();
+
+// SVG polyline points for the INPUT VOLTAGE trend — BANDED, not zero-floored.
+//
+// Its own function rather than a branch inside `apcSparkPoints` on purpose:
+// the rule that an axis must declare the scaling its builder actually used is
+// checked statically, by reading the builder's `y =` line, and a function
+// carrying two different scalings could not be read that way. One builder,
+// one family, one answer.
+//
+// Mains voltage never approaches zero — a supply at 0 V is an outage, and by
+// then the UPS is on battery and this chart is beside the point. Floored at
+// zero it showed a flat line pinned to the top of the plot; the operator
+// screenshot that prompted this had a 200-231 V series rendering as a
+// straight edge. The band puts the plot around the data instead.
+function apcVoltagePoints(inst) {
+  /* jshint validthis: true */
+  const h = apcHistory.call(this, inst);
+  const series = (h && Array.isArray(h.voltage_series)) ? h.voltage_series : null;
+  if (!series || series.length < 2) {
+    return '';
+  }
+  const hit = _apcVoltageMemo.get(series);
+  if (hit) {
+    return hit;
+  }
+  const W = 100, H = 24, n = series.length;
+  const band = this._ogChartBand(series, APC_VOLTAGE_MIN_SPAN_V);
+  const range = (band.ceil - band.floor) || 1;
+  const parts = [];
+  for (let i = 0; i < n; i++) {
+    const x = (i / (n - 1)) * W;
+    const y = H - (((Number(series[i]) || 0) - band.floor) / range) * H;
+    parts.push((Math.round(x * 100) / 100) + ',' + (Math.round(y * 100) / 100));
+  }
+  const pts = parts.join(' ');
+  _apcVoltageMemo.set(series, pts);
   return pts;
 }
 
@@ -342,6 +405,8 @@ export const helpers = {
   apcUpsRuntimeLabel: upsRuntimeLabel,
   apcHistory: apcHistory,
   apcSparkPoints: apcSparkPoints,
+  apcVoltagePoints: apcVoltagePoints,
+  apcVoltageMinSpan: apcVoltageMinSpan,
   apcHasPowerQuality: apcHasPowerQuality,
   apcTransferLabel: apcTransferLabel,
   apcSelfTestLabel: apcSelfTestLabel,

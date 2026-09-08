@@ -1578,7 +1578,26 @@ def _shell_or_login(request: Request) -> Optional[Response]:
     page because a cookie lookup raised would be a far worse failure than the
     cosmetic flash this removes. ``/login`` itself is a separate route, so
     there is no redirect loop.
+
+    A valid ``Authorization: Bearer`` token also serves the shell. The flash
+    this function exists to prevent is a BROWSER problem, and a machine client
+    presenting a token is not a browser — it was being redirected to a login
+    form it can never complete, so the assembled page was unreachable to every
+    non-cookie caller. That mattered: the include expander's failure mode is to
+    STRIP markers it cannot resolve, silently dropping markup, and the only way
+    to see what the server actually assembled is to fetch it. This is not a
+    widening of access — a token holder is already authenticated and can read
+    the data behind ``/api/*``; the shell is markup, and carries none. It is
+    the same page a read-only cookie session is served today.
     """
+    auth_h = request.headers.get("authorization", "")
+    if auth_h.startswith("Bearer "):
+        try:
+            with db_conn() as c:
+                if auth.verify_api_token(c, auth_h[7:].strip()) is not None:
+                    return None  # valid machine client — serve the shell
+        except Exception as e:  # noqa: BLE001
+            print(f"[shell] bearer pre-check failed, falling through to cookie: {e}")
     try:
         raw = request.cookies.get(auth.COOKIE_NAME) or ""
         token_id = auth.parse_session_cookie(raw) if raw else None

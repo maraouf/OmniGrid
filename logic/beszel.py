@@ -101,6 +101,33 @@ def _warned_no_mounts_add(host_key: str) -> None:
         _warned_no_mounts.popitem(last=False)
 
 
+_EFS_DIAG_CAP = 1024
+_efs_diag_last: _OrderedDict[str, tuple] = _OrderedDict()
+
+
+def _efs_diag_changed(host_key: str, shape: tuple) -> bool:
+    """True when this host's EFS aggregate is new or has MOVED since the
+    last time it was logged.
+
+    The line this gates used to print on every probe of every
+    EFS-configured host — 360 lines in an 11-minute window, 18% of the
+    whole log, which is the same volume profile as the probe-entry
+    diagnostic deleted from this function for exactly that reason. Its
+    value is "the totals the chip should be showing", and that is worth
+    stating when it CHANGES, not once a tick forever. Same bounded
+    OrderedDict shape as ``_warned_no_mounts`` so a large fleet cannot
+    grow this without limit."""
+    prev = _efs_diag_last.get(host_key)
+    if prev == shape:
+        _efs_diag_last.move_to_end(host_key)
+        return False
+    _efs_diag_last[host_key] = shape
+    _efs_diag_last.move_to_end(host_key)
+    while len(_efs_diag_last) > _EFS_DIAG_CAP:
+        _efs_diag_last.popitem(last=False)
+    return True
+
+
 def _cache_key(base_url: str, identity: str) -> tuple[str, str]:
     """PocketBase token-cache key for a ``(base_url, identity)`` pair."""
     # PyCharm's "Remove redundant parentheses" inspector flagged every
@@ -1030,7 +1057,8 @@ def _derive_arch(kernel: Any) -> str:
 
 
 # noinspection PyTypeChecker,PyUnresolvedReferences
-def extract_stats(info_in: Optional[dict] = None, stats_in: Optional[dict] = None) -> dict:
+def extract_stats(info_in: Optional[dict] = None, stats_in: Optional[dict] = None,
+                  *, host_key: str = "") -> dict:
     """Map one Beszel ``info`` (+ latest ``stats``) dict → nodes_info shape.
 
     Beszel splits data across two places:
@@ -1079,7 +1107,11 @@ def extract_stats(info_in: Optional[dict] = None, stats_in: Optional[dict] = Non
     # line in both try-blocks). `_emit_diag` factors out the
     # try/print/except dance so neither call site repeats the
     # broad-except boilerplate the linter was flagging as duplicated.
-    _hk = info.get("h") or info.get("host") or "?"
+    # The host key is NOT on `info` — that is why every one of these lines
+    # printed "?" until callers began passing it. `probe_hub` resolves it
+    # from the record's own `host` field before calling in; the fallbacks
+    # stay for callers that genuinely have only `info`.
+    _hk = (host_key or "").strip() or info.get("h") or info.get("host") or "?"
 
     def _emit_diag(line: str) -> None:
         # noinspection PyBroadException
@@ -1116,17 +1148,27 @@ def extract_stats(info_in: Optional[dict] = None, stats_in: Optional[dict] = Non
             disk_total = efs_total_gib * gib
             disk_used = efs_used_gib * gib
             disk_pct_efs = efs_used_gib / efs_total_gib * 100.0
-            # Verbose diagnostic — confirms the EFS aggregation branch
-            # fired AND prints the totals so the operator can verify
-            # the chip / chart match. Cheap (one print per probe per
-            # EFS-configured host); a fleet-wide grep `[beszel] efs-`
-            # in Admin → Logs answers "is the fix actually running on
-            # this deploy" without requiring a fresh debug-panel paste.
-            _emit_diag(
-                f"[beszel] efs-aggregate {_hk}: "
-                f"total={efs_total_gib:.1f} GiB used={efs_used_gib:.1f} GiB "
-                f"({disk_pct_efs:.1f}%) overrides stats.d={_num(stats.get('d')):.1f} GiB"
-            )
+            # Diagnostic: the totals the host's disk chip SHOULD be
+            # showing, so a disagreement between this and the UI is
+            # one grep away. It is NOT a deploy check — `/api/version`
+            # answers that directly, which is why the probe-entry line
+            # above was deleted rather than kept.
+            #
+            # Fires on first sight of a host and whenever the aggregate
+            # MOVES; a value that has not changed does not need
+            # restating every tick. Unconditional, this was 360 lines
+            # in an 11-minute sample (18% of the whole log) — the same
+            # volume that got its predecessor removed — and every one
+            # of them said "?" for the hostname, so none of them could
+            # be traced to a host anyway.
+            if _efs_diag_changed(
+                _hk, (round(efs_total_gib, 1), round(efs_used_gib, 1))
+            ):
+                _emit_diag(
+                    f"[beszel] efs-aggregate {_hk}: "
+                    f"total={efs_total_gib:.1f} GiB used={efs_used_gib:.1f} GiB "
+                    f"({disk_pct_efs:.1f}%) overrides stats.d={_num(stats.get('d')):.1f} GiB"
+                )
     # Percentages fallback: if the stats row is absent but info has
     # mp/dp percentages, we still cannot derive absolute bytes — leave
     # them at 0 and let the UI show "—" for those cells.
@@ -1425,7 +1467,7 @@ async def probe_hub(
         # us absolute mem_total / disk_total in bytes, which ``info``
         # alone doesn't carry.
         rec_id = rec.get("id") or ""
-        stats = extract_stats(info, latest_stats.get(rec_id))
+        stats = extract_stats(info, latest_stats.get(rec_id), host_key=host_key)
         # Override `host_services` with cross-collection data from
         # `systemd_services`. extract_stats only sees this system's
         # row; the services live in a separate collection that we

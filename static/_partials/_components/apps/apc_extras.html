@@ -162,7 +162,7 @@
                         x-text="(apcHistory(inst).runtime_low_min != null ? ((t('apps.ups.low') || 'low') + ' ' + apcHistory(inst).runtime_low_min + 'm') : '')"></span>
                 </div>
                 <div class="og-chart"
-                     x-data="{ axis: () => ogChartAxis(apcHistory(inst).runtime_series) }">
+                     x-data="{ axis: () => ogChartAxis(apcHistory(inst).runtime_series, { unit: 'm' }) }">
                   <div class="og-chart-plot">
                     <svg class="apps-spark apps-spark--trend" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
                     <polyline class="apps-spark-line" :points="apcSparkPoints(inst, 'runtime')"></polyline>
@@ -214,10 +214,10 @@
                         x-text="(apcHistory(inst).voltage_current != null) ? (apcHistory(inst).voltage_current + ' V') : ''"></span>
                 </div>
                 <div class="og-chart"
-                     x-data="{ axis: () => ogChartAxis(apcHistory(inst).voltage_series, { unit: 'V' }) }">
+                     x-data="{ axis: () => ogChartAxis(apcHistory(inst).voltage_series, { mode: 'band', minSpan: apcVoltageMinSpan(), unit: 'V' }) }">
                   <div class="og-chart-plot">
                     <svg class="apps-spark apps-spark--mini" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
-                    <polyline class="apps-spark-line" :points="apcSparkPoints(inst, 'voltage')"></polyline>
+                    <polyline class="apps-spark-line" :points="apcVoltagePoints(inst)"></polyline>
                     </svg>
                   </div>
                   <!-- INCLUDE: _components/og-chart-axes.html -->

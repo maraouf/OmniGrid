@@ -787,8 +787,10 @@ def latest_for_host(host_id: str) -> dict:
     Returns ``{service_idx: {alive, rtt_ms, ts, error}, ...}``. Empty
     dict when no samples found.
 
-    **Query shape:** ROW_NUMBER() window partitioned by
-    ``service_idx`` ordered by ``ts DESC``, then filtered to rn=1.
+    **Query shape:** ``GROUP BY service_idx`` with a trailing
+    ``MAX(ts)``; SQLite takes each bare column from the row that
+    produced the max. NOT a ROW_NUMBER() window — a window sorts its
+    input even off a covering index.
     O(N) per host with index seek via
     ``idx_service_samples_host_idx_ts``. Pre-fix this used a
     CORRELATED SUBQUERY (`AND ts = (SELECT MAX(ts) FROM
@@ -808,14 +810,15 @@ def latest_for_host(host_id: str) -> dict:
     try:
         with db_conn() as c:
             rows = c.execute(
-                "SELECT service_idx, ts, alive, rtt_ms, error FROM ("
-                "  SELECT service_idx, ts, alive, rtt_ms, error, "
-                "         ROW_NUMBER() OVER ("
-                "             PARTITION BY service_idx ORDER BY ts DESC"
-                "         ) AS rn "
-                "  FROM service_samples "
-                "  WHERE host_id = ? AND port = 0"
-                ") WHERE rn = 1",
+                # GROUP BY + MAX(ts), NOT a ROW_NUMBER() window:
+                # the window sorts its input even off a covering index.
+                # Bare columns come from the MAX row; the trailing
+                # MAX(ts) is the aggregate trigger and is read by
+                # position nowhere below.
+                "SELECT service_idx, ts, alive, rtt_ms, error, MAX(ts) "
+                "FROM service_samples "
+                "WHERE host_id = ? AND port = 0 "
+                "GROUP BY service_idx",
                 (host_id,),
             ).fetchall()
     except (sqlite3.Error, OSError) as e:
@@ -847,26 +850,27 @@ def latest_per_port_for_host(host_id: str, service_idx: int) -> list[dict]:
     """
     if not host_id or service_idx is None:
         return []
-    # ROW_NUMBER() window — O(N) per chip with seek through
-    # idx_service_samples_host_idx_ts. Same fix as the batched
-    # `latest_per_port_all_for_host` + `latest_for_host` above —
-    # pre-fix all three used a CORRELATED SUBQUERY that made the
-    # inner MAX(ts) re-run per outer row → O(N²) per chip → on a
-    # multi-port service with thousands of samples, each drawer
-    # open took seconds. The drawer-open path is less hot than
-    # /api/apps but still operator-visible; fix the same way for
-    # consistency.
+    # GROUP BY + MAX(ts), NOT a ROW_NUMBER() window. A window operator
+    # materialises and SORTS its input even when a covering index already
+    # orders it, so the window form surfaced as the top `[slow_query]` site
+    # in one live sample (109ms, then 132.5ms with `streak=2`) — and this
+    # sits on a request path, the per-chip port results at `apps_routes.py`.
+    # Those warnings are contention-sensitive: it was absent entirely from
+    # the next sample taken, so read the timings as one observation rather
+    # than a steady state. The rewrite does not rest on them — a window
+    # cannot seek, which is true regardless of what any sample showed.
+    # SQLite takes each bare column from the
+    # row that produced the MAX, so the trailing MAX(ts) is only the
+    # aggregate trigger; columns are read by position and it is ignored.
+    # Same rewrite the fleet-wide siblings already carry; the per-host
+    # ones were simply missed when those were done.
     try:
         with db_conn() as c:
             rows = c.execute(
-                "SELECT port, ts, alive, rtt_ms, error FROM ("
-                "  SELECT port, ts, alive, rtt_ms, error, "
-                "         ROW_NUMBER() OVER ("
-                "             PARTITION BY port ORDER BY ts DESC"
-                "         ) AS rn "
-                "  FROM service_samples "
-                "  WHERE host_id = ? AND service_idx = ? AND port > 0"
-                ") WHERE rn = 1 "
+                "SELECT port, ts, alive, rtt_ms, error, MAX(ts) "
+                "FROM service_samples "
+                "WHERE host_id = ? AND service_idx = ? AND port > 0 "
+                "GROUP BY port "
                 "ORDER BY port ASC",
                 (host_id, int(service_idx)),
             ).fetchall()
@@ -898,11 +902,10 @@ def latest_per_port_all_for_host(host_id: str) -> dict:
     as :func:`latest_for_host`. Empty dict when the host has no
     multi-port sample history.
 
-    **Query shape:** ROW_NUMBER() window partitioned by
-    ``(service_idx, port)`` ordered by ``ts DESC``, filtered to
-    rn=1. O(N) per host with index seek. Pre-fix used the same
-    correlated-subquery anti-pattern as `latest_for_host` (now
-    fixed above) — the inner SELECT MAX(ts) ran per outer row →
+    **Query shape:** ``GROUP BY service_idx, port`` with a trailing
+    ``MAX(ts)``; bare columns come from the max row. NOT a ROW_NUMBER()
+    window — one index seek, no sort. Two anti-patterns preceded it: a
+    correlated subquery whose inner MAX(ts) ran per outer row →
     O(N²) per host → on a busy fleet `/api/apps` 504'd because
     the worker thread serialised on SQLite even with the
     `asyncio.to_thread` offload. See `latest_for_host` docstring
@@ -913,14 +916,15 @@ def latest_per_port_all_for_host(host_id: str) -> dict:
     try:
         with db_conn() as c:
             rows = c.execute(
-                "SELECT service_idx, port, ts, alive, rtt_ms, error FROM ("
-                "  SELECT service_idx, port, ts, alive, rtt_ms, error, "
-                "         ROW_NUMBER() OVER ("
-                "             PARTITION BY service_idx, port ORDER BY ts DESC"
-                "         ) AS rn "
-                "  FROM service_samples "
-                "  WHERE host_id = ? AND port > 0"
-                ") WHERE rn = 1 "
+                # GROUP BY + MAX(ts), NOT a ROW_NUMBER() window:
+                # the window sorts its input even off a covering index.
+                # Bare columns come from the MAX row; the trailing
+                # MAX(ts) is the aggregate trigger and is read by
+                # position nowhere below.
+                "SELECT service_idx, port, ts, alive, rtt_ms, error, MAX(ts) "
+                "FROM service_samples "
+                "WHERE host_id = ? AND port > 0 "
+                "GROUP BY service_idx, port "
                 "ORDER BY service_idx ASC, port ASC",
                 (host_id,),
             ).fetchall()
@@ -1013,10 +1017,11 @@ def history_rollup_all_for_host(host_id: str,
 # count is the same (one bucket per (host, service_idx) pair); the DB
 # round-trip count drops from 3N → 3.
 #
-# All three helpers reuse the ROW_NUMBER() window from their single-host
-# siblings — the only schema change is adding `host_id` to the
-# PARTITION BY clause so the window splits per-(host, service_idx[, port])
-# instead of per-(service_idx[, port]). The existing
+# The two `latest_*` helpers here group per-(host, service_idx[, port])
+# with a trailing MAX(ts), matching their single-host siblings; only
+# `history_rollup_all_for_hosts` still uses a ROW_NUMBER() window, because
+# it wants the top N rows per group rather than the first, and a window is
+# the right tool for that. The existing
 # `idx_service_samples_host_idx_ts` composite index covers the partition
 # scan, so the multi-host query stays seek-bound.
 
@@ -1045,8 +1050,8 @@ def latest_for_hosts(host_ids: list[str]) -> dict:
 
     ONE query for the WHOLE fleet instead of N per-host queries. The
     `idx_service_samples_host_idx_ts` composite covers the partition
-    scan; the ROW_NUMBER() window picks the newest ROLLUP row (port=0)
-    per (host_id, service_idx). Empty dict when no host has any sample
+    scan; ``GROUP BY host_id, service_idx`` with a trailing MAX(ts)
+    picks the newest ROLLUP row (port=0) per group. Empty dict when no host has any sample
     OR the input list is empty. Hosts with no rollup history are
     OMITTED from the result (callers should treat missing keys as
     "no samples yet").
@@ -1089,8 +1094,9 @@ def latest_per_port_all_for_hosts(host_ids: list[str]) -> dict:
     :func:`latest_per_port_all_for_host`. Returns
     ``{host_id: {service_idx: [{port, alive, rtt_ms, ts, error}, ...], ...}, ...}``.
 
-    ONE query for the WHOLE fleet. Same ROW_NUMBER() window pattern
-    (partitioned by `host_id, service_idx, port`). Empty list / empty
+    ONE query for the WHOLE fleet. ``GROUP BY host_id, service_idx,
+    port`` with a trailing MAX(ts) — same shape as the single-host
+    sibling, not a window. Empty list / empty
     result → empty dict.
     """
     if not host_ids:

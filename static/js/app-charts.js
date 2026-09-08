@@ -194,6 +194,14 @@ export default {
       ceil = (max > min) ? max : min;
     } else if (mode === 'fixed') {
       ceil = Number(o.fixedMax) || 100;
+    } else if (mode === 'band') {
+      // Same helper the banded builders draw with, called with the same
+      // span — the axis and the line have to agree about where the edges
+      // of the plot are, and the only way to guarantee that is for both to
+      // ask one function.
+      const b = this._ogChartBand(arr, o.minSpan);
+      floor = b.floor;
+      ceil = b.ceil;
     }
     const fmt = typeof o.format === 'function'
       ? o.format
@@ -218,6 +226,51 @@ export default {
 
   // Compact number for an axis label — these sit in a ~40px gutter, so a raw
   // toLocaleString would wrap and push the plot around.
+  // Floor + ceiling for a BANDED chart: minmax, but never narrower than
+  // `minSpan`. This exists because neither of the other two families tells
+  // the truth about a quantity that lives in a narrow band far from zero.
+  //
+  // Mains voltage is the case that produced it. Floored at zero, a line
+  // sitting between 200 V and 231 V is squeezed into the top eighth of the
+  // plot and reads as perfectly flat — the chart shows nothing. Floored at
+  // the series minimum instead, a rock-steady supply wobbling 228-231 V is
+  // stretched to fill the whole height and reads as violent instability.
+  // Both are wrong, in opposite directions, and picking either one alone
+  // just chooses which lie to tell.
+  //
+  // A minimum span settles it: the window is the data's own range when that
+  // range is worth seeing, and a fixed band centred on the data when it is
+  // not. So real movement shows up, and 3 V of drift stays visibly small.
+  // Callers pass a span that means something for their quantity.
+  _ogChartBand(series, minSpan) {
+    const arr = Array.isArray(series) ? series : [];
+    let min = Infinity, max = -Infinity;
+    for (let i = 0; i < arr.length; i++) {
+      const v = Number(arr[i]);
+      if (Number.isFinite(v)) {
+        if (v < min) {
+          min = v;
+        }
+        if (v > max) {
+          max = v;
+        }
+      }
+    }
+    if (!Number.isFinite(min) || !Number.isFinite(max)) {
+      return { floor: 0, ceil: 1 };
+    }
+    const span = Math.max(0, Number(minSpan) || 0);
+    const range = max - min;
+    if (range >= span) {
+      // Already wider than the floor span — show the data's own range, and
+      // guard the degenerate flat case so the divisor is never zero.
+      return { floor: min, ceil: (max > min) ? max : min + 1 };
+    }
+    // Too tight to be worth magnifying: centre the band on the data.
+    const pad = (span - range) / 2;
+    return { floor: min - pad, ceil: max + pad };
+  },
+
   _ogChartNum(v, unit) {
     const n = Number(v) || 0;
     const u = unit ? String(unit) : '';

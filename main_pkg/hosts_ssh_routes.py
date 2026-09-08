@@ -634,7 +634,7 @@ async def api_hosts_debug(
                         "stats_row": stats_row,
                     }
                     providers_normalized["beszel"] = _beszel.extract_stats(
-                        match.get("info") or {}, stats_row,
+                        match.get("info") or {}, stats_row, host_key=target,
                     )
                 else:
                     known = sorted((

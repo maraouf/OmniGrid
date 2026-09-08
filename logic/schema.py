@@ -1427,6 +1427,26 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_service_samples_chip_port_ts
             ON service_samples(host_id, service_idx, port, ts DESC);
 
+        -- ROLLUP-only partial index. The Apps sparkline rollup
+        -- (`history_rollup_all_for_hosts`) filters `port = 0`, but `port` is
+        -- not in `idx_service_samples_host_idx_ts`, so the planner read every
+        -- per-port row for each host and threw them away — on a fleet whose
+        -- chips carry several ports each that is the large majority of the
+        -- scan. Measured on a 432k-row synthetic fleet at a 3:1 port-to-rollup
+        -- ratio: 191ms -> 156ms, and the ratio (so the saving) grows with the
+        -- number of ports per chip. Partial, so it costs nothing on the
+        -- per-port rows it excludes.
+        --
+        -- This does NOT fix that query's dominant cost: a ROW_NUMBER() window
+        -- materialises and sorts its whole input, and this one is unbounded in
+        -- time -- it reads the full retention to keep the newest 24 points per
+        -- chip. Bounding it by `ts` is the bigger lever and is deliberately
+        -- NOT done here, because it changes what a chip that stopped probing
+        -- days ago displays (its old sparkline, versus nothing).
+        CREATE INDEX IF NOT EXISTS idx_service_samples_rollup_host_idx_ts
+            ON service_samples(host_id, service_idx, ts DESC)
+            WHERE port = 0;
+
         -- Apps feature — reusable service templates ("catalog"). Each row
         -- is a recipe an operator can bind to N hosts (Radarr / Sonarr /
         -- Plex / Portainer / etc.) so they don't redefine probe path +
