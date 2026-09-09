@@ -379,6 +379,37 @@ def _remember_token_param(provider: str, base: str, model: str, param: str) -> N
         _token_param_memo.popitem(last=False)
 
 
+def _output_budget_exhausted(r: httpx.Response) -> bool:
+    """True when the ONLY complaint is that the reply could not fit the cap.
+
+    A reasoning model spends its output budget THINKING before it emits a
+    visible character, so the probe's deliberate one-token ceiling is refused
+    outright: "Could not finish the message because max_tokens or model output
+    limit was reached."
+
+    For a CREDENTIAL test that is a PASS. Getting this far proves the request
+    authenticated, resolved the model id, and reached the point of generating —
+    a bad key answers 401 and a wrong model answers 404, both of which still
+    fail as they should. The only thing that stopped it is the budget WE chose,
+    and raising that budget to make a connection test pass would burn real
+    reasoning tokens on every click to learn nothing extra.
+
+    Deliberately NOT consulted on the chat path: there, an answer that did not
+    fit is a real failure the operator needs to see.
+    """
+    if r.status_code not in (400, 422):
+        return False
+    try:
+        msg = (r.text or "").lower()
+    except (UnicodeDecodeError, httpx.HTTPError):
+        return False
+    # Narrow: the refusal names the budget as the cause. Tolerates OpenAI
+    # rewording the sentence, but not a different fault entirely.
+    return ("output limit" in msg
+            or ("max_tokens" in msg and "reached" in msg)
+            or ("max_completion_tokens" in msg and "reached" in msg))
+
+
 def _wants_completion_tokens(r: httpx.Response) -> bool:
     """True when the endpoint rejected `max_tokens` and named its successor.
 
@@ -420,6 +451,17 @@ async def _probe_openai_compatible(provider: str, api_key: str, model: str,
     if _param == "max_tokens" and _wants_completion_tokens(r):
         _remember_token_param(provider, base, mdl, "max_completion_tokens")
         r = await _post("max_completion_tokens")
+    if _output_budget_exhausted(r):
+        # Says so rather than reporting a bare "OK", because a silent green
+        # here would hide that the model never actually produced a token —
+        # and that same model WILL need a real budget to answer anything.
+        return {"ok": True, "status": r.status_code,
+                "detail": ("OK: reachable and the credential is accepted. This "
+                           "model reasons before it writes, so it spent the "
+                           "test's deliberate 1-token ceiling thinking and "
+                           "returned no visible text — expected, and not a "
+                           "credential problem. Real requests use the Max "
+                           "response tokens setting, not this ceiling.")}
     return _interpret_http(r, provider)
 
 
@@ -732,16 +774,36 @@ async def _chat_openai_compatible(provider: str, api_key: str, model: str,
         j = r.json()
         choices = j.get("choices") or []
         text = ""
+        finish = ""
         if choices:
             msg = (choices[0] or {}).get("message") or {}
             text = (msg.get("content") or "").strip()
+            finish = str((choices[0] or {}).get("finish_reason") or "")
         usage = j.get("usage") or {}
+        calls = _tool_schemas.parse_tool_calls(provider, j) if tools else []
+        # A reasoning model counts its THINKING against the same budget, so a
+        # generous-looking cap can be consumed entirely before a visible
+        # character is produced — a 200 carrying nothing. Reported as a failure
+        # that names the cause, because the alternative is an empty assistant
+        # bubble the operator cannot distinguish from the model having nothing
+        # to say. The `calls` guard is load-bearing: a native tool-call reply
+        # legitimately has empty content and MUST NOT be mistaken for this.
+        if (not text) and (not calls) and finish == "length":
+            _spent = int(usage.get("completion_tokens", 0) or 0)
+            return {
+                "ok": False, "status": 200, "provider": provider,
+                "detail": (f"{provider} returned no text: the model used all "
+                           f"{_spent or max_tokens} output tokens on internal "
+                           f"reasoning before writing anything. Raise Max "
+                           f"response tokens (Admin → Config) or choose a "
+                           f"model that does not reason before answering."),
+            }
         return {
             "ok": True, "status": 200, "text": text,
             "tokens": {"prompt": int(usage.get("prompt_tokens", 0)),
                        "completion": int(usage.get("completion_tokens", 0))},
             "model": j.get("model") or model,
-            "tool_calls": _tool_schemas.parse_tool_calls(provider, j) if tools else [],
+            "tool_calls": calls,
         }
     except (ValueError, json.JSONDecodeError) as e:
         return {"ok": False, "status": r.status_code,

@@ -184,3 +184,123 @@ def test_the_chat_path_carries_the_same_fix(monkeypatch):
     assert rec.bodies[1].get("max_completion_tokens") == 512, (
         "the retry dropped the operator's token budget")
     assert rec.bodies[1].get("messages"), "the retry lost the conversation"
+
+
+# --- the reasoning-model output budget -------------------------------------
+#
+# Second quirk in the same family, hit the moment the first was fixed: the
+# parameter was accepted, and the model then answered
+#
+#     Could not finish the message because max_tokens or model output limit
+#     was reached. Please try again with higher max_tokens. (1,127 ms)
+#
+# because the credential probe deliberately asks for ONE token and a reasoning
+# model spends its budget thinking before it writes anything. For a CREDENTIAL
+# test that is a pass; on the chat path the same shape is a real failure.
+
+_BUDGET = ("Could not finish the message because max_tokens or model output "
+           "limit was reached. Please try again with higher max_tokens.")
+
+
+def test_the_budget_refusal_is_recognised():
+    assert ai._output_budget_exhausted(_resp(400, _BUDGET))
+
+
+def test_the_budget_refusal_is_not_confused_with_the_parameter_refusal():
+    """Two different faults that both mention `max_tokens`. Treating the
+    parameter refusal as 'budget exhausted' would report a green test on a
+    provider that cannot take the parameter at all."""
+    assert not ai._output_budget_exhausted(_resp(400, _REFUSAL))
+    assert ai._wants_completion_tokens(_resp(400, _REFUSAL))
+
+
+def test_a_credential_failure_is_never_a_budget_pass():
+    """The pass rests on 401/404 still failing — if a bad key could reach this
+    branch the test button would go green on credentials that do not work."""
+    for body in ("Incorrect API key provided", "model `x` does not exist",
+                 "insufficient_quota"):
+        assert not ai._output_budget_exhausted(_resp(400, body)), body
+    assert not ai._output_budget_exhausted(_resp(401, _BUDGET))
+
+
+def test_probe_passes_when_only_its_own_ceiling_stopped_the_model(monkeypatch):
+    _reset()
+    rec = _Recorder([_resp(400, _BUDGET)])
+    monkeypatch.setattr(ai.httpx, "AsyncClient", rec)
+    out = asyncio.run(ai._probe_openai_compatible(
+        "chatgpt", "sk-x", "gpt-6-astra", "", 5.0))
+    assert out.get("ok"), out
+    assert "reasons before it writes" in out.get("detail", ""), (
+        "passed silently — the operator cannot tell this from a normal OK")
+
+
+def test_chat_path_reports_an_exhausted_budget_instead_of_an_empty_bubble(monkeypatch):
+    """The same shape on the chat path is a FAILURE — an empty assistant reply
+    is indistinguishable from the model having nothing to say."""
+    _reset()
+    rec = _Recorder([_resp(200, payload={
+        "choices": [{"message": {"content": ""}, "finish_reason": "length"}],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 16384},
+    })])
+    monkeypatch.setattr(ai.httpx, "AsyncClient", rec)
+    out = asyncio.run(ai._chat_openai_compatible(
+        "chatgpt", "sk-x", "gpt-6-astra", "", "hello", "sys", 16384, 5.0))
+    assert not out.get("ok"), "an empty answer was reported as success"
+    assert "16384" in out.get("detail", ""), "did not say what was spent"
+    assert "Max response tokens" in out.get("detail", ""), (
+        "did not name the setting that fixes it")
+
+
+def _run_tool_call_reply(monkeypatch, finish_reason: str, spent: int) -> dict:
+    """One tool-call reply through the chat path, varying only what actually
+    distinguishes the two cases below: why the model stopped."""
+    _reset()
+    rec = _Recorder([_resp(200, payload={
+        "choices": [{
+            "message": {"content": "", "tool_calls": [
+                {"id": "c1", "type": "function",
+                 "function": {"name": "find_mac_port", "arguments": "{}"}},
+            ]},
+            "finish_reason": finish_reason,
+        }],
+        "usage": {"prompt_tokens": 10, "completion_tokens": spent},
+    })])
+    monkeypatch.setattr(ai.httpx, "AsyncClient", rec)
+    return asyncio.run(ai._chat_openai_compatible(
+        "chatgpt", "sk-x", "gpt-6-astra", "", "hello", "sys", 512, 5.0,
+        tools=[{"type": "function", "function": {"name": "find_mac_port"}}]))
+
+
+def test_a_native_tool_call_reply_is_not_mistaken_for_an_empty_one(monkeypatch):
+    """Load-bearing: a tool-call reply legitimately has empty content. Reading
+    it as an exhausted budget would break native tool-calling outright — which
+    is ON in the configuration that produced this bug."""
+    out = _run_tool_call_reply(monkeypatch, "tool_calls", 5)
+    assert out.get("ok"), out
+    assert out.get("tool_calls"), "the tool call was dropped"
+
+
+def test_an_ordinary_short_answer_is_untouched(monkeypatch):
+    """A model that stops at the cap having ALREADY written something is fine —
+    truncated, but an answer. Only a reply with nothing in it is the failure."""
+    _reset()
+    rec = _Recorder([_resp(200, payload={
+        "choices": [{"message": {"content": "partial ans"}, "finish_reason": "length"}],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 512},
+    })])
+    monkeypatch.setattr(ai.httpx, "AsyncClient", rec)
+    out = asyncio.run(ai._chat_openai_compatible(
+        "chatgpt", "sk-x", "gpt-6-astra", "", "hello", "sys", 512, 5.0))
+    assert out.get("ok"), out
+    assert out.get("text") == "partial ans"
+
+
+def test_a_truncated_tool_call_is_still_a_tool_call(monkeypatch):
+    """The case the `calls` guard actually protects, which the test above does
+    NOT reach: a reply carrying tool calls that ALSO hit the cap, so
+    `finish_reason` is `length`. Without the guard this is read as an exhausted
+    budget and the tool call is thrown away — verified by deleting the guard
+    and watching only this test fail."""
+    out = _run_tool_call_reply(monkeypatch, "length", 512)
+    assert out.get("ok"), "a truncated tool-call reply was reported as failure"
+    assert out.get("tool_calls"), "the tool call was dropped"
