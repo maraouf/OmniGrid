@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections import OrderedDict
 # noinspection PyUnresolvedReferences
 import time  # noqa: F401 — used at time.time() callsites below; IDE marks
 # this as "unused" because `logic.ai_extras` (loaded via the tail
@@ -338,6 +339,62 @@ async def _probe_gemini(api_key: str, model: str, base_url: str, timeout: float)
     return _interpret_http(r, "gemini")
 
 
+# OpenAI's newer models REJECT `max_tokens` outright and require
+# `max_completion_tokens` instead ("Unsupported parameter: 'max_tokens' is not
+# supported with this model"). Everything older — and every OpenAI-COMPATIBLE
+# server reachable through the operator's Base URL override (DeepSeek, LocalAI,
+# llama.cpp, Ollama's shim) — knows only `max_tokens` and would reject the
+# replacement just as flatly.
+#
+# There is no capability header to ask, and the model names that flipped are not
+# derivable from a pattern: `gpt-6-astra` shares no prefix with `o1`, so a
+# name test needs an edit for every future release AND mis-routes a shim whose
+# model is named to imitate one. Sending both is not an option either — the
+# endpoints that reject one reject a request carrying both.
+#
+# So: send the widely-supported `max_tokens`, and when an endpoint answers with
+# the specific complaint naming the successor, send it again the other way and
+# remember that endpoint's answer. One wasted call per (provider, base, model)
+# per process — never one per request — and a shim that only speaks
+# `max_tokens` is never handed a parameter it would refuse.
+_TOKEN_PARAM_CAP = 64
+_token_param_memo: "OrderedDict[tuple[str, str, str], str]" = OrderedDict()
+
+
+def _token_param_for(provider: str, base: str, model: str) -> str:
+    """Which token-cap parameter this endpoint wants.
+
+    Defaults to `max_tokens` — the form every OpenAI-compatible server has
+    always accepted — until an endpoint tells us otherwise.
+    """
+    return _token_param_memo.get((provider, base, model), "max_tokens")
+
+
+def _remember_token_param(provider: str, base: str, model: str, param: str) -> None:
+    """Record an endpoint's preference so the probe is paid once, not per call."""
+    key = (provider, base, model)
+    _token_param_memo[key] = param
+    _token_param_memo.move_to_end(key)
+    while len(_token_param_memo) > _TOKEN_PARAM_CAP:
+        _token_param_memo.popitem(last=False)
+
+
+def _wants_completion_tokens(r: httpx.Response) -> bool:
+    """True when the endpoint rejected `max_tokens` and named its successor.
+
+    Deliberately narrow — it must be a client error that mentions the
+    replacement parameter BY NAME. A generic 400 is a different fault and must
+    not trigger a retry that would mask it behind a second, unrelated failure.
+    """
+    if r.status_code not in (400, 422):
+        return False
+    try:
+        body = r.text or ""
+    except (UnicodeDecodeError, httpx.HTTPError):
+        return False
+    return "max_completion_tokens" in body
+
+
 async def _probe_openai_compatible(provider: str, api_key: str, model: str,
                                    base_url: str, timeout: float) -> dict:
     """Shared probe for OpenAI-shaped APIs (chatgpt + deepseek)."""
@@ -347,13 +404,22 @@ async def _probe_openai_compatible(provider: str, api_key: str, model: str,
         "Authorization": f"Bearer {api_key}",
         "content-type": "application/json",
     }
-    body = {
-        "model": model or _DEFAULT_MODELS.get(provider, ""),
-        "messages": [{"role": "user", "content": "ping"}],
-        "max_tokens": 1,
-    }
-    async with httpx.AsyncClient(timeout=timeout) as c:
-        r = await c.post(url, headers=headers, json=body)
+    mdl = model or _DEFAULT_MODELS.get(provider, "")
+
+    async def _post(param: str) -> httpx.Response:
+        body = {
+            "model": mdl,
+            "messages": [{"role": "user", "content": "ping"}],
+            param: 1,
+        }
+        async with httpx.AsyncClient(timeout=timeout) as c:
+            return await c.post(url, headers=headers, json=body)
+
+    _param = _token_param_for(provider, base, mdl)
+    r = await _post(_param)
+    if _param == "max_tokens" and _wants_completion_tokens(r):
+        _remember_token_param(provider, base, mdl, "max_completion_tokens")
+        r = await _post("max_completion_tokens")
     return _interpret_http(r, provider)
 
 
@@ -638,15 +704,28 @@ async def _chat_openai_compatible(provider: str, api_key: str, model: str,
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": prompt})
-    body: dict = {
-        "model": model or _DEFAULT_MODELS.get(provider, ""),
-        "messages": messages,
-        "max_tokens": max_tokens,
-    }
-    if tools:
-        body["tools"] = tools
-    async with httpx.AsyncClient(timeout=timeout) as c:
-        r = await c.post(url, headers=headers, json=body)
+    mdl = model or _DEFAULT_MODELS.get(provider, "")
+
+    async def _post(param: str) -> httpx.Response:
+        # Rebuilt per attempt: the token-cap key is the ONLY difference
+        # between the two shapes, and the endpoints that reject one reject a
+        # body carrying both. See `_token_param_for` for why this is decided
+        # by asking rather than by matching the model name.
+        body: dict = {
+            "model": mdl,
+            "messages": messages,
+            param: max_tokens,
+        }
+        if tools:
+            body["tools"] = tools
+        async with httpx.AsyncClient(timeout=timeout) as c:
+            return await c.post(url, headers=headers, json=body)
+
+    _param = _token_param_for(provider, base, mdl)
+    r = await _post(_param)
+    if _param == "max_tokens" and _wants_completion_tokens(r):
+        _remember_token_param(provider, base, mdl, "max_completion_tokens")
+        r = await _post("max_completion_tokens")
     if r.status_code != 200:
         return _interpret_http(r, provider)
     try:

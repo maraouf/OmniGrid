@@ -1675,6 +1675,7 @@
       "chip_no_key_title": "Provider is enabled but no API key is saved — calls will fail with HTTP 401 until a key is added.",
       "chip_disabled_title": "Provider is disabled. Enable it in its card to start using it.",
       "current_chip": "current",
+      "past_chip": "previously used",
       "current_model_label": "Current model:",
       "current_model_title": "The model id stored on the provider's settings card. Historical sub-rows below show every model that recorded usage in the selected period.",
       "master_label": "AI Integration enabled",

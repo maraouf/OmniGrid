@@ -802,9 +802,19 @@
                  empty (Stage 1 fresh deploy). -->
             <template x-for="m in (p.models || [])" :key="p.name + ':' + m.model">
               <div class="ai-provider-model-row">
+                      <!-- A model that is NOT the configured one is HISTORY —
+                           usage that was recorded in the window before the
+                           operator swapped models — and it must say so on the
+                           row. Marking only the current one left the other
+                           rows bare, so a freshly-changed model reads as a
+                           contradiction: the header says the new id while the
+                           only visible row says the old one, with nothing on
+                           screen distinguishing "in use" from "was used". The
+                           explanation existed, but only in the header's hover
+                           title, which is exactly where nobody looks. -->
                       <span class="ai-provider-model-name mono"
                             :class="m.model === p.model ? 'is-current' : ''"
-                            x-text="m.model + (m.model === p.model ? ' · ' + t('admin.ai.current_chip') : '')"></span>
+                            x-text="m.model + ' · ' + (m.model === p.model ? t('admin.ai.current_chip') : t('admin.ai.past_chip'))"></span>
                 <span class="ai-provider-model-stats">
                         <span><span class="text-[var(--text-faint)]" x-text="t('admin.ai.tile.jobs') + ':'"></span>
                               <span class="mono" x-text="m.total_jobs"></span></span>
