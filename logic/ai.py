@@ -632,6 +632,27 @@ async def _chat_claude(api_key: str, model: str, base_url: str,
                 "detail": f"claude response parse error: {e}", "provider": "claude"}
 
 
+def _gemini_version_at_least(model: str, floor: float) -> bool:
+    """True when a Gemini model id names a version >= `floor`.
+
+    Reads the FIRST `<major>.<minor>` in the id — `gemini-2.5-flash` -> 2.5,
+    `gemini-3.8-flash` -> 3.8, `gemini-1.5-pro` -> 1.5. Numeric so a new
+    version line keeps whatever behaviour the family already had, instead of
+    quietly falling out of a rule pinned to one literal.
+
+    Returns False when no version can be read, which callers treat as "do not
+    send version-gated fields" — the conservative direction, since an unknown
+    id is as likely to be an older rev as a newer one.
+    """
+    m = _re.search(r'(?P<major>\d+)\.(?P<minor>\d+)', model or "")
+    if not m:
+        return False
+    try:
+        return float(f"{m.group('major')}.{m.group('minor')}") >= floor
+    except (TypeError, ValueError):
+        return False
+
+
 # noinspection DuplicatedCode
 async def _chat_gemini(api_key: str, model: str, base_url: str,
                        prompt: str, system_prompt: str, max_tokens: int,
@@ -649,19 +670,32 @@ async def _chat_gemini(api_key: str, model: str, base_url: str,
         "x-goog-api-key": api_key,
         "content-type": "application/json",
     }
-    # Gemini 2.5 model family: Flash + Lite accept `thinkingBudget: 0`
-    # (disables thinking, gives the operator a fast palette response).
-    # Pro REJECTS budget=0 with HTTP 400 — the API enforces a minimum
-    # positive budget for Pro because the model only operates in
-    # thinking mode. So gate the budget by model:
-    #   * `2.5-pro`: omit thinkingConfig entirely (model picks budget)
-    #   * any other 2.5: budget=0 (skip thinking, fast cheap response)
-    #   * pre-2.5: omit (no thinking config in older API revs)
-    # If thinking eats the entire `max_tokens` budget, the operator can
-    # bump it via Admin → AI Integration's max_tokens field.
+    # Gemini's thinking-capable models: Flash + Lite accept
+    # `thinkingBudget: 0` (disables thinking, gives the operator a fast
+    # palette response). Pro REJECTS budget=0 with HTTP 400 — the API
+    # enforces a minimum positive budget because Pro only operates in
+    # thinking mode. Older revs have no thinkingConfig at all. So:
+    #   * any `pro`: omit thinkingConfig entirely (model picks budget)
+    #   * >= 2.5, non-pro: budget=0 (skip thinking, fast cheap response)
+    #   * < 2.5, or unparseable: omit (the field may not exist there)
+    #
+    # The version test is NUMERIC, not a substring. It used to read
+    # `"2.5" in mdl_lc`, which silently stopped applying the moment the
+    # operator moved to `gemini-3.8-flash` — that name does not contain
+    # "2.5", so a Flash model meant to skip thinking was thinking on every
+    # call, spending the output budget before writing anything. Same
+    # name-matching trap as the OpenAI token-cap parameter, and the same
+    # lesson: a literal pinned to today's version numbers is a rule that
+    # expires without telling anyone.
+    #
+    # An UNPARSEABLE name omits the config rather than guessing — sending a
+    # field an older rev does not know could fail the whole request, and
+    # the cost of omitting is a slower, more expensive answer rather than
+    # a broken one. If thinking then eats the whole `max_tokens` budget the
+    # reply comes back empty, which the parse below reports explicitly.
     mdl_lc = (mdl or "").lower()
     gen_config: dict = {"maxOutputTokens": max_tokens}
-    if "2.5" in mdl_lc and "pro" not in mdl_lc:
+    if "pro" not in mdl_lc and _gemini_version_at_least(mdl_lc, 2.5):
         gen_config["thinkingConfig"] = {"thinkingBudget": 0}
     body: dict = {
         "contents": [{"parts": [{"text": prompt}]}],

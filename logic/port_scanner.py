@@ -394,6 +394,39 @@ async def scan_host(
     except (socket.gaierror, OSError, IndexError):
         resolved_ip = None
 
+    # A name that did not resolve will not resolve once per port either.
+    # Scanning it anyway meant `asyncio.open_connection(host, port)` repeated
+    # the SAME failing lookup for every port in the list, and each abandoned
+    # attempt left a future whose exception nobody retrieved — surfacing
+    # through the lifespan's asyncio hook as
+    #   [asyncio] UNHANDLED EXCEPTION: Future exception was never retrieved
+    #   socket.gaierror: [Errno -2] Name or service not known
+    # in bursts the width of the concurrency cap. On the reporting deployment
+    # that was 7,809 lines in one day — 10% of everything written — for hosts
+    # the boot-time DNS check had ALREADY reported as unresolvable ("60 of 174
+    # curated host targets are unresolved by the container's resolver"), plus
+    # ~17 seconds of wall clock per host spent proving it 283 more times.
+    #
+    # Returning early is not hiding the failure: `resolved_ip: None` and the
+    # `dns` reason are exactly what the caller already reads to say "this
+    # alias does not resolve from inside the container", and the log line
+    # below states it once instead of per port. `results` stays an empty list
+    # rather than a synthesized per-port failure — nothing was measured, and
+    # inventing 283 identical closed rows would misreport a lookup that never
+    # got as far as a packet.
+    if resolved_ip is None:
+        print(f"[port_scanner] target={target!r} skipped: name does not resolve "
+              f"from this container — {len(port_list)} port(s) not scanned "
+              f"(set an alias / FQDN / address for this host)")
+        return {
+            "host": target,
+            "resolved_ip": None,
+            "scanned_at": int(time.time()),
+            "ports": [],
+            "duration_ms": 0,
+            "error": "dns: target does not resolve",
+        }
+
     async def _bounded(p: int) -> dict:
         async with sem:
             return await _probe_one_port(target, p, timeout_s, banner_grab)

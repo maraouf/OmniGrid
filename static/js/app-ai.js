@@ -1405,7 +1405,15 @@ export default {
         });
         return;
       }
-      const answer = (j.text || '').trim() || (this.t('command_palette.ai.empty_response') || '(empty response)');
+      // Resolved AFTER the action below, not here: a reply can be nothing but
+      // an ACTION directive, and those lines are stripped from the
+      // conversational body before it reaches us. Computing the placeholder at
+      // this point made a perfectly good directive-only reply render as
+      // "(empty response)" — observed with `gemini-3.8-flash`, which answered
+      // a locate-and-bounce request with the directive alone and no prose,
+      // where the previous model had padded it with a sentence. The call had
+      // succeeded, the action had parsed, and the chat said nothing happened.
+      let answer = (j.text || '').trim();
       const actionId = (j.action || '').toString().trim();
       let actionDesc = actionId ? this._actionDescriptorById(actionId) : null;
       // The generic `run_app_skill` descriptor is destructive:false, but a
@@ -1417,6 +1425,25 @@ export default {
       if (actionDesc && actionId === 'run_app_skill'
         && this._appSkillIsDestructive(j.action_data)) {
         actionDesc = Object.assign({}, actionDesc, {destructive: true});
+      }
+      // A directive-only reply says what it is going to do, using the action's
+      // own label, rather than claiming the model said nothing. A DESTRUCTIVE
+      // action is worded as a proposal because that is what it is at this
+      // point — the inline-confirm chip renders beneath and nothing runs until
+      // it is clicked; calling it "Running" there would describe a state the
+      // operator has not agreed to yet. Only a genuinely empty reply with no
+      // directive behind it still falls through to the placeholder.
+      if (!answer) {
+        const _lbl = actionDesc ? (actionDesc.label || actionId) : '';
+        if (_lbl) {
+          answer = (actionDesc && actionDesc.destructive)
+            ? (this.t('command_palette.ai.action_only_proposed', {action: _lbl})
+              || ('Proposed: ' + _lbl))
+            : (this.t('command_palette.ai.action_only_running', {action: _lbl})
+              || ('Running: ' + _lbl));
+        } else {
+          answer = this.t('command_palette.ai.empty_response') || '(empty response)';
+        }
       }
       // `j.hosts` from the HOSTS protocol — when the AI's answer
       // references specific hosts by id, the SPA renders inline
