@@ -1050,7 +1050,54 @@ export default {
         // Replace the first-round prose with the second-round reply
         // composed from the tool results. Keep the same `ts` so the
         // bubble's DOM identity is stable.
-        turn.text = (j.text || '').trim() || (this.t('command_palette.ai.empty_response') || '(empty response)');
+        // The second round can emit an ACTION, and until this landed it was
+        // thrown away — this path composed the reply, chained further tool
+        // calls, and never looked at `j.action` at all. So "find the MAC and
+        // bounce that port" could never bounce anything: the lookup ran, the
+        // model emitted `bounce_interface` with the port it had just learned,
+        // and the directive died here. Asking for the SAME bounce without a
+        // lookup worked, because that needs no tool round and goes through
+        // `sendAiSidebarMessage` instead — which is why this looked
+        // intermittent rather than broken, and why it survived three passes
+        // of being investigated from the backend, where the action is
+        // correctly parsed and logged every time.
+        //
+        // Mirrors the first-round dispatch deliberately: same descriptor
+        // lookup, same per-app-skill destructive resolution, same
+        // surface:'sidebar' hand-off so a destructive action renders the
+        // inline-confirm chip instead of firing. A second copy of that logic
+        // is the cost of the two paths existing at all; the alternative —
+        // dispatching by a rule written fresh here — is how they drift.
+        const _actionId = (j.action || '').toString().trim();
+        let _actionDesc = _actionId ? this._actionDescriptorById(_actionId) : null;
+        if (_actionDesc && _actionId === 'run_app_skill'
+          && this._appSkillIsDestructive(j.action_data)) {
+          _actionDesc = Object.assign({}, _actionDesc, {destructive: true});
+        }
+        // Same reasoning as the first round: a reply that is only a directive
+        // has nothing left after the directive lines are stripped, so name
+        // the action rather than claiming the model said nothing.
+        let _answer = (j.text || '').trim();
+        if (!_answer) {
+          const _lbl = _actionDesc ? (_actionDesc.label || _actionId) : '';
+          if (_lbl) {
+            _answer = (_actionDesc && _actionDesc.destructive)
+              ? (this.t('command_palette.ai.action_only_proposed', {action: _lbl})
+                || ('Proposed: ' + _lbl))
+              : (this.t('command_palette.ai.action_only_running', {action: _lbl})
+                || ('Running: ' + _lbl));
+          } else {
+            _answer = this.t('command_palette.ai.empty_response') || '(empty response)';
+          }
+        }
+        turn.text = _answer;
+        turn.action_id = _actionId || null;
+        turn.action_label = _actionDesc ? (_actionDesc.label || _actionId) : null;
+        turn.action_tag = (j.action_tag || '').toString();
+        turn.action_item = (j.action_item || '').toString();
+        turn.action_data = (j.action_data && typeof j.action_data === 'object')
+          ? j.action_data : null;
+        turn.action_hosts = Array.isArray(j.action_hosts) ? j.action_hosts.slice(0, 8) : [];
         turn.provider = j.provider || turn.provider;
         turn.model = j.model || turn.model;
         turn.response_time_ms = (turn.response_time_ms || 0) + (j.response_time_ms || 0);
@@ -1087,6 +1134,26 @@ export default {
               this.confirmInlineToolDispatch(turnIdx);
             });
           }
+        } else if (_actionDesc) {
+          // Only once the chain is FINISHED. A round that still wants another
+          // tool call has not decided anything yet, so firing an action here
+          // would act on half-gathered evidence — and the chained round will
+          // reach this same branch when it settles.
+          //
+          // Destructive actions take the identical route as the first round:
+          // action_ran stays false and `surface: 'sidebar'` converts the
+          // confirm into the inline chip, so a bounce found via a lookup asks
+          // exactly as a bounce typed directly does. That symmetry is the
+          // point — the two paths differing is what made this look like a
+          // chip that sometimes rendered.
+          turn.action_ran = !_actionDesc.destructive;
+          this._runCommandPaletteAction(_actionDesc, {
+            surface: 'sidebar',
+            tag: turn.action_tag,
+            actionItem: turn.action_item,
+            data: turn.action_data,
+            actionHosts: turn.action_hosts,
+          });
         }
       }
     } catch (e) {
