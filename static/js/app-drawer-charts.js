@@ -31,6 +31,22 @@
 // SPLIT FROM `app-drawer-bulk.js`. Cross-method `this.X` references keep
 // working through the `_mergeKeepDescriptors` chain in app.js.
 
+// Release-notes payloads, fetched ahead of the Update confirm so it opens
+// with the notes already rendered. Module scope rather than component
+// state: nothing binds to these, and a reactive proxy around a map of
+// markdown bodies would only cost a flush. Keyed `image|remote_digest` —
+// a new upstream push is a new key, so a tab never shows the previous
+// image's notes for the next one. Only ok payloads are kept; a miss
+// re-asks the server, whose own short error TTL governs the retry.
+const _releaseNotesByKey = new Map();
+const _releaseNotesPending = new Map();
+// Keys the background prefetch has already tried, so a poll doesn't
+// re-request a miss every refresh.
+const _releaseNotesPrefetched = new Set();
+const _RELEASE_NOTES_CLIENT_CAP = 200;
+// Prefetches run one at a time — background work, gentle on the server.
+let _releaseNotesQueue = Promise.resolve();
+
 export default {
   snmpLoadLine(hostId, key) {
     const series = (this.hostSnmpHistory[hostId] || {}).points || [];
@@ -2066,46 +2082,105 @@ export default {
   // returns null and the replace is a no-op (no error). When the
   // server returns no body AND no source URL, the placeholder is
   // removed entirely so the popup doesn't carry a dangling spinner.
+  // Cache key for an image's notes: the image plus the digest it would
+  // update TO, read off the live item. See `_releaseNotesByKey`.
+  _releaseNotesKey(image) {
+    const it = (this.items || []).find(i => i && i.image === image && i.status === 'update');
+    return image + '|' + ((it && it.remote_digest) || '');
+  },
+  // One release-notes lookup per key, shared by the prefetch and the
+  // dialog. Resolves to the payload, or null on an HTTP / network failure.
+  // Never rejects.
+  _fetchReleaseNotes(image) {
+    const key = this._releaseNotesKey(image);
+    if (_releaseNotesByKey.has(key)) {
+      return Promise.resolve(_releaseNotesByKey.get(key));
+    }
+    const pending = _releaseNotesPending.get(key);
+    if (pending) {
+      return pending;
+    }
+    const p = fetch(`/api/registry/release-notes?image=${encodeURIComponent(image)}`)
+      .then(r => (r.ok ? r.json() : null))
+      .catch(() => null)
+      .then((d) => {
+        _releaseNotesPending.delete(key);
+        if (d && d.ok) {
+          if (_releaseNotesByKey.size >= _RELEASE_NOTES_CLIENT_CAP) {
+            _releaseNotesByKey.delete(_releaseNotesByKey.keys().next().value);
+          }
+          _releaseNotesByKey.set(key, d);
+        }
+        return d;
+      });
+    _releaseNotesPending.set(key, p);
+    return p;
+  },
+  // Fetch notes for every image with a pending update as soon as the items
+  // list says so, one at a time, so the confirm dialog opens with them
+  // already there. The server warms its own cache at gather time; this
+  // closes the remaining round-trip. Admin-only, matching the route —
+  // readonly users have no Update button and would only collect 403s.
+  _prefetchReleaseNotes(items) {
+    if (!this.me || this.me.role !== 'admin') {
+      return;
+    }
+    for (const it of items || []) {
+      if (!it || it.status !== 'update' || !it.image || it.health === 'offline') {
+        continue;
+      }
+      const key = it.image + '|' + (it.remote_digest || '');
+      if (_releaseNotesPrefetched.has(key)) {
+        continue;
+      }
+      _releaseNotesPrefetched.add(key);
+      const image = it.image;
+      _releaseNotesQueue = _releaseNotesQueue.then(() => this._fetchReleaseNotes(image));
+    }
+  },
+  // The notes block the confirm dialog opens WITH: the rendered notes when
+  // they are already cached, the loading placeholder otherwise. An empty
+  // string means the lookup already came back with nothing worth showing.
+  _releaseNotesBlockHtml(image) {
+    if (!image) {
+      return '';
+    }
+    const key = this._releaseNotesKey(image);
+    if (_releaseNotesByKey.has(key)) {
+      return this._buildReleaseNotesHtml(_releaseNotesByKey.get(key));
+    }
+    return this._releaseNotesPlaceholderHtml();
+  },
+  // Fill the dialog's notes block, and wire its Copy button either way.
+  // Waits a frame before touching the DOM: when the payload is cached the
+  // promise resolves in a microtask, BEFORE SweetAlert has inserted the
+  // popup, and the lookup would find nothing and silently give up.
   async _replaceReleaseNotesAsync(image) {
     if (!image) {
       return;
     }
-    try {
-      const r = await fetch(`/api/registry/release-notes?image=${encodeURIComponent(image)}`);
-      if (!r.ok) {
-        // HTTP failure — remove the placeholder so the popup doesn't
-        // hang on the spinner indefinitely.
-        const el = document.getElementById(this._RELEASE_NOTES_ASYNC_ID);
-        if (el) {
-          el.remove();
-        }
-        return;
-      }
-      const d = await r.json();
-      const html = this._buildReleaseNotesHtml(d);
-      const el = document.getElementById(this._RELEASE_NOTES_ASYNC_ID);
-      if (!el) {
-        return;
-      }   // popup closed before fetch resolved
+    const d = await this._fetchReleaseNotes(image);
+    await new Promise(res => requestAnimationFrame(() => res()));
+    const el = document.getElementById(this._RELEASE_NOTES_ASYNC_ID);
+    if (!el) {
+      return;   // popup closed, or nothing to show
+    }
+    if (el.classList.contains('release-notes-block--loading')) {
+      const html = d ? this._buildReleaseNotesHtml(d) : '';
       if (!html) {
+        // Failure or empty result — drop the placeholder so the popup
+        // doesn't carry a stuck spinner.
         el.remove();
         return;
       }
       el.outerHTML = html;
-      // Wire the Copy button — the block was injected via outerHTML (raw DOM,
-      // not Alpine), so bind the click here. Copies the cleaned notes text
-      // through the shared clipboard helper (toast on success/fail).
-      const cp = document.querySelector('.release-notes-copy');
-      if (cp) {
-        cp.addEventListener('click', () => this.copyToClipboard(this._lastReleaseNotesText || ''));
-      }
-    } catch {
-      // Silent — placeholder removed so popup doesn't carry a
-      // stuck spinner. Operator still gets the actual update path.
-      const el = document.getElementById(this._RELEASE_NOTES_ASYNC_ID);
-      if (el) {
-        el.remove();
-      }
+    }
+    // Wire the Copy button — the block is raw injected DOM, not Alpine, so
+    // bind the click here. Copies the cleaned notes text through the shared
+    // clipboard helper (toast on success/fail).
+    const cp = document.querySelector('.release-notes-copy');
+    if (cp) {
+      cp.addEventListener('click', () => this.copyToClipboard(this._lastReleaseNotesText || ''));
     }
   },
   async updateStack(stack, opts) {
@@ -2117,9 +2192,10 @@ export default {
       // Release notes only fire when the stack has EXACTLY ONE
       // updateable item — multi-service stacks don't have a single
       // "what's new" to surface and the popup would mislead. Pick
-      // the lone item's image if it qualifies; else skip the
-      // placeholder entirely. Popup opens INSTANTLY either way;
-      // async filler replaces the placeholder on resolve.
+      // the lone item's image if it qualifies; else skip the block
+      // entirely. The notes are usually prefetched already and render
+      // inline; otherwise the popup opens with a placeholder the async
+      // filler replaces on resolve.
       const stackImage = this._stackSingleUpdateImage(stack);
       // Blast-radius preview (MVP) — surfaces the
       // services / containers the stack update will touch so the
@@ -2129,7 +2205,7 @@ export default {
       const blastHtml = this._renderStackBlastRadius(stack);
       const html = this.t('dialogs.update_stack_html', {name: stack.name})
         + blastHtml
-        + (stackImage ? this._releaseNotesPlaceholderHtml() : '');
+        + this._releaseNotesBlockHtml(stackImage);
       if (stackImage) {
         // Intentionally fire-and-forget per the placeholder pattern documented above —
         // the popup opens with a `…` placeholder; this resolves later and patches the DOM.

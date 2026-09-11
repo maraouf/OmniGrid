@@ -1999,6 +1999,9 @@ export default {
       }
       this._reconcileById(this.items, incomingItems);
       this._reconcileById(this.stacks, d.stacks || [], 'name');
+      // Fetch release notes for anything that just became updatable, so the
+      // Update confirm opens with them rendered instead of a spinner.
+      this._prefetchReleaseNotes(incomingItems);
       // Cold-load race: pollSparks() can run at init BEFORE /api/items
       // populates this.items, so loadSparks() early-returns on an empty
       // id list and the sparkline strips stay blank until the next

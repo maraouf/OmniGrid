@@ -457,17 +457,16 @@ export default {
     }
     const skipConfirm = !!(opts && opts.skipConfirm);
     if (!skipConfirm) {
-      // Async release-notes hint — popup opens INSTANTLY with a
-      // loading placeholder; fetch runs in parallel and replaces
-      // the placeholder when it resolves. Bulk updates and
-      // AI-dispatch (skipConfirm) bypass this entirely since the
-      // popup itself is bypassed. The earlier synchronous variant
-      // blocked popup-open on the registry call → 1-2 second delay
-      // where the operator saw nothing.
+      // Release notes — usually already fetched in the background the
+      // moment the items list showed this update, so the popup opens
+      // with them rendered. When they aren't yet, it opens INSTANTLY
+      // with a loading placeholder the async filler replaces. Bulk
+      // updates and AI-dispatch (skipConfirm) bypass this entirely
+      // since the popup itself is bypassed.
       const baseHtml = item.stack_id
         ? this.t('dialogs.update_stack_html', {name: item.stack})
         : this.t('dialogs.recreate_container_html', {name: item.name});
-      const html = baseHtml + (item.image ? this._releaseNotesPlaceholderHtml() : '');
+      const html = baseHtml + this._releaseNotesBlockHtml(item.image);
       // Fire-and-forget — the await on `confirmDialog` below opens
       // the popup synchronously; the async filler races against the
       // operator's click + the popup's DOM lifecycle.

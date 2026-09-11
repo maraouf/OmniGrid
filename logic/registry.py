@@ -524,7 +524,41 @@ async def _fetch_github_release_notes(
     return None
 
 
+_release_notes_inflight: dict[str, asyncio.Future] = {}
+
+
 async def get_release_notes(image: str) -> dict:
+    """Single-flight front for `_get_release_notes_impl`.
+
+    The background warm and a browser asking for the same image (a tab
+    that loads while the warm is still running) would otherwise each run
+    the full cold lookup — twice the GitHub calls against a 60-an-hour
+    budget. A caller that arrives mid-lookup awaits the leader's result.
+    Waiters `shield` the shared future so one cancelled waiter cannot
+    cancel it for everyone else.
+    """
+    pending = _release_notes_inflight.get(image)
+    if pending is not None:
+        return await asyncio.shield(pending)
+    fut: asyncio.Future = asyncio.get_running_loop().create_future()
+    _release_notes_inflight[image] = fut
+    try:
+        out = await _get_release_notes_impl(image)
+        if not fut.done():
+            fut.set_result(out)
+        return out
+    except BaseException:
+        # Waiters get the same generic miss the route would return; the
+        # leader re-raises so cancellation still propagates.
+        if not fut.done():
+            fut.set_result({"ok": False, "error": "release-notes lookup failed"})
+        raise
+    finally:
+        if _release_notes_inflight.get(image) is fut:
+            _release_notes_inflight.pop(image, None)
+
+
+async def _get_release_notes_impl(image: str) -> dict:
     """Best-effort release-notes lookup for an image.
 
     Resolution chain:
@@ -673,6 +707,83 @@ async def get_release_notes(image: str) -> dict:
         }
         _release_notes_cache[image] = {"ts": time.time(), "data": out}
         return out
+
+
+# Release-notes prewarm. An update is known the moment a gather sees the
+# registry digest move — often hours before anyone opens the confirm
+# dialog — so the lookup (registry manifest + config blob + one or two
+# GitHub calls, 1-3 s cold) is done in the background then, and the
+# dialog reads a warm cache.
+#
+# Keyed on the REMOTE DIGEST the notes were warmed against, which is what
+# makes this safe on the GitHub budget (60 unauthenticated calls an hour):
+# each (image, digest) pair is looked up once per process, whatever it
+# returned. A failed lookup is NOT retried by the warm — a click still
+# retries it on the normal 10-minute error TTL. A digest that moves again
+# means upstream pushed again, so the cached notes describe the previous
+# image and are dropped before re-warming.
+_release_notes_warmed: dict[str, str] = {}
+_release_notes_warm_inflight = False
+
+
+def release_notes_to_warm(items: list[dict]) -> list[tuple[str, str]]:
+    """``(image, remote_digest)`` pairs whose notes need warming.
+
+    Only items with a live pending update — an up-to-date image has no
+    confirm dialog to serve, and an offline orphan has no Update button.
+    One entry per image even when several services share it. Empty while a
+    warm is already running, so a gather doesn't spawn a task just to have
+    it return at the single-flight check.
+    """
+    if _release_notes_warm_inflight:
+        return []
+    out: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for it in items or []:
+        if not isinstance(it, dict) or it.get("status") != "update":
+            continue
+        if it.get("health") == "offline":
+            continue
+        image = str(it.get("image") or "").strip()
+        if not image or image in seen:
+            continue
+        seen.add(image)
+        digest = str(it.get("remote_digest") or "")
+        if _release_notes_warmed.get(image) == digest:
+            continue
+        out.append((image, digest))
+    return out
+
+
+async def warm_release_notes(targets: list[tuple[str, str]]) -> int:
+    """Look up each target's notes into the cache. Sequential on purpose —
+    this is background work, and one call at a time keeps it gentle on
+    the registry and the GitHub rate limit. Returns how many were warmed.
+    Single-flight: a second call while one runs is a no-op; the next
+    gather hands it whatever is still unwarmed."""
+    global _release_notes_warm_inflight
+    if _release_notes_warm_inflight or not targets:
+        return 0
+    _release_notes_warm_inflight = True
+    n = 0
+    try:
+        for image, digest in targets:
+            prev = _release_notes_warmed.get(image)
+            if prev is not None and prev != digest:
+                _release_notes_cache.pop(image, None)
+            try:
+                await get_release_notes(image)
+            except (asyncio.CancelledError, KeyboardInterrupt):
+                raise
+            except Exception as e:  # noqa: BLE001
+                print(f"[release-notes] warm skipped for {image!r}: {e}")
+            _release_notes_warmed[image] = digest
+            n += 1
+    finally:
+        _release_notes_warm_inflight = False
+    if n:
+        print(f"[release-notes] INFO warmed {n} pending-update image(s)")
+    return n
 
 
 # noinspection DuplicatedCode

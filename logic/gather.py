@@ -3009,3 +3009,17 @@ async def _gather_impl() -> None:
             await asyncio.to_thread(_registry.persist_digest_cache_to_db)
         except Exception as e:  # noqa: BLE001
             print(f"[gather] persist_digest_cache_to_db failed: {e}")
+        # Warm release notes for every image that just became updatable, so
+        # the Update confirm dialog opens with them already resolved instead
+        # of a spinner. Background — the gather never waits on GitHub.
+        try:
+            from logic import registry as _registry  # noqa: PLC0415
+            _warm = _registry.release_notes_to_warm(_cache.get("items") or [])
+            if _warm:
+                import main as _main  # noqa: PLC0415
+                _main.spawn_background_task(
+                    _registry.warm_release_notes(_warm),
+                    label=f"release-notes warm ({len(_warm)})",
+                )
+        except Exception as e:  # noqa: BLE001
+            print(f"[gather] release-notes warm skipped: {e}")
