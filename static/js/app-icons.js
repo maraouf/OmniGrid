@@ -70,7 +70,7 @@ export const KNOWN_ICONS = new Set([
   'samsung', 'samsung-electronics', 'sandisk', 'seeedstudio', 'sensibo', 'smtp', 'somfy', 'sonarr',
   'speedtest-tracker', 'splunk', 'squid', 'stalwart', 'syncthing', 'synology', 'synology-dark', 'tailscale', 'tautulli', 'tdarr', 'telegram', 'telegram-web',
   'tracearr', 'traefik', 'transmission', 'truenas', 'truenas-core', 'truenas-scale',
-  'ubiquiti', 'ubuntu', 'ui', 'unifi', 'ups', 'uptime-kuma',
+  'ubiquiti', 'ubuntu', 'ui', 'unifi', 'unifiedsso', 'ups', 'uptime-kuma',
   'vcenter', 'vdsl', 'veeam', 'vmware', 'vodafone', 'vsphere', 'wd', 'we',
   'webmin', 'whisparr', 'windows', 'windows-10', 'windows-server', 'wireguard', 'xiaomi',
   'zabbix',

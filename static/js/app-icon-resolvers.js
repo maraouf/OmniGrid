@@ -252,12 +252,21 @@ export default {
       // whose name merely contains either word).
       'website_monitoring': '/img/icons/website-monitoring.svg',
       'website-monitoring': '/img/icons/website-monitoring.svg',
+      // Operator's custom UnifiedSSO app. The bare stack name resolves
+      // through KNOWN_ICONS on its own; this covers the spaced /
+      // hyphenated ways the brand gets written in a label, which the
+      // natural-slug pass turns into `unified-sso`.
+      'unified-sso': 'unifiedsso',
     };
     // Prefix patterns — one entry covers all siblings of a product
     // (authentik outposts: ak-outpost-authentik-ldap-outpost, etc.).
     const prefixes = [
       ['ak-outpost-', 'authentik'],
       ['komodo-', 'komodo'],
+      // UnifiedSSO's services (`unifiedsso_web`, `unifiedsso_caddy`,
+      // `unifiedsso_auth-service`) all carry the app's own mark — the
+      // stack is one product, so a per-service brand would be noise.
+      ['unifiedsso-', 'unifiedsso'],
     ];
     const raw = String(name).toLowerCase().trim();
     const natural = raw.replace(/[\s_]+/g, '-').replace(/[^a-z0-9-]/g, '');
@@ -515,6 +524,12 @@ export default {
         'gitsync-connector': 'gitsync',
         'gitsync-connector_connector': 'gitsync',
         'gitsync_connector': 'gitsync',
+        // UnifiedSSO — operator's custom app. Mirrors the iconUrlFor
+        // override per the project's "BOTH alias maps" rule so an
+        // explicit `host.icon = "unified-sso"` is as forgiving as a
+        // stack / item name that slugs to the same thing.
+        'unified-sso': 'unifiedsso',
+        'unified_sso': 'unifiedsso',
       };
       const slug = aliases[h.icon.toLowerCase()] || h.icon;
       return this._themeIcon('/img/icons/' + slug + '.svg');
