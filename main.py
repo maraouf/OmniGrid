@@ -1452,6 +1452,7 @@ _do_update_stack = _ops_mod.do_update_stack
 _do_update_stack_direct = _ops_mod.do_update_stack_direct
 _do_update_container = _ops_mod.do_update_container
 _do_restart_service = _ops_mod.do_restart_service
+_do_rollback_service = _ops_mod.do_rollback_service
 _do_restart_container = _ops_mod.do_restart_container
 _do_remove_container = _ops_mod.do_remove_container
 _do_prune_node = _ops_mod.do_prune_node

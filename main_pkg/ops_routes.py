@@ -60,6 +60,7 @@ from main import (  # noqa: E402,F401 — explicit for IDE; runtime via the * ab
     _do_remove_container,
     _do_restart_container,
     _do_restart_service,
+    _do_rollback_service,
     _do_restart_swarm_agent,
     _do_update_container,
     _do_update_stack,
@@ -162,6 +163,24 @@ async def api_restart_service(
     op = new_op("restart_service", service_id, name,
                 target_stack=stack, actor=_actor_from(request))
     bg.add_task(_do_restart_service, op, service_id)
+    return {"op_id": op.id}
+
+
+@app.post("/api/rollback/service/{service_id}")
+async def api_rollback_service(
+    service_id: str, bg: BackgroundTasks, request: Request,
+    _admin: AdminUser,
+):
+    """Roll a Swarm service back to the spec it ran before its last update.
+
+    The fix for the common "it updated and now it won't start" case, and
+    the one action in the drawer's diagnosis panel that undoes rather
+    than retries. Swarm owns the previous spec; we only ask for it.
+    """
+    name, stack = _item_context(service_id)
+    op = new_op("rollback_service", service_id, name,
+                target_stack=stack, actor=_actor_from(request))
+    bg.add_task(_do_rollback_service, op, service_id)
     return {"op_id": op.id}
 
 
@@ -2014,6 +2033,8 @@ class SettingsIn(BaseModel):
     notify_event_container_remove_failure: Optional[str] = None
     notify_event_service_restart_success: Optional[str] = None
     notify_event_service_restart_failure: Optional[str] = None
+    notify_event_service_rollback_success: Optional[str] = None
+    notify_event_service_rollback_failure: Optional[str] = None
     # Swarm autoheal — restart success / failure / unhealthy detection.
     # The first two are fired by `do_restart_swarm_agent` directly;
     # the third is fired by the `swarm_agent_health` schedule kind

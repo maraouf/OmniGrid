@@ -1941,6 +1941,89 @@ async def api_service_logs(raw_id: str, _admin: AdminUser, tail: int = 200):
     return {"raw_id": raw_id, "tail": tail_n, "logs": text}
 
 
+def _cached_item(raw_id: str) -> Optional[dict]:
+    """The gathered item for `raw_id`, accepting a prefix like the SPA sends."""
+    for it in _cache.get("items") or []:
+        rid = it.get("raw_id") or ""
+        if rid and (rid == raw_id or rid.startswith(raw_id)):
+            return it
+    return None
+
+
+@app.get("/api/item/{raw_id}/diagnose")
+async def api_item_diagnose(raw_id: str, _admin: AdminUser, tail: int = 200):
+    """Read a failed task's logs and say why it did not start.
+
+    Swarm's own answer is an exit code. The reason is in the container's
+    output, which this fetches and hands to `logic.task_diagnosis` — a
+    pure classifier, so what it concludes is testable without a Swarm.
+
+    Returns a cause ID rather than a sentence (the SPA translates it),
+    the log lines that justify it, and whether Swarm still has a previous
+    spec to roll back to — the one fix that undoes a bad update rather
+    than retrying into it.
+    """
+    import httpx
+    from logic import portainer, task_diagnosis
+    if not _CONTAINER_REF_RE.match(raw_id or ""):
+        raise HTTPException(400, "invalid item ref")
+    item = _cached_item(raw_id)
+    if item is None:
+        raise HTTPException(404, "item not found")
+    # Direct-Docker items reach their daemon over SSH, not Portainer; the
+    # log fetch below would silently target the wrong endpoint. Say so
+    # rather than returning a diagnosis built on no evidence.
+    if str(item.get("backend") or "").startswith("docker:"):
+        return {"ok": False, "reason": "unsupported_backend",
+                "cause": "unknown", "evidence": [], "actions": []}
+    try:
+        tail_n = max(1, min(2000, int(tail)))
+    except (TypeError, ValueError):
+        tail_n = 200
+    real_id = item.get("raw_id") or raw_id
+    is_service = (item.get("type") == "service")
+    eid = portainer.PORTAINER_ENDPOINT_ID
+    base = f"{portainer.PORTAINER_URL}/api/endpoints/{eid}/docker"
+    kind = "services" if is_service else "containers"
+    # A failed task's node — the agent target a container log fetch needs.
+    hist = item.get("task_history") or []
+    node = (hist[0].get("node") if hist and isinstance(hist[0], dict) else "") or ""
+    if node and not _AGENT_NODE_RE.match(node):
+        node = ""
+    logs = ""
+    update_state = ""
+    rollback_available = False
+    try:
+        async with portainer.write_client(timeout=20.0) as client:
+            if is_service:
+                # The service record carries Swarm's own verdict on the
+                # last update plus whether it kept a spec to go back to.
+                svc = await portainer.pg(client, f"/api/endpoints/{eid}/docker/services/{real_id}")
+                update_state = str(((svc or {}).get("UpdateStatus") or {}).get("State") or "")
+                rollback_available = bool((svc or {}).get("PreviousSpec"))
+            url = (f"{base}/{kind}/{real_id}/logs"
+                   f"?stdout=1&stderr=1&timestamps=1&tail={tail_n}")
+            r = await client.get(url, headers=portainer.headers(
+                agent_target=(node or None) if not is_service else None))
+            if r.status_code < 400:
+                logs = _demux_docker_logs(r.content)
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        # A diagnosis without logs is still worth returning — the exit
+        # code alone classifies a few causes — so degrade rather than 502.
+        print(f"[diagnose] log fetch failed for {real_id[:12]}: {e}")
+    out = task_diagnosis.diagnose(
+        str(item.get("task_error") or ""), logs,
+        update_state=update_state, rollback_available=rollback_available)
+    out.update({
+        "ok": True,
+        "raw_id": real_id,
+        "rollback_available": rollback_available,
+        "update_state": update_state,
+        "has_logs": bool(logs.strip()),
+    })
+    return out
+
+
 @app.get("/api/services/{host_id}/{service_idx}/history")
 async def api_service_history(host_id: str, service_idx: int, *,
                               hours: int = 24,

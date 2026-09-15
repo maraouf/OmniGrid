@@ -269,6 +269,26 @@ export default {
         if (typeof this.refresh === 'function') {
           this.refresh();
         }
+      } else if (action.kind === 'rollback_service') {
+        // Swarm's own `?rollback=previous`. The only action here that
+        // UNDOES the change rather than retrying into it, which is what
+        // a service broken by its own update needs.
+        const r = await fetch('/api/rollback/service/' + encodeURIComponent(item.raw_id), {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: '{}',
+        });
+        if (!r.ok) {
+          const friendly = await this.fmtResponseError(r);
+          this.showToast(this.t('drawer.task_error_rollback_failed', {error: friendly})
+            || ('Rollback failed: ' + friendly), 'error');
+          return;
+        }
+        this.showToast(this.t('drawer.task_error_rollback_queued')
+          || 'Rollback queued. Swarm is restoring the previous spec; watch the row for the task to come up.', 'success');
+        if (typeof this.refresh === 'function') {
+          this.refresh();
+        }
       } else if (action.kind === 'ssh_fix_node') {
         const host = this._findHostByNodeName(action.node || '');
         if (!host) {
@@ -315,6 +335,73 @@ export default {
     } finally {
       item._auto_fix_running = false;
     }
+  },
+
+  // Ask the backend to read the failed task's logs and name the cause.
+  //
+  // Swarm's `task: non-zero exit (255)` is an exit status, not a reason
+  // — the reason was written to the container's stdout and thrown away
+  // with the container. The backend fetches those logs and classifies
+  // them; this stores the verdict on the item so the drawer can render
+  // it, and clears it when the operator moves to another item.
+  //
+  // `_diagnosis_running` drives the button's spinner. A failure is
+  // stored as a result too (`ok:false`) rather than only toasted, so the
+  // panel can say the lookup itself failed instead of showing nothing
+  // and leaving the operator to guess whether it ran.
+  async diagnoseTaskError(item) {
+    if (!item || !item.raw_id || item._diagnosis_running) {
+      return;
+    }
+    item._diagnosis_running = true;
+    try {
+      const r = await fetch('/api/item/' + encodeURIComponent(item.raw_id) + '/diagnose');
+      if (!r.ok) {
+        const friendly = await this.fmtResponseError(r);
+        item._diagnosis = {ok: false, error: friendly};
+        return;
+      }
+      item._diagnosis = await r.json();
+    } catch (e) {
+      item._diagnosis = {ok: false, error: (e && e.message) ? e.message : String(e)};
+    } finally {
+      item._diagnosis_running = false;
+    }
+  },
+
+  // The fixes a diagnosis justifies, as the same {id,label,kind,...}
+  // shape the pattern-matched auto-fix buttons use — so both sets render
+  // and dispatch through one path. Actions come from the classifier
+  // (which knows, say, that a permissions failure is not something a
+  // restart fixes) and never from the UI guessing.
+  diagnosisActions(item) {
+    const d = item && item._diagnosis;
+    if (!d || !d.ok || !Array.isArray(d.actions)) {
+      return [];
+    }
+    const out = [];
+    for (const a of d.actions) {
+      if (a === 'rollback' && d.rollback_available && item.type === 'service') {
+        out.push({
+          id: 'diag-rollback',
+          kind: 'rollback_service',
+          label: this.t('drawer.diagnose.action_rollback') || 'Roll back to previous version',
+          help: this.t('drawer.diagnose.action_rollback_help')
+            || 'Asks Swarm to restore the spec this service ran before its last update — image, environment and mounts together. Use when the service stopped starting after an update.',
+          danger: true,
+        });
+      } else if (a === 'restart' && item.type === 'service') {
+        out.push({
+          id: 'diag-restart',
+          kind: 'restart_service',
+          label: this.t('drawer.task_error_action_force_restart') || 'Force-restart service',
+          help: this.t('drawer.diagnose.action_restart_help')
+            || 'Rolls the tasks again without pulling a new image. Worth a try when the cause looks transient — a dependency that was still starting, or a port a dying container had not released yet.',
+          danger: false,
+        });
+      }
+    }
+    return out;
   },
 
   // Match a Swarm task-error string against known patterns and

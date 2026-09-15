@@ -147,6 +147,9 @@ OP_TYPES: frozenset[str] = frozenset({
     "update_stack",
     "update_container",
     "restart_service",
+    # Swarm's own `?rollback=previous` — puts a service back on the spec
+    # it ran before the last update, for when the new one won't start.
+    "rollback_service",
     "restart_container",
     "remove_container",
     "restart_swarm_agent",
@@ -505,6 +508,8 @@ NOTIFY_EVENT_NAMES = (
     "container_remove_failure",
     "service_restart_success",
     "service_restart_failure",
+    "service_rollback_success",
+    "service_rollback_failure",
     "swarm_agent_restart_success",
     "swarm_agent_restart_failure",
     "swarm_agent_unhealthy",
@@ -758,6 +763,14 @@ NOTIFY_TEMPLATE_DEFAULTS: dict = {
     },
     "service_restart_failure": {
         "title": "❌ Service restart failed: {name}",
+        "body": "{error}",
+    },
+    "service_rollback_success": {
+        "title": "↩️ Service rolled back: {name}",
+        "body": "Restored the spec this service ran before its last update.",
+    },
+    "service_rollback_failure": {
+        "title": "❌ Service rollback failed: {name}",
         "body": "{error}",
     },
     "swarm_agent_restart_success": {

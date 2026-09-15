@@ -2063,6 +2063,63 @@ async def do_restart_service(op: Operation, service_id: str) -> None:
         gather.invalidate_cache()
 
 
+async def do_rollback_service(op: Operation, service_id: str) -> None:
+    """Put a Swarm service back on the spec it was running before the last
+    update.
+
+    Swarm keeps the previous spec itself (`PreviousSpec`) and exposes
+    `?rollback=previous` on the service-update call, so this is Docker's
+    own rollback rather than a re-deploy of a tag we guessed at — which
+    matters, because the thing that broke may have been an environment or
+    mount change rather than the image.
+
+    The `PreviousSpec` check is not decoration: a service that has never
+    been updated has none, and Docker answers a rollback of one with a
+    500 whose body does not say why. Refusing up front is the difference
+    between a clear message and a confusing one.
+    """
+    try:
+        portainer.ensure_reachable()
+        op.log("Fetching current service spec")
+        async with portainer.write_client(timeout=_portainer_op_timeout("medium")) as client:
+            ep = f"/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}/docker/services/{service_id}"
+            svc = await portainer.pg(client, ep)
+            if not (svc or {}).get("PreviousSpec"):
+                raise RuntimeError(
+                    "this service has no previous spec to roll back to — "
+                    "Swarm only keeps one, and it is recorded on update")
+            version = ((svc.get("Version") or {}).get("Index"))
+            if version is None:
+                raise RuntimeError("service spec carries no version index")
+            spec = svc.get("Spec") or {}
+            prev_image = (((svc.get("PreviousSpec") or {}).get("TaskTemplate") or {})
+                          .get("ContainerSpec") or {}).get("Image") or ""
+            if prev_image:
+                op.log(f"Rolling back to {prev_image}")
+            r = await client.post(
+                f"{portainer.PORTAINER_URL}{ep}/update?version={version}&rollback=previous",
+                json=spec, headers=portainer.headers(),
+            )
+            if r.status_code >= 400:
+                raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
+            op.log("Rollback accepted by Swarm; tasks are respawning", "step")
+        op.done("success")
+        await notify(f"↩️ Service rolled back: {op.target_name}", "", "success",
+                     event="service_rollback_success", actor_username=op.actor,
+                     target_kind="service", target_id=str(op.target_id))
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e:  # noqa: BLE001
+        op.log(str(e), "error")
+        op.done("error", str(e))
+        await notify(f"❌ Service rollback failed: {op.target_name}", str(e)[:500], "error",
+                     event="service_rollback_failure", actor_username=op.actor,
+                     target_kind="service", target_id=str(op.target_id))
+    finally:
+        persist_history(op)
+        gather.invalidate_cache()
+
+
 async def discover_swarm_agent_service(client: httpx.AsyncClient) -> tuple[Optional[str], Optional[str], list[dict]]:
     """Walk every Swarm service, identify the Portainer agent service.
 

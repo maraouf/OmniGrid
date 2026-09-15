@@ -948,6 +948,38 @@ art without leaking the credential into the browser DOM.
 | `POST` | `/api/http-probe/test`               | Probe one HTTP / TLS-cert / DNS target with the form-provided URL + options (no save).                        |
 | `POST` | `/api/hosts/{id}/http-probe/refresh` | Re-run the HTTP probe across all configured URLs for the given host and persist to `host_http_probe_samples`. |
 
+### Why a task did not start — diagnosis + rollback (admin-only)
+
+Swarm reports a failed task as `task: non-zero exit (255)`. That is the exit status of a process
+whose actual complaint went to its own stdout and was discarded with the container, so the drawer
+offers to go and read it.
+
+| Method | Route                          | Purpose                                                                                                                                                                  |
+|--------|--------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `GET`  | `/api/item/{raw_id}/diagnose`  | Tails the failed item's logs (service-aggregate or per-container, `?tail=` 1..2000, default 200) and classifies them. Read-only; no history row.                          |
+| `POST` | `/api/rollback/service/{id}`   | Swarm's own `?rollback=previous` — restores the spec the service ran before its last update (image, environment and mounts together). Returns `{op_id}` like every write op. |
+
+The diagnose response carries a **cause ID, never a sentence** — the SPA renders
+`drawer.diagnose.cause_<id>` through `t()` so the verdict is translated like everything else:
+
+```json
+{
+  "ok": true, "cause": "config_missing", "confidence": "high", "exit_code": 255,
+  "evidence": ["Error: environment variable TRACEARR_API_KEY is required"],
+  "actions": ["rollback"], "after_update": true,
+  "rollback_available": true, "update_state": "updating", "has_logs": true
+}
+```
+
+`cause` is one of `exec_format`, `entrypoint_missing`, `config_invalid`, `config_missing`,
+`permission_denied`, `port_conflict`, `auth_failed`, `migration_failed`, `dependency_unreachable`,
+`out_of_memory`, `crashed`, or `unknown` — which is a real answer, returned with the evidence lines
+so the operator can read the log even when the classifier will not commit. `confidence` is `high`
+when a log line matched and `low` when only the exit code did. `actions` names the fixes that cause
+warrants: a rollback only when Swarm kept a `PreviousSpec`, and a restart only for causes a retry
+can plausibly clear (never a permissions or credentials failure). Direct-Docker items answer
+`{ok: false, reason: "unsupported_backend"}` — their daemon is reached over SSH, not Portainer.
+
 ### Stack + container retag-to-latest (admin-only)
 
 When OmniGrid detects a stack / container running a pinned tag (`:v1.2.3`) that an update would
@@ -1224,7 +1256,7 @@ Routes that are **safe to script against long-term**:
 
 - `/api/healthz`, `/api/version`, `/metrics` — never break.
 - `/api/items`, `/api/stats`, `/api/stats/history`, `/api/ops`, `/api/history` — additions only; existing fields are not removed.
-- `/api/update/stack/{id}`, `/api/update/container/{id}`, `/api/restart/*`, `/api/remove/*`, `/api/prune/node/{hostname}`, `/api/swarm/restart-agent` — contract is `{op_id}` always.
+- `/api/update/stack/{id}`, `/api/update/container/{id}`, `/api/restart/*`, `/api/rollback/service/{id}`, `/api/remove/*`, `/api/prune/node/{hostname}`, `/api/swarm/restart-agent` — contract is `{op_id}` always.
 - `/api/hosts/list`, `/api/hosts/one/{id}`, `/api/hosts/history`, `/api/hosts/config` — additive.
 - `/api/docker-nodes` (GET / POST), `/api/docker-nodes/test` (POST) — admin-only; manage / probe direct-Docker (Portainer-less, over-SSH) nodes. Full-replace JSON-array body `{docker_nodes: [...]}`; SSH passwords redacted to a `password_set` flag (keep-current-if-blank). See `docs/guidelines/docker_nodes.md`.
 - `/api/schedules*`, `/api/backups*`, `/api/notifications*` — additive.
