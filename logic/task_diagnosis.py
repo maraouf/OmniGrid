@@ -110,8 +110,26 @@ _RULES: tuple[tuple[str, re.Pattern[str], tuple[str, ...]], ...] = (
 _EXIT_CODE_CAUSES: dict[int, str] = {
     126: "permission_denied",   # found but not executable
     127: "entrypoint_missing",  # command not found
-    137: "out_of_memory",       # SIGKILL — usually the OOM killer
+    # 137 is 128+9 — SIGKILL, and that is ALL it says. The OOM killer is
+    # one sender; a `docker stop` whose grace period expired, a failing
+    # healthcheck's kill, an operator, or the orchestrator draining the
+    # node are others, and they are not rare. Naming this `out_of_memory`
+    # told an operator to raise a memory limit that was never the problem
+    # while the panel's own evidence line talked about TLS certificates.
+    # Docker records the truth in the dead container's `State.OOMKilled`,
+    # which this classifier cannot see — so it says what it knows.
+    137: "killed_by_signal",
 }
+
+# Which actions a cause allows, derived from the rule table so the two
+# can never disagree. The exit-code path used to offer `rollback` for
+# ANY cause it named, which handed the operator a destructive button for
+# an out-of-memory kill — a cause whose rule declares no action at all,
+# because nothing about rolling back a spec addresses it.
+_CAUSE_ACTIONS: dict[str, tuple[str, ...]] = {c: a for c, _p, a in _RULES}
+# Signalled-kill is only reachable from the exit code, so it carries no
+# rule entry. Nothing to retry into and nothing an image swap fixes.
+_CAUSE_ACTIONS.setdefault("killed_by_signal", ())
 
 # Lines worth showing when no rule matched. Same idea as the rules, but
 # for picking evidence rather than naming a cause.
@@ -201,6 +219,9 @@ def diagnose(task_error: str = "", logs: str = "", *,
                 "confidence": "high",
                 "exit_code": code,
                 "evidence": _evidence(lines, pattern),
+                # These lines are the ones that MATCHED the rule, so they
+                # are genuinely why this cause was named.
+                "evidence_supports_cause": True,
                 "actions": acts,
                 "after_update": after_update,
             }
@@ -208,11 +229,27 @@ def diagnose(task_error: str = "", logs: str = "", *,
     # No log line matched. The exit code is a weaker signal — report it as
     # such rather than dressing it up as a diagnosis.
     fallback = _EXIT_CODE_CAUSES.get(code) if code is not None else None
+    if fallback:
+        # A named cause owns its actions whichever way it was reached. The
+        # alternative — offering rollback because a previous spec happens
+        # to exist — contradicts the cause the panel just printed.
+        acts = [a for a in _CAUSE_ACTIONS.get(fallback, ())
+                if a != "rollback" or rollback_available]
+    else:
+        # Genuinely unknown. A previous spec is the one lever left, so it
+        # stays on offer as a last resort rather than a diagnosis.
+        acts = ["rollback"] if rollback_available else []
     return {
         "cause": fallback or "unknown",
         "confidence": "low",
         "exit_code": code,
         "evidence": _evidence(lines, None),
-        "actions": ["rollback"] if rollback_available else [],
+        # Nothing in the log was matched, so the lines returned are the
+        # tail's error-SHAPED output, not support for this cause. The
+        # panel labels them differently on the strength of this flag —
+        # without it a benign "missing certificate" warning renders as
+        # the proof of an out-of-memory kill, which is how this was found.
+        "evidence_supports_cause": False,
+        "actions": acts,
         "after_update": after_update,
     }

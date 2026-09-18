@@ -3263,6 +3263,7 @@
       "button": "Why did it fail?",
       "running": "Reading logs…",
       "evidence_label": "From the container's own log",
+      "evidence_label_unmatched": "Last error-shaped lines in the log (not necessarily related)",
       "no_logs": "The container produced no log output — it may have failed before the application started.",
       "failed": "Could not read the logs: {error}",
       "unsupported_backend": "Log-based diagnosis is available for Portainer-managed items only.",
@@ -3294,6 +3295,8 @@
       "hint_dependency_unreachable": "A database, API or other service it needs didn't answer. Often just ordering — the dependency was still starting — which a restart resolves. If it persists, check that the dependency is up and on the same network.",
       "cause_out_of_memory": "Killed — out of memory",
       "hint_out_of_memory": "The container was killed for using more memory than it was allowed, or than the node had. Raise the service's memory limit or free memory on the node.",
+      "cause_killed_by_signal": "Killed by a signal",
+      "hint_killed_by_signal": "Exit 137 means the process was killed (SIGKILL) — it does not say by whom. The out-of-memory killer is one possibility, but so are a stop that outran its grace period, a failing healthcheck, a node being drained, or someone killing it by hand. Nothing in the log named a cause. To settle it, check whether the container was OOM-killed (`docker inspect <container> --format '{{.State.OOMKilled}}'` on the node) and look at the node's memory and `dmesg` around the time it died.",
       "cause_crashed": "The application crashed on startup",
       "hint_crashed": "It started and then threw. The trace below is the application's own; if this began after an update, the previous version is the quickest way back to service."
     },

@@ -89,6 +89,57 @@ def test_the_exit_code_is_a_weaker_answer_than_a_log_line():
     assert by_log["confidence"] == "high"
 
 
+def test_a_cause_named_from_the_exit_code_still_owns_its_actions():
+    """The drawer offered a red "Roll back to previous version" for an
+    out-of-memory kill on a service whose local and remote digests were
+    IDENTICAL — no update had happened, and the cause's own rule declares
+    no action because nothing about swapping the spec addresses it. The
+    exit-code path was handing out rollback for any cause it named."""
+    for err, cause in (("task: non-zero exit (137)", "killed_by_signal"),
+                       ("task: non-zero exit (126)", "permission_denied")):
+        out = diagnose(err, "nothing here matches a rule",
+                       update_state="updating", rollback_available=True)
+        assert out["cause"] == cause, out
+        assert out["actions"] == [], f"{cause} was offered {out['actions']}"
+
+
+def test_137_is_a_signal_not_a_memory_verdict():
+    """128+9 is SIGKILL and says nothing about the sender. Claiming OOM
+    sent an operator to raise a memory limit that was never the problem.
+    A log that DOES say so is still named out_of_memory, with the higher
+    confidence that comes from having read it."""
+    guess = diagnose("task: non-zero exit (137)", "starting up\nlistening on :8181")
+    assert guess["cause"] == "killed_by_signal"
+    assert guess["confidence"] == "low"
+    real = diagnose("task: non-zero exit (137)", "fatal: runtime: out of memory")
+    assert real["cause"] == "out_of_memory"
+    assert real["confidence"] == "high"
+
+
+def test_unmatched_evidence_is_not_presented_as_support_for_the_cause():
+    """The panel showed a benign 'Disabled HTTPS because of missing
+    certificate and key' warning directly under 'Killed — out of memory'.
+    It was picked only because the error-shaped scan matches the word
+    `missing`. The lines are still worth showing; the flag is what stops
+    the drawer captioning them as the reason."""
+    benign = ("2026-09-18 10:25:04 - WARNING :: MainThread : Tautulli WebStart "
+              ":: Disabled HTTPS because of missing certificate and key.")
+    out = diagnose("task: non-zero exit (137)", benign, rollback_available=True)
+    assert out["evidence_supports_cause"] is False
+    assert out["evidence"], "still shows the operator the tail"
+    matched = diagnose(_EXIT_255, "open /config: permission denied")
+    assert matched["evidence_supports_cause"] is True
+
+
+def test_a_genuinely_unknown_failure_keeps_rollback_as_a_last_resort():
+    """Narrowing the exit-code path must not take the escape hatch away
+    from the case where nothing at all is known."""
+    out = diagnose("task: non-zero exit (99)", "no rule matches this",
+                   rollback_available=True)
+    assert out["cause"] == "unknown"
+    assert out["actions"] == ["rollback"]
+
+
 def test_rollback_is_offered_only_when_swarm_kept_a_previous_spec():
     logs = "Error: config key API_URL is required"
     assert diagnose(_EXIT_255, logs, rollback_available=True)["actions"] == ["rollback"]
@@ -208,6 +259,29 @@ def test_the_drawer_asks_for_a_diagnosis_and_renders_the_evidence():
     assert "diagnoseTaskError(drawerItem)" in html
     assert "drawer.diagnose.cause_" in html, "the cause is not translated"
     assert "diagnosisActions(drawerItem)" in html, "no fix is offered"
+
+
+def test_the_drawer_captions_unmatched_evidence_differently():
+    """`evidence_supports_cause` only earns its place if the panel reads
+    it — a flag nothing branches on is decorative, and the misleading
+    caption this exists to fix would still be on screen."""
+    html = _read("static/index.html")
+    assert "evidence_supports_cause" in html, "the drawer ignores the flag"
+    assert "drawer.diagnose.evidence_label_unmatched" in html, "no alternate caption"
+    # Both captions must survive: the matched one is still correct when a
+    # rule fired, and collapsing to one label is how this regressed.
+    assert "drawer.diagnose.evidence_label'" in html or \
+           'drawer.diagnose.evidence_label"' in html, "lost the matched caption"
+
+
+def test_both_evidence_captions_exist_in_the_bundle():
+    """A branch pointing at a key the bundle lacks renders a blank line —
+    the documented failure mode of the ID-not-prose split."""
+    import json
+    bundle = json.loads(_read("static/i18n/en.json"))
+    keys = bundle["drawer"]["diagnose"]
+    for k in ("evidence_label", "evidence_label_unmatched"):
+        assert keys.get(k), f"missing i18n key: {k}"
 
 
 def test_the_rollback_button_posts_to_the_rollback_route():

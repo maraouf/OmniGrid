@@ -11315,8 +11315,15 @@
                         <div x-show="(drawerItem._diagnosis.evidence || []).length"
                              class="mt-2 p-2 rounded scrollbar"
                              :style="'background: var(--surface-3); max-height: 160px; overflow: auto;'">
+                          <!-- When no rule matched, these lines are the tail's
+                               error-SHAPED output, not support for the cause
+                               above. Labelling them the same either way let a
+                               benign "missing certificate" warning read as the
+                               proof of an out-of-memory kill. -->
                           <div class="fs-3xs text-[var(--text-faint)] uppercase tracking-wider mb-1"
-                               x-text="t('drawer.diagnose.evidence_label')"></div>
+                               x-text="drawerItem._diagnosis.evidence_supports_cause === false
+                                 ? t('drawer.diagnose.evidence_label_unmatched')
+                                 : t('drawer.diagnose.evidence_label')"></div>
                           <template x-for="(line, li) in (drawerItem._diagnosis.evidence || [])" :key="li">
                             <div class="mono fs-3xs whitespace-pre-wrap break-all"
                                  :style="'color: var(--text-dim);'" x-text="line"></div>

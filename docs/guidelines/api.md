@@ -979,6 +979,7 @@ The diagnose response carries a **cause ID, never a sentence** — the SPA rende
 {
   "ok": true, "cause": "config_missing", "confidence": "high", "exit_code": 255,
   "evidence": ["Error: environment variable TRACEARR_API_KEY is required"],
+  "evidence_supports_cause": true,
   "actions": ["rollback"], "after_update": true,
   "rollback_available": true, "update_state": "updating", "has_logs": true
 }
@@ -986,11 +987,28 @@ The diagnose response carries a **cause ID, never a sentence** — the SPA rende
 
 `cause` is one of `exec_format`, `entrypoint_missing`, `config_invalid`, `config_missing`,
 `permission_denied`, `port_conflict`, `auth_failed`, `migration_failed`, `dependency_unreachable`,
-`out_of_memory`, `crashed`, or `unknown` — which is a real answer, returned with the evidence lines
-so the operator can read the log even when the classifier will not commit. `confidence` is `high`
-when a log line matched and `low` when only the exit code did. `actions` names the fixes that cause
-warrants: a rollback only when Swarm kept a `PreviousSpec`, and a restart only for causes a retry
-can plausibly clear (never a permissions or credentials failure). Direct-Docker items answer
+`out_of_memory`, `crashed`, `killed_by_signal`, or `unknown` — which is a real answer, returned with
+the evidence lines so the operator can read the log even when the classifier will not commit.
+`confidence` is `high` when a log line matched and `low` when only the exit code did.
+
+`evidence_supports_cause` says whether those lines are the REASON or merely the tail. It is `true`
+when a rule matched them, and `false` when nothing matched and the lines are only the last
+error-shaped output — which can easily be unrelated, so the SPA captions the two cases differently.
+Treat a `false` here as "here is the log, draw your own conclusion".
+
+`actions` names the fixes that cause warrants, and the cause owns that list however it was
+reached — a cause named from the exit code obeys the same table as one named from a log line. A
+rollback is offered only when Swarm kept a `PreviousSpec`; a restart only for causes a retry can
+plausibly clear (never a permissions or credentials failure); and causes nothing can act on — an
+out-of-memory kill, a signalled kill — offer an empty list rather than a button that cannot help.
+Only a genuinely `unknown` failure keeps rollback as a last resort.
+
+Note that `killed_by_signal` (exit 137 = 128+9, SIGKILL) deliberately does NOT claim out-of-memory:
+137 says the process was killed, not by whom, and a stop that outran its grace period, a failing
+healthcheck, a drained node or a person all produce it. A log that actually says "out of memory"
+is classified `out_of_memory` with `confidence: high`.
+
+Direct-Docker items answer
 `{ok: false, reason: "unsupported_backend"}` — their daemon is reached over SSH, not Portainer.
 
 ### Stack + container retag-to-latest (admin-only)
