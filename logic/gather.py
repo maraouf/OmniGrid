@@ -1083,10 +1083,17 @@ def _group_items_into_stacks(items: list) -> list:
     return sorted(groups.values(), key=lambda _s: (_s.get("name") or "").lower())
 
 
-async def _classify_item_status(reg_client: "httpx.AsyncClient", item: dict) -> None:
+async def _classify_item_status(reg_client: "httpx.AsyncClient", item: dict,
+                                node_platforms: Optional[dict] = None) -> None:
     """Resolve ``remote_digest`` + ``status`` for one direct-Docker item — the
     same digest-comparison rules as the Portainer enrich step (the registry
-    probe is transport-agnostic)."""
+    probe is transport-agnostic).
+
+    ``node_platforms`` maps hostname -> ``os/arch`` so the multi-arch
+    index -> sub-manifest check behaves identically on both backends; without
+    it the same image would report differently depending on which backend
+    surfaced it, which is its own drift class.
+    """
     try:
         remote = await registry.get_remote_digest(reg_client, item["image"])
     except (httpx.HTTPError, OSError, ValueError):
@@ -1101,7 +1108,21 @@ async def _classify_item_status(reg_client: "httpx.AsyncClient", item: dict) -> 
     elif item["current_digest"] == remote:
         item["status"] = "up-to-date"
     else:
-        item["status"] = "update"
+        plats = sorted({(node_platforms or {}).get(p.get("node") or "", "")
+                        for p in (item.get("placements") or [])
+                        if (node_platforms or {}).get(p.get("node") or "", "")})
+        same = False
+        if plats:
+            try:
+                same = await registry.same_image_for_platforms(
+                    reg_client, item["image"], item["current_digest"], remote, plats)
+            except (httpx.HTTPError, OSError, ValueError):
+                same = False
+        if same:
+            item["status"] = "up-to-date"
+            item["digest_differs_other_arch"] = True
+        else:
+            item["status"] = "update"
 
 
 # noinspection DuplicatedCode
@@ -1526,7 +1547,19 @@ async def merge_docker_nodes_into_cache() -> None:
                     "last_error": f"{type(e).__name__}: {e}",
                 })
                 continue
-            await asyncio.gather(*(_classify_item_status(reg_client, it) for it in node_items))
+            # The card's `os` is Docker's DISPLAY string ("Debian GNU/Linux
+            # 13"), not the platform token an OCI index uses — feeding it in
+            # builds a key that can never match. Pass "" so normalize_platform
+            # applies its `linux` default; a non-Linux daemon then simply
+            # fails to match and falls back to the plain digest comparison,
+            # which is the safe direction.
+            _dplats = {
+                _h: registry.normalize_platform("", _c.get("arch", ""))
+                for _h, _c in (ninfo_map or {}).items() if isinstance(_c, dict)
+            }
+            _dplats = {k: v for k, v in _dplats.items() if v}
+            await asyncio.gather(*(_classify_item_status(reg_client, it, _dplats)
+                                   for it in node_items))
             new_items.extend(node_items)
             # nodes_info_map carries the manager/standalone card + (for a Swarm
             # manager) one card per other Swarm node — merge them all in.
@@ -1781,6 +1814,20 @@ async def _gather_impl() -> None:
         _cache.pop("_portainer_unreachable_since", None)
 
         node_map = {n["ID"]: n["Description"]["Hostname"] for n in nodes}
+        # hostname -> "linux/amd64" for the index -> sub-manifest check in
+        # `enrich`. Docker spells the arch `x86_64`; registry.normalize_platform
+        # converts to the OCI spelling, which is the whole point of going
+        # through it rather than reading Architecture straight.
+        node_platforms: dict[str, str] = {}
+        for _n in nodes:
+            _desc = _n.get("Description") or {}
+            _plat = _desc.get("Platform") or {}
+            _host = _desc.get("Hostname")
+            if not _host:
+                continue
+            _p = registry.normalize_platform(_plat.get("OS", ""), _plat.get("Architecture", ""))
+            if _p:
+                node_platforms[_host] = _p
         stack_by_name = {s["Name"]: s for s in stacks_list}
 
         # Per-node capacity + oldest-running-task timestamp. Keyed by
@@ -2931,7 +2978,26 @@ async def _gather_impl() -> None:
             elif enrich_item["current_digest"] == remote:
                 enrich_item["status"] = "up-to-date"
             else:
-                enrich_item["status"] = "update"
+                # The digests differ — but for a multi-arch tag that also
+                # happens when an architecture this fleet does not run gets
+                # republished. Resolve both indexes to the sub-manifest for
+                # every platform this item ACTUALLY runs on before calling it
+                # an update. Only reached on rows that would otherwise report
+                # one, so the common case pays nothing.
+                _plats = sorted({node_platforms.get(p.get("node") or "", "")
+                                 for p in (enrich_item.get("placements") or [])
+                                 if node_platforms.get(p.get("node") or "", "")})
+                _same = False
+                if _plats:
+                    async with sem:
+                        _same = await registry.same_image_for_platforms(
+                            client, enrich_item["image"],
+                            enrich_item["current_digest"], remote, _plats)
+                if _same:
+                    enrich_item["status"] = "up-to-date"
+                    enrich_item["digest_differs_other_arch"] = True
+                else:
+                    enrich_item["status"] = "update"
             return enrich_item
 
         items = list(await asyncio.gather(*(enrich(i) for i in items)))

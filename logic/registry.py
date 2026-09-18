@@ -85,6 +85,31 @@ _token_cache: dict[str, tuple[str, float]] = {}
 # slightly, a forward jump expires it slightly early; both re-HEAD cheaply.
 _digest_cache: dict[str, tuple[str, float]] = {}
 
+# Per-platform sub-manifest digests, keyed ``registry|repo|<index digest>``.
+# Unlike _digest_cache this key names an IMMUTABLE object — an index digest is
+# the hash of the index's own bytes, so what it contains can never change. The
+# entry is still TTL'd (same knob) purely to bound the dict; correctness never
+# depends on it expiring, which is why this cache is NOT persisted across a
+# restart like _digest_cache is. Value is {"os/arch[/variant]": digest}.
+_platform_cache: dict[str, tuple[dict[str, str], float]] = {}
+
+# Docker reports a node's architecture with the uname spelling; OCI image
+# indexes use the Go spelling. Comparing the two without this map means the
+# platform lookup never matches and the whole index->sub-manifest check
+# silently degrades to "cannot prove equal" — a fix that looks live and does
+# nothing. Both directions of every pair OmniGrid can actually meet.
+_ARCH_ALIASES: dict[str, str] = {
+    "x86_64": "amd64", "x86-64": "amd64", "amd64": "amd64",
+    "i386": "386", "i686": "386", "x86": "386",
+    "aarch64": "arm64", "arm64": "arm64", "armv8l": "arm64",
+    "armv7l": "arm", "armv6l": "arm", "arm": "arm",
+    "ppc64le": "ppc64le", "s390x": "s390x", "riscv64": "riscv64",
+}
+
+# uname spellings that carry the ARM variant the OCI platform states
+# separately. `armv7l` is `arm` + variant `v7`.
+_ARCH_VARIANTS: dict[str, str] = {"armv7l": "v7", "armv6l": "v6", "armv8l": "v8"}
+
 # Tags that are republished in place rather than pointing at one build for
 # good. A digest resolved for one of these before a restart says what the tag
 # meant then, not what it means now — see seed_digest_cache_from_db.
@@ -849,6 +874,139 @@ async def get_remote_digest(client: httpx.AsyncClient, image: str) -> Optional[s
         return None
     finally:
         metrics.REGISTRY_LATENCY.labels(registry=_classify_registry(reg)).observe(time.monotonic() - _t0)
+
+
+def normalize_platform(os_name: str, arch: str, variant: str = "") -> str:
+    """One canonical ``os/arch[/variant]`` string from either spelling.
+
+    Docker's node description says ``x86_64`` / ``armv7l``; an OCI index says
+    ``amd64`` / ``arm`` + ``v7``. Both arrive here and leave identical.
+    """
+    o = (os_name or "").strip().lower() or "linux"
+    a = (arch or "").strip().lower()
+    v = (variant or "").strip().lower()
+    if not v:
+        v = _ARCH_VARIANTS.get(a, "")
+    a = _ARCH_ALIASES.get(a, a)
+    if not a:
+        return ""
+    # arm64's `v8` carries no information — every arm64 image is v8, and the
+    # two sides disagree about whether to write it (a Docker node says
+    # `aarch64` with no variant, an OCI index says arm64 + v8, and a node
+    # reporting `armv8l` says v8 against an index that may not). Stripping it
+    # HERE makes both sides agree through one rule, rather than two tolerances
+    # that each cover one direction and leave the other broken.
+    if a == "arm64" and v == "v8":
+        v = ""
+    return f"{o}/{a}/{v}" if v else f"{o}/{a}"
+
+
+async def _index_platform_map(client: "httpx.AsyncClient", reg: str, repo: str,
+                              digest: str) -> Optional[dict[str, str]]:
+    """``{platform: sub-manifest digest}`` for a multi-arch index, else None.
+
+    None means "this digest is not an index" — a plain single-arch manifest has
+    no per-platform chain to follow, and the caller must NOT read that as
+    agreement.
+    """
+    ttl = _digest_cache_ttl()
+    ck = f"{reg}|{repo}|{digest}"
+    if ttl > 0:
+        hit = _platform_cache.get(ck)
+        if hit is not None and (time.time() - hit[1]) < ttl:
+            return hit[0] or None
+    accept = ", ".join([
+        "application/vnd.oci.image.index.v1+json",
+        "application/vnd.docker.distribution.manifest.list.v2+json",
+    ])
+    url = f"https://{reg}/v2/{repo}/manifests/{digest}"
+    h = {"Accept": accept}
+    try:
+        r = await client.get(url, headers=h, follow_redirects=True)
+        if r.status_code == 401:
+            tok = await _get_bearer(client, r.headers.get("www-authenticate", ""), repo)
+            if not tok:
+                return None
+            h["Authorization"] = f"Bearer {tok}"
+            r = await client.get(url, headers=h, follow_redirects=True)
+        if r.status_code != 200:
+            return None
+        body = r.json()
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e:  # noqa: BLE001
+        print(f"[digest] index {repo}@{digest[:19]}: {e}")
+        return None
+    entries = body.get("manifests")
+    if not isinstance(entries, list) or not entries:
+        # A single-arch manifest answered instead (registries ignore an Accept
+        # they cannot satisfy) — no chain to follow.
+        return None
+    out: dict[str, str] = {}
+    for m in entries:
+        if not isinstance(m, dict):
+            continue
+        plat = m.get("platform")
+        if not isinstance(plat, dict):
+            continue
+        # Attestation / provenance entries carry os=unknown. They are exactly
+        # the sub-manifests that churn without the image changing, so leaving
+        # them in would reintroduce the false positive one level down.
+        if str(plat.get("os") or "").lower() in ("", "unknown"):
+            continue
+        key = normalize_platform(plat.get("os", ""), plat.get("architecture", ""),
+                                 plat.get("variant", ""))
+        dig = m.get("digest")
+        if key and isinstance(dig, str) and dig:
+            # `key` came from normalize_platform, so an index writing
+            # arm64 + v8 is already stored under the same string a node
+            # reporting `aarch64` will ask for. No per-side alias needed.
+            out[key] = dig
+    if ttl > 0:
+        _platform_cache[ck] = (out, time.time())
+    return out or None
+
+
+async def same_image_for_platforms(client: "httpx.AsyncClient", image: str,
+                                   local_digest: str, remote_digest: str,
+                                   platforms: list[str]) -> bool:
+    """True when two DIFFERING index digests still name the same image on every
+    platform this item actually runs on.
+
+    A multi-arch tag's index digest moves whenever ANY architecture in it is
+    republished — including ones this fleet does not run, and including the
+    attestation sub-manifests that ride along with them. `caddy:2-alpine` moved
+    exactly that way: arm/v6, arm/v7 and arm64/v8 were rebuilt, amd64 was
+    untouched, and an amd64-only Swarm was told to update to bytes it was
+    already running.
+
+    Answers only the narrow question. Anything unproven — either side not an
+    index, a platform missing from either map, no platforms known — returns
+    False, leaving the plain digest comparison's "update" verdict standing. A
+    false "up to date" hides a real update, which is the worse failure.
+    """
+    if not (local_digest and remote_digest and platforms):
+        return False
+    if local_digest == remote_digest:
+        return True
+    try:
+        reg, repo, _tag = parse_image_ref(image)
+    except Exception:  # noqa: BLE001
+        return False
+    local_map = await _index_platform_map(client, reg, repo, local_digest)
+    if not local_map:
+        return False
+    remote_map = await _index_platform_map(client, reg, repo, remote_digest)
+    if not remote_map:
+        return False
+    for plat in platforms:
+        if not plat:
+            return False
+        lhs = local_map.get(plat)
+        rhs = remote_map.get(plat)
+        if not lhs or not rhs or lhs != rhs:
+            return False
+    return True
 
 
 def _digest_cache_ttl() -> int:

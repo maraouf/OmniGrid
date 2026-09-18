@@ -302,10 +302,23 @@ curl -sS -H "Authorization: Bearer $TOKEN" \
 ```
 
 `status` is one of: `update | up-to-date | unknown | error | ignored`.
-`up-to-date` means the running digest matches the registry's; `update`
-means a newer manifest exists; `unknown` means OmniGrid couldn't resolve
-either side; `error` means the registry probe failed; `ignored` means
-the image / stack matched an entry in the ignore list.
+`up-to-date` means the image you are running is the image the tag now
+resolves to; `update` means a newer one exists; `unknown` means OmniGrid
+couldn't resolve either side; `error` means the registry probe failed;
+`ignored` means the image / stack matched an entry in the ignore list.
+
+For a **multi-arch tag**, `up-to-date` is not simply "the two digests are
+equal". A multi-arch tag has one top-level (manifest-list) digest covering
+every architecture, so it changes whenever *any* of them is rebuilt —
+including architectures your fleet never pulls. When the top-level digests
+disagree, OmniGrid resolves both down to the image for the architecture each
+placement actually runs on and compares those instead; the row is
+`up-to-date` only if they match. Such a row also carries
+`digest_differs_other_arch: true`, which is the reason `remote_digest` can
+differ from the running digest on a row that is correctly reported as current.
+A service spread across architectures is `up-to-date` only when every
+architecture it runs on is current, and anything OmniGrid cannot prove
+identical stays `update`.
 
 ### Bulk-update every "update" stack
 
