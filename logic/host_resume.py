@@ -1,7 +1,9 @@
 """Clear auto-pause markers for a curated host's sampling.
 
 Shared by the non-web surfaces — the Telegram ``/resume`` command and the
-Telegram-AI ``resume_host_sampling`` action — so both behave identically. The
+Telegram-AI ``resume_host_sampling`` / ``hosts_bulk_resume`` actions — so they
+behave identically. ``paused_host_ids`` is also what the web bulk-resume
+endpoint uses to answer "every paused host". The
 operator's usual trigger is the bot's own "Host sampling paused: <host>
 (<provider>)" alert; replying "resume sampling for that" now actually resumes it
 instead of being told to go click a chip in the web UI.
@@ -97,6 +99,81 @@ def resume(host_id: str, provider: str = "", *, actor: str = "") -> dict:
     _publish(host_id, provider)
     return {"ok": True, "cleared": cleared, "provider": provider,
             "scope": provider or "host", "error": ""}
+
+
+def paused_host_ids(curated_ids: set[str]) -> list[str]:
+    """Curated hosts with at least one paused row — whole-host or any
+    provider. The single definition of "every paused host" for the web
+    bulk-resume endpoint and the Telegram-AI ``hosts_bulk_resume`` action.
+    Rows for hosts no longer curated are left to the startup orphan sweep."""
+    with db_conn() as c:
+        rows = c.execute(
+            "SELECT DISTINCT host_id FROM host_failure_state WHERE paused = 1",
+        ).fetchall()
+    return [str(r[0]) for r in rows if r[0] in curated_ids]
+
+
+def resume_all_paused(curated_ids: set[str], *, actor: str = "") -> dict:
+    """Clear every pause layer on every paused curated host in one go.
+
+    Same end state as the web ``POST /api/hosts/bulk/resume`` with
+    ``all_paused``: every row for each host is deleted, each cleared row gets
+    a ``recovered`` timeline entry, one ``hosts_bulk_resume`` history row is
+    written per host, and ONE ``host:bulk_action_applied`` event goes out.
+    Returns ``{ok, resumed, error}``; never raises.
+    """
+    try:
+        host_ids = paused_host_ids(curated_ids)
+        if not host_ids:
+            return {"ok": True, "resumed": [], "error": ""}
+        placeholders = ",".join(["?"] * len(host_ids))
+        now = time.time()
+        with db_conn() as c:
+            cleared_rows = c.execute(
+                "SELECT host_id, provider FROM host_failure_state "
+                "WHERE host_id IN (" + placeholders + ")",  # nosec B608 — placeholders is constant `?` literals
+                host_ids,
+            ).fetchall()
+            c.execute(
+                "DELETE FROM host_failure_state WHERE host_id IN ("
+                + placeholders + ")",  # nosec B608 — placeholders is constant `?` literals
+                host_ids,
+            )
+            for hid, prov in cleared_rows:
+                _log_event(c, str(hid), str(prov or ""), actor)
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "resumed": [], "error": str(e)}
+    _write_bulk_history(host_ids, actor, now)
+    try:
+        from logic import events as _events  # noqa: PLC0415
+        _events.publish("host:bulk_action_applied", {
+            "action": "resume", "host_ids": host_ids, "actor": actor,
+        })
+    except Exception as e:  # noqa: BLE001
+        print(f"[host_resume] bulk SSE publish failed: {e}")
+    print(f"[host_resume] bulk resume by {actor or 'unknown'}: "
+          f"{len(host_ids)} hosts")
+    return {"ok": True, "resumed": host_ids, "error": ""}
+
+
+def _write_bulk_history(host_ids: list[str], actor: str, ts: float) -> None:
+    """One ``hosts_bulk_resume`` history row per host — the same audit shape
+    the web bulk endpoint writes, so Admin → History shows the chat-driven
+    resume next to the click-driven one. Best-effort."""
+    try:
+        from logic.ops import assert_op_type  # noqa: PLC0415
+        assert_op_type("hosts_bulk_resume")
+        with db_conn() as c:
+            c.executemany(
+                "INSERT INTO history "
+                "(ts, op_type, target_kind, target_name, target_id, "
+                " target_stack, status, duration, events, error, actor) "
+                "VALUES (?, 'hosts_bulk_resume', 'hosts', ?, ?, NULL, "
+                "'success', 0.0, '[]', NULL, ?)",
+                [(ts, hid, hid, actor or "unknown") for hid in host_ids],
+            )
+    except Exception as e:  # noqa: BLE001
+        print(f"[host_resume] bulk history write failed: {e}")
 
 
 def _log_event(c, host_id: str, provider: str, actor: str) -> None:

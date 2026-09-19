@@ -1349,7 +1349,12 @@ async def _ai_reply(
           "switch52' → write 'Bouncing gi37 on switch52.' then ACTION: "
           "bounce_interface, ACTION_HOSTS: switch52mp01, ACTION_DATA: "
           "{\"interface\": \"gi37\", \"down_seconds\": 30}. "
-          "For these SIX wired actions, "
+          "(7) ACTION: hosts_bulk_resume (no ACTION_HOSTS) to resume EVERY "
+          "paused host at once — 'resume all paused hosts' / 'unpause "
+          "everything'. NOT destructive, no confirmation; the reply lists "
+          "which hosts were resumed. Use resume_host_sampling instead when "
+          "they name ONE host. "
+          "For these SEVEN wired actions, "
           "emit the ACTION (+ ACTION_DATA / ACTION_HOSTS) lines (they are "
           "stripped from the visible text but dispatched) and write a short "
           "natural-language sentence framing what you did. "
@@ -1626,6 +1631,7 @@ async def _ai_reply(
     try:
         actions, _ = ai.parse_palette_actions(raw_text)
         action_data, _ = ai.parse_palette_action_data(raw_text)
+        from logic import ai_actions as _ai_actions
         if "send_notification" in actions and isinstance(action_data, dict):
             medium = (action_data.get("medium") or "").strip().lower()
             note_body = (action_data.get("body") or "").strip()
@@ -1885,6 +1891,38 @@ async def _ai_reply(
                         f"\n\n❌ Resume failed for <b>{_listener()._escape(_label)}</b>: "
                         f"<code>{_listener()._escape(rs_result.get('error') or 'unknown error')}</code>"
                     )
+        elif any(getattr(_ai_actions.action_for(x), "id", "") == "hosts_bulk_resume"
+                 for x in actions):
+            # "Resume all paused hosts" — the Telegram-AI twin of the web
+            # hosts_bulk_resume action. Telegram has no host selection, so
+            # the target is always every paused curated host. NOT destructive
+            # (it re-enables probing), so no allow-destructive gate.
+            from logic import host_resume as _host_resume
+            _curated_ids = {
+                str(h.get("id", "")) for h in _listener()._load_hosts_config()
+                if isinstance(h, dict) and h.get("id")
+            }
+            br_result = _host_resume.resume_all_paused(
+                _curated_ids,
+                actor=(f"telegram-ai:{omnigrid_username}"
+                       if omnigrid_username else "telegram-ai"),
+            )
+            _resumed = br_result.get("resumed") or []
+            if not br_result.get("ok"):
+                action_outcome_line = (
+                    "\n\n❌ Resume failed: "
+                    f"<code>{_listener()._escape(br_result.get('error') or 'unknown error')}</code>"
+                )
+            elif not _resumed:
+                action_outcome_line = "\n\nℹ️ Nothing to resume — no host is paused."
+            else:
+                _names = ", ".join(_listener()._escape(h) for h in _resumed[:10])
+                _more = f" and {len(_resumed) - 10} more" if len(_resumed) > 10 else ""
+                action_outcome_line = (
+                    f"\n\n✅ Resumed sampling on <b>{len(_resumed)}</b> "
+                    f"host{'s' if len(_resumed) != 1 else ''}: {_names}{_more} — "
+                    "the next probe runs on the upcoming sampler tick."
+                )
         elif "run_app_skill" in actions and isinstance(action_data, dict):
             # Per-app SKILL invocation from Telegram (e.g. Speedtest's
             # run_speedtest). Resolve the chip server-side + dispatch via the

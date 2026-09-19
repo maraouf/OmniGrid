@@ -701,6 +701,14 @@ curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
   -d '{"host_ids":["host01","host02"]}' \
   https://omnigrid.example.com/api/hosts/bulk/resume | jq
 
+# Resume EVERY paused host — the server resolves the targets (any curated host
+# with a paused whole-host or per-provider row); `host_ids` may be omitted.
+# Same outcome as "resume all paused hosts" in the AI or `/resume all` in Telegram.
+curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{"all_paused":true}' \
+  https://omnigrid.example.com/api/hosts/bulk/resume | jq
+
 # Apply / replace SNMP vendor whitelist on multiple hosts
 curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
   -H 'Content-Type: application/json' \

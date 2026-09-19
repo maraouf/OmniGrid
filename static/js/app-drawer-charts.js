@@ -1228,13 +1228,16 @@ export default {
   },
   async bulkResumeHosts(opts) {
     // Resume is non-destructive (re-enables sampler probes) — no
-    // inner SwAl to bypass — but accept opts.skipConfirm for API
-    // symmetry with bulkPauseHosts. Currently a no-op.
-    void opts;
-    if (this.selectedHostCount() === 0) {
+    // inner SwAl to bypass; opts.skipConfirm is accepted for symmetry
+    // with bulkPauseHosts. `opts.allPaused` (the AI / Cmd-K "resume
+    // every paused host" ask) resumes the selection when there is one,
+    // and otherwise every paused host — the server resolves which.
+    const allPaused = !!(opts && opts.allPaused);
+    if (this.selectedHostCount() === 0 && !allPaused) {
       return;
     }
-    await this._hostsBulkPost('resume', null, 'hosts_extra.bulk.resume_success');
+    const payload = this.selectedHostCount() === 0 ? {all_paused: true} : null;
+    await this._hostsBulkPost('resume', payload, 'hosts_extra.bulk.resume_success');
   },
   openBulkSnmpVendorsModal() {
     if (this.selectedHostCount() === 0) {

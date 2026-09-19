@@ -2073,7 +2073,9 @@ export default {
   },
   async _hostsBulkPost(path, payload, successMsgKey, opts = {}) {
     const ids = this.selectedHostsArray();
-    if (ids.length === 0) {
+    // `payload.all_paused` lets the server pick the targets (bulk resume
+    // with no selection), so an empty selection is not a no-op there.
+    if (ids.length === 0 && !(payload && payload.all_paused)) {
       return;
     }
     // Mark the in-flight action so the bulk-bar button shows a spinner +

@@ -1730,7 +1730,7 @@ async def _cmd_resume(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
     from logic import host_resume as _hr
     if not args:
         await _listener()._send_reply(
-            client, "Usage: <code>/resume &lt;host&gt; [provider]</code>")
+            client, "Usage: <code>/resume &lt;host&gt;|all [provider]</code>")
         return
     # Split a trailing provider token off the target.
     provider = ""
@@ -1743,7 +1743,34 @@ async def _cmd_resume(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
     target = " ".join(rest).strip()
     if not target:
         await _listener()._send_reply(
-            client, "Usage: <code>/resume &lt;host&gt; [provider]</code>")
+            client, "Usage: <code>/resume &lt;host&gt;|all [provider]</code>")
+        return
+    if target.lower() in ("all", "paused", "all paused") and not provider:
+        # `/resume all` — every paused curated host, same helper as the
+        # Telegram-AI hosts_bulk_resume action and the web bulk endpoint.
+        sender_id = (msg.get("from") or {}).get("id")
+        linked_user = (_listener()._lookup_omnigrid_user(sender_id)
+                       if sender_id is not None else None)
+        curated_ids = {
+            str(h.get("id", "")) for h in _listener()._load_hosts_config()
+            if isinstance(h, dict) and h.get("id")
+        }
+        result = _hr.resume_all_paused(
+            curated_ids,
+            actor=(f"telegram:{linked_user}" if linked_user else "telegram"),
+        )
+        resumed = result.get("resumed") or []
+        if not result.get("ok"):
+            reply = ("❌ Resume failed: <code>"
+                     f"{_listener()._escape(result.get('error') or 'unknown error')}</code>")
+        elif not resumed:
+            reply = "ℹ️ Nothing to resume — no host is paused."
+        else:
+            names = ", ".join(_listener()._escape(h) for h in resumed[:10])
+            more = f" and {len(resumed) - 10} more" if len(resumed) > 10 else ""
+            reply = (f"✅ Resumed sampling on <b>{len(resumed)}</b> "
+                     f"host{'s' if len(resumed) != 1 else ''}: {names}{more}.")
+        await _listener()._send_reply(client, reply)
         return
     matched, candidates = _listener()._resolve_target(target)
     if await _listener()._reply_no_match_or_candidates(client, target, matched, candidates):

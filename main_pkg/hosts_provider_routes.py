@@ -1253,8 +1253,11 @@ class HostsBulkPauseIn(BaseModel):
 
 
 class HostsBulkResumeIn(BaseModel):
-    """Request body for the bulk resume-sampling action — the host ids to resume."""
-    host_ids: list[str]
+    """Request body for the bulk resume-sampling action — the host ids to
+    resume, or ``all_paused=true`` to resume every host that has a paused
+    row (whole-host or per-provider) without the caller naming them."""
+    host_ids: list[str] = []
+    all_paused: bool = False
 
 
 class HostsBulkSnmpVendorsIn(BaseModel):
@@ -1769,7 +1772,18 @@ async def api_hosts_bulk_resume(
     cleanup can fall back to the per-host endpoint.
     """
     curated = _load_hosts_config()
-    matched, missing = _bulk_resolve_host_ids(body.host_ids, curated)
+    requested = list(body.host_ids or [])
+    if body.all_paused:
+        # "Resume every paused host" — the AI sidebar / Cmd-K ask with no
+        # selection. Resolved here from the table itself rather than from
+        # the SPA's row state, which only knows about rows it has loaded.
+        from logic import host_resume as _host_resume  # noqa: PLC0415
+        try:
+            requested += _host_resume.paused_host_ids(
+                {str(h.get("id", "")) for h in curated if h.get("id")})
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(500, f"resume failed: {e}")
+    matched, missing = _bulk_resolve_host_ids(requested, curated)
     applied: list[str] = []
     errors: dict[str, str] = {}
     actor = _actor_from(request) or "admin"

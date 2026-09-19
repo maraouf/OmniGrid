@@ -1329,8 +1329,8 @@ _COMMANDS: dict[str, dict[str, Any]] = {
         # /restart and /osupdate there is no typed-confirm gate. This is the
         # command the bot's own "Host sampling paused" alert asks for.
         "handler": _cmd_resume,
-        "usage": "/resume <host> [provider]",
-        "description": "Resume auto-paused sampling for a host (optionally one provider)",
+        "usage": "/resume <host>|all [provider]",
+        "description": "Resume auto-paused sampling for a host (optionally one provider), or every paused host with all",
         "category": "ops",
         "access": "admin",
     },

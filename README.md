@@ -297,7 +297,7 @@ POST                         /api/hosts/test                     per-row validat
 POST                         /api/hosts/{host_id}/resume-sampling                clear a host's whole-host auto-pause marker
 POST                         /api/hosts/{host_id}/provider/{provider}/resume     clear ONE per-(provider, host) auto-pause marker
 POST                         /api/hosts/bulk/pause                bulk pause sampling across host_ids
-POST                         /api/hosts/bulk/resume               bulk resume sampling across host_ids
+POST                         /api/hosts/bulk/resume               bulk resume sampling across host_ids (or all_paused=true)
 POST                         /api/hosts/bulk/snmp_vendors         apply per-host SNMP vendor whitelist across host_ids
 POST                         /api/hosts/bulk/snmp_tunables        apply per-host SNMP tunable overrides across host_ids
 GET                          /api/hosts/{host_id}/timeline?hours=N              per-host event timeline (state changes + sampler errors + audit rows)

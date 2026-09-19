@@ -701,7 +701,9 @@ export default {
       } else if (verb === 'hosts_bulk_pause' && typeof this.bulkPauseHosts === 'function') {
         await this.bulkPauseHosts(dispatchOpts);
       } else if (verb === 'hosts_bulk_resume' && typeof this.bulkResumeHosts === 'function') {
-        await this.bulkResumeHosts(dispatchOpts);
+        // No selection means "every paused host" — the AI prompt only
+        // emits this action for the fleet-wide ask.
+        await this.bulkResumeHosts({...dispatchOpts, allPaused: true});
       }
     } catch (e) {
       this.showToast(
