@@ -357,6 +357,21 @@ async def api_get_settings(request: Request):
                 for g in groups if isinstance(g, dict)
             ])(json.loads(raw) if (raw or "").strip() else [])
         ))(get_setting(Settings.HOST_GROUPS) or ""),
+        # Registry credentials — per-registry pull credentials for the
+        # update-check digest probe. Same masking contract as host_groups
+        # above: the password never leaves the server, the browser gets a
+        # `password_set` flag instead.
+        "registry_credentials": (lambda raw: [
+            {
+                "host": str(r.get("host") or ""),
+                "username": str(r.get("username") or ""),
+                "password_set": bool(r.get("password") or ""),
+                "enabled": bool(r.get("enabled", True)),
+            }
+            for r in ((lambda v: v if isinstance(v, list) else [])(
+                json.loads(raw) if (raw or "").strip() else []))
+            if isinstance(r, dict)
+        ])(get_setting(Settings.REGISTRY_CREDENTIALS) or ""),
         # Asset inventory (<asset-api-host>). Secret is write-only — UI sees
         # a `_set` flag only. Other fields round-trip in the clear.
         "asset_inventory": {
@@ -1836,6 +1851,73 @@ async def _api_set_settings_inner(s: "SettingsIn", request: Request, _portainer)
         # Persist in order-field order so render iteration doesn't have to re-sort.
         clean_groups.sort(key=lambda grp_row: (grp_row["order"], grp_row["name"]))
         set_setting(Settings.HOST_GROUPS, json.dumps(clean_groups))
+
+    # --- Registry credentials ---------------------------------------------
+    # Per-registry pull credentials for the update-check digest probe. Full
+    # replace, like every other list-valued setting. Password handling is the
+    # host_groups contract, keyed on the registry host: a new value wins,
+    # `clear_password` erases, and blank carries the stored one forward so the
+    # browser never has to hold the secret to re-save the row.
+    if s.registry_credentials is not None:
+        if not isinstance(s.registry_credentials, list):
+            raise HTTPException(400, "registry_credentials must be a list")
+        try:
+            prior_raw = get_setting(Settings.REGISTRY_CREDENTIALS) or ""
+            prior_rows = json.loads(prior_raw) if prior_raw.strip() else []
+        except (TypeError, ValueError):
+            prior_rows = []
+        prior_pw = {
+            str(p.get("host") or "").strip().lower(): str(p.get("password") or "")
+            for p in (prior_rows if isinstance(prior_rows, list) else [])
+            if isinstance(p, dict)
+        }
+        clean_regs: list[dict] = []
+        seen_hosts: set[str] = set()
+        for i, row in enumerate(s.registry_credentials):
+            if not isinstance(row, dict):
+                raise HTTPException(400, f"registry_credentials[{i}] must be an object")
+            # The host is what an image reference names (`git.example.com`,
+            # optionally with a port) — not a URL. Strip a pasted scheme and
+            # trailing path rather than rejecting it, since copying the
+            # registry URL out of a browser is the obvious thing to do.
+            host = str(row.get("host") or "").strip().lower()
+            if "://" in host:
+                host = host.split("://", 1)[1]
+            host = host.split("/", 1)[0].strip()
+            if not host:
+                raise HTTPException(400, f"registry_credentials[{i}]: host is required")
+            if host in seen_hosts:
+                raise HTTPException(
+                    400, f"registry_credentials: host {host!r} is listed twice")
+            seen_hosts.add(host)
+            username = str(row.get("username") or "").strip()
+            if not username:
+                raise HTTPException(
+                    400, f"registry_credentials[{host}]: username is required")
+            new_pw = str(row.get("password") or "")
+            if new_pw:
+                password = new_pw
+            elif row.get("clear_password"):
+                password = ""
+            else:
+                password = prior_pw.get(host, "")
+            clean_regs.append({
+                "host": host,
+                "username": username,
+                "password": password,
+                "enabled": bool(row.get("enabled", True)),
+            })
+        clean_regs.sort(key=lambda reg_row: reg_row["host"])
+        set_setting(Settings.REGISTRY_CREDENTIALS, json.dumps(clean_regs))
+        # A credential change only takes effect once the probe stops serving
+        # the digest it resolved (or failed to resolve) earlier, so drop both
+        # caches. Without this the operator adds a working credential and the
+        # rows stay red until the TTL lapses — the change looks ineffective.
+        try:
+            from logic import registry as _registry_mod
+            _registry_mod.invalidate_auth_caches()
+        except Exception as e:  # noqa: BLE001
+            print(f"[settings] registry cache invalidation failed: {e}")
 
     # --- Asset inventory --------------------------------------------------
     # Secret follows the keep-current-if-blank + clear-flag contract.

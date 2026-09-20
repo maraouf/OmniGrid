@@ -8,6 +8,7 @@ No internal OmniGrid state beyond the token cache — safe to extract
 as a leaf module.
 """
 import asyncio
+import contextlib
 import time
 from typing import Optional
 
@@ -55,6 +56,214 @@ def _classify_registry(host: str) -> str:
     if h in _KNOWN_REGISTRIES:
         return h
     return "private"
+
+
+# Per-registry credentials, operator-managed in Admin → Registries and stored
+# as the `registry_credentials` JSON setting. Before these existed, every
+# non-Docker-Hub registry was probed anonymously: a private Forgejo / Harbor /
+# GitLab registry answered the token request with 401, the digest never
+# resolved, and the row went red with `status=error` — indistinguishable from a
+# broken image, on a service that was running perfectly.
+#
+# Parsed form is cached against the RAW setting string: `get_setting` is
+# already read-through-cached, but json.loads on every probe of every image in
+# a gather is not free, and the PERF-07 rule asks for the PARSE to be cached
+# rather than the string alone. A settings write changes the string, which
+# misses this cache and re-parses — no invalidation hook needed.
+_creds_cache: tuple[str, dict[str, tuple[str, str]]] = ("", {})
+
+
+def _credentials_map() -> dict[str, tuple[str, str]]:
+    """``{registry_host_lowercase: (username, password)}`` from the setting.
+
+    Rows without a host or username are skipped, as are disabled ones. Never
+    raises: a malformed setting degrades to anonymous probing, which is what
+    the code did before credentials existed.
+    """
+    global _creds_cache
+    try:
+        from logic.db import get_setting  # noqa: PLC0415
+        from logic.settings_keys import Settings  # noqa: PLC0415
+        raw = get_setting(Settings.REGISTRY_CREDENTIALS) or ""
+    except Exception:  # noqa: BLE001
+        return {}
+    if raw == _creds_cache[0]:
+        return _creds_cache[1]
+    out: dict[str, tuple[str, str]] = {}
+    try:
+        import json as _json  # noqa: PLC0415
+        rows = _json.loads(raw) if raw.strip() else []
+        for row in rows if isinstance(rows, list) else []:
+            if not isinstance(row, dict) or not row.get("enabled", True):
+                continue
+            host = str(row.get("host") or "").strip().lower()
+            user = str(row.get("username") or "").strip()
+            pw = str(row.get("password") or "")
+            if host and user and pw:
+                out[host] = (user, pw)
+    except (TypeError, ValueError) as e:
+        print(f"[auth] registry_credentials is not valid JSON, ignoring: {e}")
+        out = {}
+    _creds_cache = (raw, out)
+    return out
+
+
+# Credentials under test, injected by `_override_credentials` and consulted
+# by `credentials_for` ahead of the stored map. Process-wide (the app is
+# single-replica, single-process by design) and always unwound in a finally.
+_creds_override: dict[str, tuple[str, str]] = {}
+
+
+def credentials_for(registry_host: str) -> Optional[tuple[str, str]]:
+    """Credentials for one registry hostname, or None.
+
+    Matched on the EXACT hostname the image reference names, lowercased. No
+    suffix or wildcard matching: a credential for `registry.example.com` must
+    never travel to `evil-registry.example.com.attacker.test`, and the operator
+    types the same host Docker pulls from, so exact is also what they expect.
+    """
+    if not registry_host:
+        return None
+    key = registry_host.strip().lower()
+    # A credential under test wins over the stored one — see
+    # `_override_credentials`.
+    if key in _creds_override:
+        return _creds_override[key]
+    return _credentials_map().get(key)
+
+
+async def probe_credentials(host: str, username: str, password: str,
+                            repository: str = "") -> dict:
+    """Check one registry credential. ``{ok, status, detail}``, never raises.
+
+    With ``repository`` this runs the real digest probe, so a pass here is a
+    pass on the next gather by construction. Without one it can only reach
+    ``/v2/`` and follow its challenge, which proves the credential
+    authenticates but not that it can pull that image.
+
+    The credential under test is injected for the duration rather than saved,
+    so an admin can verify BEFORE committing it — and a wrong one never
+    reaches the stored map.
+    """
+    host = (host or "").strip().lower()
+    if not host:
+        return {"ok": False, "status": 0, "detail": "Registry host is required"}
+    try:
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            with _override_credentials(host, username, password):
+                if repository:
+                    repo_ref = repository.strip().strip("/")
+                    tag = tag_of(repo_ref)
+                    tail = repo_ref.split("/")[-1]
+                    repo_path = repo_ref[:-(len(tag) + 1)] if ":" in tail else repo_ref
+                    digest = await get_remote_digest(client, f"{host}/{repo_path}:{tag}")
+                    if digest:
+                        return {"ok": True, "status": 200,
+                                "detail": f"OK — read {repo_path}:{tag} ({digest[:19]}…)"}
+                    return {
+                        "ok": False, "status": 0,
+                        "detail": (f"No digest came back for {repo_path}:{tag} — check the "
+                                   f"repository name, and that this account can pull it"),
+                    }
+                url = f"https://{host}/v2/"
+                r = await client.get(url)
+                if r.status_code == 200:
+                    return {"ok": True, "status": 200,
+                            "detail": "OK — this registry allows anonymous reads, "
+                                      "so credentials are not needed for it"}
+                if r.status_code != 401:
+                    return {"ok": False, "status": r.status_code,
+                            "detail": f"HTTP {r.status_code} from {url}"}
+                challenge = r.headers.get("www-authenticate", "")
+                if _wants_basic(challenge):
+                    hdr = basic_auth_header(host) or ""
+                    r2 = await client.get(url, headers={"Authorization": hdr})
+                    ok, status = r2.status_code == 200, r2.status_code
+                else:
+                    tok = await _get_bearer(client, challenge, "", host)
+                    ok, status = bool(tok), (200 if tok else 401)
+        if ok:
+            return {"ok": True, "status": 200,
+                    "detail": ("OK — credentials accepted. Add a repository "
+                               "(e.g. user/image:tag) to also verify pull access.")}
+        return {"ok": False, "status": status,
+                "detail": f"The registry rejected these credentials (HTTP {status})"}
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "status": 0, "detail": f"{type(e).__name__}: {e}"}
+
+
+@contextlib.contextmanager
+def _override_credentials(host: str, username: str, password: str):
+    """Make `credentials_for(host)` answer with these for the duration.
+
+    Lets the Test button exercise the SAME probe path a gather uses without
+    first persisting a credential that may be wrong. Restores the previous
+    entry (usually absent) on the way out, including on an exception.
+    """
+    key = (host or "").strip().lower()
+    had = key in _creds_override
+    prev = _creds_override.get(key)
+    if key and username and password:
+        _creds_override[key] = (username, password)
+        # A token minted anonymously (or under other credentials), or a digest
+        # resolved earlier, would otherwise be served from cache and report a
+        # pass for a credential that was never exercised.
+        _token_cache.clear()
+        _drop_digest_cache_for(key)
+    try:
+        yield
+    finally:
+        if key:
+            if had and prev is not None:
+                _creds_override[key] = prev
+            else:
+                _creds_override.pop(key, None)
+            _token_cache.clear()
+            # Whatever the probe just resolved was read under the credential
+            # being TESTED, not the stored one — don't leave it behind.
+            _drop_digest_cache_for(key)
+
+
+def _drop_digest_cache_for(registry_host: str) -> None:
+    """Forget cached digests / platform maps for one registry host."""
+    prefix = f"{registry_host}|"
+    for cache in (_digest_cache, _platform_cache):
+        for k in [k for k in cache if k.startswith(prefix)]:
+            cache.pop(k, None)
+
+
+def invalidate_auth_caches() -> None:
+    """Forget every cached token and resolved digest.
+
+    Called when the credentials change. The digest cache holds SUCCESSES
+    only, but a stale success can still be wrong after a credential edit (a
+    different account can see a different tag), and the token cache would
+    otherwise keep using a token minted for the previous credential until it
+    expired. Failures were never cached, so a newly-working credential is
+    picked up on the next gather either way — this makes it immediate.
+    """
+    global _creds_cache
+    _creds_cache = ("", {})
+    _token_cache.clear()
+    _digest_cache.clear()
+    _platform_cache.clear()
+
+
+def _wants_basic(www_auth: str) -> bool:
+    """True when a 401's challenge asks for HTTP Basic rather than a token."""
+    return (www_auth or "").strip().lower().startswith("basic ")
+
+
+def basic_auth_header(registry_host: str) -> Optional[str]:
+    """``Basic <base64>`` for a registry's stored credentials, else None."""
+    creds = credentials_for(registry_host)
+    if not creds:
+        return None
+    import base64  # noqa: PLC0415
+    raw = f"{creds[0]}:{creds[1]}".encode()
+    return "Basic " + base64.b64encode(raw).decode("ascii")
 
 
 # Bearer tokens keyed by (realm | service | scope). Each entry is
@@ -192,14 +401,15 @@ def tag_of(image: str) -> str:
     return last.rsplit(":", 1)[1] if ":" in last else "latest"
 
 
-async def _get_bearer(client: httpx.AsyncClient, www_auth: str, repo: str) -> Optional[str]:
+async def _get_bearer(client: httpx.AsyncClient, www_auth: str, repo: str,
+                      registry_host: str = "") -> Optional[str]:
     """Exchange a ``WWW-Authenticate: Bearer ...`` challenge for a token.
 
     Parses realm / service / scope out of the challenge, looks up cached
     token, otherwise hits the realm and caches the result. Docker Hub
     requests use DOCKERHUB_USER/TOKEN when set (avoids anonymous rate
-    limits). Anything else is anonymous — private registries need
-    credentials wired per-image, not yet supported.
+    limits); any other registry uses the credentials the operator stored for
+    ``registry_host`` in Admin → Registries, and stays anonymous without them.
     """
     if not www_auth.lower().startswith("bearer "):
         return None
@@ -234,14 +444,39 @@ async def _get_bearer(client: httpx.AsyncClient, www_auth: str, repo: str) -> Op
     _is_dockerhub = (_host == ExternalURL.DOCKER_IO_HOST or _host.endswith(".docker.io"))
     if _is_dockerhub and DOCKERHUB_USER and DOCKERHUB_TOKEN:
         auth = (DOCKERHUB_USER, DOCKERHUB_TOKEN)
+    elif not _is_dockerhub:
+        auth = credentials_for(registry_host)
     try:
-        r = await client.get(realm, params={"service": service, "scope": scope}, auth=auth)
-        r.raise_for_status()
-        j = r.json()
-        tok = j.get("token") or j.get("access_token")
-        if tok:
-            _token_cache[key] = (tok, time.time() + int(j.get("expires_in", 300)) - 30)
-        return tok
+        # Scopes to try, in order. The challenge's own scope comes first
+        # because a registry that asks for something specific means it. Some
+        # registries (Forgejo among them) answer the manifest 401 with the
+        # catch-all `scope="*"` and then refuse to issue a token for it,
+        # while the repository-scoped request every Docker client sends
+        # succeeds — so fall back to that rather than giving up on a
+        # credential that works.
+        repo_scope = f"repository:{repo}:pull"
+        scopes = [scope] if scope == repo_scope else [scope, repo_scope]
+        last: Optional[Exception] = None
+        for attempt in scopes:
+            try:
+                r = await client.get(realm, params={"service": service, "scope": attempt}, auth=auth)
+                r.raise_for_status()
+            except (asyncio.CancelledError, KeyboardInterrupt):
+                raise
+            except Exception as e:  # noqa: BLE001
+                last = e
+                continue
+            j = r.json()
+            tok = j.get("token") or j.get("access_token")
+            if tok:
+                _token_cache[f"{realm}|{service}|{attempt}"] = (
+                    tok, time.time() + int(j.get("expires_in", 300)) - 30)
+                if attempt != scope:
+                    _token_cache[key] = _token_cache[f"{realm}|{service}|{attempt}"]
+                return tok
+        if last is not None:
+            raise last
+        return None
     except (asyncio.CancelledError, KeyboardInterrupt):
         raise
     except Exception as e: # noqa: BLE001
@@ -255,7 +490,15 @@ async def _get_bearer(client: httpx.AsyncClient, www_auth: str, repo: str) -> Op
         # carries no context. `realm` is the variable bound to the
         # token-fetch URL above (e.g. `https://auth.docker.io/token`);
         # don't confuse with an undefined `url`.
-        print(f"[auth] registry-token fetch failed for realm={realm!r}: {body}")
+        # Whether credentials were in play decides the operator's next move:
+        # "anonymous" on a private registry means add them in Admin →
+        # Registries, while a failure WITH credentials means the ones stored
+        # are wrong or lack pull rights. The bare error said neither.
+        _who = f"as {auth[0]!r}" if auth else (
+            f"anonymously (no credentials stored for {registry_host!r})"
+            if registry_host else "anonymously")
+        print(f"[auth] registry-token fetch failed for realm={realm!r} "
+              f"{_who}: {body}")
         return None
 
 
@@ -306,7 +549,7 @@ async def _fetch_image_config_labels(
         # codeql[py/full-ssrf] — gated by `is_safe_http_url(url)` above.
         r = await client.get(url, headers=h, follow_redirects=True)  # noqa: S310
         if r.status_code == 401:
-            tok = await _get_bearer(client, r.headers.get("www-authenticate", ""), repo)
+            tok = await _get_bearer(client, r.headers.get("www-authenticate", ""), repo, reg)
             if tok:
                 h["Authorization"] = f"Bearer {tok}"
                 # codeql[py/full-ssrf] — same URL re-issued with bearer; gated above.
@@ -850,10 +1093,22 @@ async def get_remote_digest(client: httpx.AsyncClient, image: str) -> Optional[s
         h = {"Accept": accept}
         r = await client.head(url, headers=h, follow_redirects=True)
         if r.status_code == 401:
-            tok = await _get_bearer(client, r.headers.get("www-authenticate", ""), repo)
+            _challenge = r.headers.get("www-authenticate", "")
+            tok = await _get_bearer(client, _challenge, repo, reg)
             if tok:
                 h["Authorization"] = f"Bearer {tok}"
                 r = await client.head(url, headers=h, follow_redirects=True)
+            else:
+                # No bearer token. A registry that challenges with Basic
+                # (plain `registry:2` with htpasswd, some Harbor setups)
+                # issues no tokens at all, so the stored credentials go on
+                # the request directly. httpx drops the header if a redirect
+                # leaves this origin, so the credential can't follow a 30x
+                # to somewhere else.
+                _basic = basic_auth_header(reg) if _wants_basic(_challenge) else None
+                if _basic:
+                    h["Authorization"] = _basic
+                    r = await client.head(url, headers=h, follow_redirects=True)
         if r.status_code == 200:
             digest = r.headers.get("docker-content-digest")
         elif r.status_code in (404, 405):
@@ -924,7 +1179,7 @@ async def _index_platform_map(client: "httpx.AsyncClient", reg: str, repo: str,
     try:
         r = await client.get(url, headers=h, follow_redirects=True)
         if r.status_code == 401:
-            tok = await _get_bearer(client, r.headers.get("www-authenticate", ""), repo)
+            tok = await _get_bearer(client, r.headers.get("www-authenticate", ""), repo, reg)
             if not tok:
                 return None
             h["Authorization"] = f"Bearer {tok}"

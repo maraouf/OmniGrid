@@ -969,6 +969,26 @@ art without leaking the credential into the browser DOM.
 | `POST` | `/api/http-probe/test`               | Probe one HTTP / TLS-cert / DNS target with the form-provided URL + options (no save).                        |
 | `POST` | `/api/hosts/{id}/http-probe/refresh` | Re-run the HTTP probe across all configured URLs for the given host and persist to `host_http_probe_samples`. |
 
+### Private image-registry credentials (admin-only)
+
+OmniGrid resolves each image's remote manifest digest to tell `update` from `up-to-date`. Docker Hub
+authenticates from `.env` (`DOCKERHUB_USER` / `DOCKERHUB_TOKEN`); every OTHER registry reads the
+`registry_credentials` setting — a JSON array of `{host, username, password, enabled}` managed under
+Admin → Registries and edited through the ordinary `POST /api/settings` body. Without a credential a
+private registry answers the token request with 401, no digest resolves, and every image from it
+reports `status=error` while the service itself is healthy.
+
+Per-row secrets follow the settings-wide contract: `GET /api/settings` returns
+`password_set: bool` instead of the password, a blank `password` keeps the stored one (matched on
+`host`), and `clear_password: true` erases it. `host` is stored as the bare hostname an image
+reference names (a pasted URL is reduced to its host); duplicates are rejected. A credential is only
+ever sent to that exact hostname — no suffix or wildcard matching. Saving drops the token + digest
+caches so the next refresh re-checks with the new credential instead of serving the cached result.
+
+| Method | Route                | Purpose                                                                                                                                                                                                                                  |
+|--------|----------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `POST` | `/api/registry/test` | Verify one credential without saving it. Body `{host, username, password?, repository?}` → `{ok, status, detail}`. Blank `password` tests the stored credential for that host. With `repository` (e.g. `user/image:latest`) it runs the REAL digest probe, so a pass here is a pass on the next gather; without one it only proves the credential authenticates. |
+
 ### Why a task did not start — diagnosis + rollback (admin-only)
 
 Swarm reports a failed task as `task: non-zero exit (255)`. That is the exit status of a process

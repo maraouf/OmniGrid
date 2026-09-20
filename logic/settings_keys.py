@@ -201,6 +201,12 @@ class Settings(str, Enum):
     PULSE_TOKEN = "pulse_token"
     PULSE_URL = "pulse_url"
     PULSE_VERIFY_TLS = "pulse_verify_tls"
+    # JSON array of {host, username, password, enabled} — per-registry pull
+    # credentials for the update-check digest probe. Holds secrets INSIDE the
+    # value rather than in the key, so it follows `host_groups`: the API masks
+    # each row's password to a `password_set` flag and the write path carries
+    # the stored one forward when the field comes back blank.
+    REGISTRY_CREDENTIALS = "registry_credentials"
     SCHEDULER_TIMEZONE = "scheduler_timezone"
     SERVICE_CATALOG_SEEDED_SLUGS = "service_catalog_seeded_slugs"
     SERVICE_PROBE_ENABLED = "service_probe_enabled"

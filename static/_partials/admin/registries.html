@@ -1,0 +1,105 @@
+<!--suppress HtmlUnknownAttribute -->
+<section x-show="adminTab==='registries'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+  <!-- Title row + count pill — same shape as every other admin tab.
+       There's no master toggle here: a registry either has credentials
+       or it doesn't, and the anonymous path stays the default. -->
+  <div class="flex items-center justify-between gap-2 mb-2">
+    <div class="flex items-center gap-2">
+      <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-package"/>
+      </svg>
+      <h3 class="font-semibold fs-md" x-text="t('admin_registries.title')"></h3>
+    </div>
+    <span x-show="!settingsLoaded" class="chip pill-muted inline-flex items-center gap-1.5">
+      <span class="spin" aria-hidden="true"></span>
+      <span x-text="t('common.loading') || 'Loading…'"></span>
+    </span>
+    <span x-show="settingsLoaded" class="chip"
+          :class="(registryRows || []).length ? 'pill-ok' : 'pill-muted'"
+          x-text="t('admin_registries.count_pill', {count: (registryRows || []).length})"></span>
+  </div>
+  <p class="fs-xs text-[var(--text-faint)] mb-3 leading-snug max-w-[720px]"
+     x-text="t('admin_registries.intro')"></p>
+
+  <!-- Rows. Each is one registry hostname exactly as an image reference
+       spells it — `git.example.com`, optionally with a port. -->
+  <div class="space-y-3">
+    <template x-for="(row, idx) in registryRows" :key="idx">
+      <div class="bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3">
+        <div class="grid gap-3 md:grid-cols-3">
+          <div>
+            <label class="block fs-xs text-[var(--text-dim)] mb-1"
+                   :for="'reg-host-' + idx" x-text="t('admin_registries.fields.host')"></label>
+            <input type="text" class="input w-full" :id="'reg-host-' + idx"
+                   x-model="row.host" :disabled="isReadonly()" aria-label="Registry host"
+                   placeholder="git.example.com">
+          </div>
+          <div>
+            <label class="block fs-xs text-[var(--text-dim)] mb-1"
+                   :for="'reg-user-' + idx" x-text="t('admin_registries.fields.username')"></label>
+            <input type="text" class="input w-full" :id="'reg-user-' + idx"
+                   x-model="row.username" :disabled="isReadonly()" aria-label="Username"
+                   autocomplete="off">
+          </div>
+          <div>
+            <label class="block fs-xs text-[var(--text-dim)] mb-1"
+                   :for="'reg-pass-' + idx" x-text="t('admin_registries.fields.password')"></label>
+            <input type="password" class="input w-full" :id="'reg-pass-' + idx"
+                   x-model="row.password" :disabled="isReadonly() || row.clear_password" aria-label="Password or token"
+                   autocomplete="new-password"
+                   :placeholder="row.password_set ? t('admin_registries.fields.password_stored') : ''">
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-4 mt-3">
+          <label class="flex items-center gap-2 fs-sm cursor-pointer select-none">
+            <input type="checkbox" x-model="row.enabled" :disabled="isReadonly()">
+            <span x-text="t('admin_registries.fields.enabled')"></span>
+          </label>
+          <!-- Only offered once something is stored — clearing a row that
+               has no password is a no-op that only invites confusion. -->
+          <label x-show="row.password_set"
+                 class="flex items-center gap-2 fs-sm cursor-pointer select-none">
+            <input type="checkbox" x-model="row.clear_password" :disabled="isReadonly()">
+            <span x-text="t('admin_registries.fields.clear_password')"></span>
+          </label>
+          <button type="button" class="btn btn-ghost ms-auto"
+                  @click="removeRegistryRow(idx)" :disabled="isReadonly()"
+                  x-text="t('actions.remove')"></button>
+        </div>
+
+        <!-- Test. The optional repository turns "the credential logs in"
+             into "OmniGrid can read THIS image's digest", which is the
+             question the update check actually asks. -->
+        <div class="mt-3 pt-3 border-t border-[var(--border)]" x-show="isAdmin()">
+          <label class="block fs-xs text-[var(--text-dim)] mb-1"
+                 :for="'reg-repo-' + idx" x-text="t('admin_registries.fields.test_repository')"></label>
+          <div class="flex flex-wrap items-center gap-2">
+            <input type="text" class="input flex-1 min-w-[220px]" :id="'reg-repo-' + idx"
+                   :value="registryTestRepo[idx] || ''"
+                   @input="registryTestRepo = {...registryTestRepo, [idx]: $event.target.value}"
+                   :disabled="isReadonly()" aria-label="Repository to test"
+                   placeholder="user/image:latest">
+            <div x-data="{ tcRun: () => testRegistryRow(idx), tcResult: () => (registryTests[idx] || null) }">
+              <!-- INCLUDE: _components/og-test-connection.html -->
+            </div>
+          </div>
+        </div>
+      </div>
+    </template>
+  </div>
+
+  <div x-show="settingsLoaded && !(registryRows || []).length"
+       class="fs-sm text-[var(--text-faint)] py-3" x-text="t('admin_registries.empty')"></div>
+
+  <div class="flex items-center gap-2 mt-4">
+    <button type="button" class="btn" @click="addRegistryRow()"
+            :disabled="isReadonly()" x-text="t('admin_registries.add')"></button>
+    <button type="button" class="btn btn-primary ms-auto"
+            @click="saveRegistriesSection()"
+            :disabled="isReadonly() || registrySaving || !registriesSectionDirty()">
+      <span x-show="registrySaving" class="spin" aria-hidden="true"></span>
+      <span x-text="t('actions.save')"></span>
+    </button>
+  </div>
+</section>

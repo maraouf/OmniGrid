@@ -1429,6 +1429,11 @@ class SettingsIn(BaseModel):
     # that buckets curated hosts into collapsible sections in the Hosts
     # view by their custom_number. Operator-managed under Admin → Hosts.
     host_groups: Optional[list] = None
+    # Per-registry pull credentials for the update-check digest probe — JSON
+    # array of {host, username, password, enabled}. Each row's password is
+    # write-only: blank keeps the stored one (matched by host), and
+    # `clear_password: true` on the row erases it. Admin → Registries.
+    registry_credentials: Optional[list] = None
     # Asset inventory V1 — OAuth2 client_credentials against <asset-api-host>.
     # Secret is write-only (see api_set_settings keep-if-blank rule);
     # admin clears via clear_asset_inventory_client_secret flag.

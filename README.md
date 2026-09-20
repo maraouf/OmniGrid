@@ -345,6 +345,7 @@ POST   /api/webmin/test
 POST   /api/ping/test                      probe a single ping target (TCP or ICMP)
 POST   /api/snmp/test                      probe an SNMP v2c / v3 target
 POST   /api/http-probe/test                 probe one HTTP / TLS-cert / DNS target
+POST   /api/registry/test                  probe a private image registry's pull credentials
 POST   /api/oidc/test                      probe issuer's discovery endpoint
 POST   /api/telegram/test                  fire a fixed test payload through Telegram ONLY
 POST   /api/apprise/test                   fire a fixed test payload through Apprise ONLY

@@ -1568,6 +1568,7 @@
       "tokens": "API tokens",
       "notifications": "Notifications",
       "portainer": "Portainer",
+      "registries": "Registries",
       "docker_nodes": "Docker Nodes",
       "oidc": "OIDC / SSO",
       "providers": "Providers",
@@ -7455,5 +7456,26 @@
       "hint": "If a value reads 0 but the service shows data elsewhere, this is the upstream's actual per-endpoint response (HTTP status + row count + body snippet) — the cause (privilege / endpoint / credential) is identifiable from it."
     },
     "version_footnote": "{brand} {v}"
+  },
+  "admin_registries": {
+    "title": "Registries",
+    "intro": "Pull credentials for private image registries. OmniGrid asks each image's registry for its current digest to tell \"update available\" from \"up-to-date\"; a registry that refuses anonymous reads answers with 401, and those rows show an error even though the service itself is healthy. Docker Hub credentials stay in the .env file (DOCKERHUB_USER / DOCKERHUB_TOKEN) — everything else belongs here.",
+    "count_pill": "{count} configured",
+    "empty": "No registry credentials yet. Add one for any private registry whose images show an update-check error.",
+    "add": "Add registry",
+    "fields": {
+      "host": "Registry host",
+      "username": "Username",
+      "password": "Password or token",
+      "password_stored": "Stored — leave blank to keep",
+      "enabled": "Use these credentials",
+      "clear_password": "Clear stored password",
+      "test_repository": "Repository to test (optional)"
+    },
+    "errors": {
+      "host_required": "Every registry row needs a host, for example git.example.com.",
+      "username_required": "Registry {host} needs a username.",
+      "password_required": "Registry {host} needs a password or token."
+    }
   }
 }

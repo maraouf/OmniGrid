@@ -2497,6 +2497,54 @@ async def api_portainer_test(
         }, target=url)
 
 
+@app.post("/api/registry/test")
+async def api_registry_test(
+    request: Request,
+    _admin: AdminUser,
+):
+    """Admin-only: check that a registry credential can read a manifest.
+
+    Body: ``{host, username, password?, repository?}``. A blank password
+    means "use the stored one for this host" so an admin can re-test after
+    saving without retyping the secret — the same contract every other test
+    endpoint here follows.
+
+    ``repository`` is optional. With one, this answers the question that
+    actually matters ("can OmniGrid read THIS image's digest?") by running the
+    real probe. Without one it can only reach ``/v2/``, which proves the
+    credential authenticates but not that it can pull.
+    """
+    from logic import registry as _registry
+    body = await request.json()
+    host = (body.get("host") or "").strip().lower()
+    if "://" in host:
+        host = host.split("://", 1)[1]
+    host = host.split("/", 1)[0].strip()
+    username = (body.get("username") or "").strip()
+    password = body.get("password") or ""
+    repository = (body.get("repository") or "").strip().strip("/")
+    _log_provider_test_start("registry", target=host or "(unset)")
+    if not host:
+        return _stamp_test_success("registry", {
+            "ok": False, "status": 0, "detail": "Registry host is required",
+        }, target="(unset)")
+    if not password:
+        stored = _registry.credentials_for(host)
+        if stored and (not username or stored[0] == username):
+            username, password = stored
+    if not username or not password:
+        return _stamp_test_success("registry", {
+            "ok": False, "status": 0,
+            "detail": "Username and password are both required "
+                      "(no saved credential for this host yet)",
+        }, target=host)
+    result = await _registry.probe_credentials(host, username, password, repository)
+    if not result.get("ok"):
+        result = {**result, "detail": _humanise_probe_error(
+            str(result.get("detail") or ""), "Registry")}
+    return _stamp_test_success("registry", result, target=host)
+
+
 @app.post("/api/pulse/test")
 async def api_pulse_test(
     request: Request,

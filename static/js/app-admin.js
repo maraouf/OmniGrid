@@ -2256,6 +2256,9 @@ export default {
         ai_enabled: !!(d.ai && d.ai.enabled),
         ai_active_provider: (d.ai && d.ai.active_provider) || 'claude',
         ai_max_tokens: (d.ai && Number.isFinite(+d.ai.max_tokens) && +d.ai.max_tokens > 0) ? +d.ai.max_tokens : 1024,
+        // Per-registry pull credentials (Admin → Registries). Each row's
+        // password is masked server-side to a `password_set` flag.
+        registry_credentials: Array.isArray(d.registry_credentials) ? d.registry_credentials : [],
       };
       // In-place reconcile (NOT `this.settings = {...}`) so the object identity
       // is preserved. A wholesale reassignment makes Alpine re-evaluate EVERY
@@ -2409,6 +2412,11 @@ export default {
       // capture its baseline. Mirrors the pattern above for the
       // other admin-tab forms.
       this.hydrateAiFromSettings(d);
+
+      // --- Admin → Registries editor rows ---
+      // Same rebuild-from-server contract as the forms above: the editor
+      // never keeps a password, so a reload is what re-baselines dirty.
+      this.hydrateRegistryRows();
 
       // --- Admin → SSH panel state ---
       this.hydrateSshSettings(d);
