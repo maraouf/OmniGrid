@@ -367,6 +367,7 @@ async def api_get_settings(request: Request):
                 "username": str(r.get("username") or ""),
                 "password_set": bool(r.get("password") or ""),
                 "enabled": bool(r.get("enabled", True)),
+                "verify_tls": r.get("verify_tls", True) is not False,
             }
             for r in ((lambda v: v if isinstance(v, list) else [])(
                 json.loads(raw) if (raw or "").strip() else []))
@@ -1906,6 +1907,9 @@ async def _api_set_settings_inner(s: "SettingsIn", request: Request, _portainer)
                 "username": username,
                 "password": password,
                 "enabled": bool(row.get("enabled", True)),
+                # Default ON — a registry on a public CA needs no opt-in, and
+                # not verifying should always be a decision someone made.
+                "verify_tls": row.get("verify_tls", True) is not False,
             })
         clean_regs.sort(key=lambda reg_row: reg_row["host"])
         set_setting(Settings.REGISTRY_CREDENTIALS, json.dumps(clean_regs))

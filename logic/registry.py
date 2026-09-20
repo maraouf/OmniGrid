@@ -70,11 +70,11 @@ def _classify_registry(host: str) -> str:
 # a gather is not free, and the PERF-07 rule asks for the PARSE to be cached
 # rather than the string alone. A settings write changes the string, which
 # misses this cache and re-parses — no invalidation hook needed.
-_creds_cache: tuple[str, dict[str, tuple[str, str]]] = ("", {})
+_creds_cache: tuple[str, dict[str, dict]] = ("", {})
 
 
-def _credentials_map() -> dict[str, tuple[str, str]]:
-    """``{registry_host_lowercase: (username, password)}`` from the setting.
+def _credentials_map() -> dict[str, dict]:
+    """``{registry_host_lowercase: {user, password, verify_tls}}`` from the setting.
 
     Rows without a host or username are skipped, as are disabled ones. Never
     raises: a malformed setting degrades to anonymous probing, which is what
@@ -89,7 +89,7 @@ def _credentials_map() -> dict[str, tuple[str, str]]:
         return {}
     if raw == _creds_cache[0]:
         return _creds_cache[1]
-    out: dict[str, tuple[str, str]] = {}
+    out: dict[str, dict] = {}
     try:
         import json as _json  # noqa: PLC0415
         rows = _json.loads(raw) if raw.strip() else []
@@ -100,7 +100,13 @@ def _credentials_map() -> dict[str, tuple[str, str]]:
             user = str(row.get("username") or "").strip()
             pw = str(row.get("password") or "")
             if host and user and pw:
-                out[host] = (user, pw)
+                out[host] = {
+                    "user": user, "password": pw,
+                    # Default ON: a registry reached over a public CA needs no
+                    # opt-in, and silently not verifying is how this went
+                    # unnoticed in the first place.
+                    "verify_tls": row.get("verify_tls", True) is not False,
+                }
     except (TypeError, ValueError) as e:
         print(f"[auth] registry_credentials is not valid JSON, ignoring: {e}")
         out = {}
@@ -111,17 +117,11 @@ def _credentials_map() -> dict[str, tuple[str, str]]:
 # Credentials under test, injected by `_override_credentials` and consulted
 # by `credentials_for` ahead of the stored map. Process-wide (the app is
 # single-replica, single-process by design) and always unwound in a finally.
-_creds_override: dict[str, tuple[str, str]] = {}
+_creds_override: dict[str, dict] = {}
 
 
-def credentials_for(registry_host: str) -> Optional[tuple[str, str]]:
-    """Credentials for one registry hostname, or None.
-
-    Matched on the EXACT hostname the image reference names, lowercased. No
-    suffix or wildcard matching: a credential for `registry.example.com` must
-    never travel to `evil-registry.example.com.attacker.test`, and the operator
-    types the same host Docker pulls from, so exact is also what they expect.
-    """
+def _row_for(registry_host: str) -> Optional[dict]:
+    """The stored (or under-test) row for one registry hostname, or None."""
     if not registry_host:
         return None
     key = registry_host.strip().lower()
@@ -132,8 +132,35 @@ def credentials_for(registry_host: str) -> Optional[tuple[str, str]]:
     return _credentials_map().get(key)
 
 
+def credentials_for(registry_host: str) -> Optional[tuple[str, str]]:
+    """Credentials for one registry hostname, or None.
+
+    Matched on the EXACT hostname the image reference names, lowercased. No
+    suffix or wildcard matching: a credential for `registry.example.com` must
+    never travel to `evil-registry.example.com.attacker.test`, and the operator
+    types the same host Docker pulls from, so exact is also what they expect.
+    """
+    row = _row_for(registry_host)
+    return (row["user"], row["password"]) if row else None
+
+
+def verify_tls_for(registry_host: str) -> bool:
+    """Whether to verify this registry's TLS certificate. Default True.
+
+    A registry on an internal CA is the case this exists for. It matters more
+    than it looks: the gather resolves digests with the PORTAINER client
+    (`logic/gather.py`), which is built with `verify=PORTAINER_VERIFY_TLS` —
+    so on a deployment where Portainer runs self-signed, registry
+    certificates were silently not verified either, and a registry on an
+    internal CA appeared to work. `get_remote_digest` now decides per
+    registry from this flag rather than inheriting that unrelated setting.
+    """
+    row = _row_for(registry_host)
+    return bool(row["verify_tls"]) if row else True
+
+
 async def probe_credentials(host: str, username: str, password: str,
-                            repository: str = "") -> dict:
+                            repository: str = "", verify_tls: bool = True) -> dict:
     """Check one registry credential. ``{ok, status, detail}``, never raises.
 
     With ``repository`` this runs the real digest probe, so a pass here is a
@@ -149,8 +176,11 @@ async def probe_credentials(host: str, username: str, password: str,
     if not host:
         return {"ok": False, "status": 0, "detail": "Registry host is required"}
     try:
-        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
-            with _override_credentials(host, username, password):
+        # Same verify decision the digest probe will make for this registry,
+        # so a pass here can't come from a laxer client than the real one.
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True,
+                                     verify=verify_tls) as client:
+            with _override_credentials(host, username, password, verify_tls):
                 if repository:
                     repo_ref = repository.strip().strip("/")
                     tag = tag_of(repo_ref)
@@ -195,7 +225,8 @@ async def probe_credentials(host: str, username: str, password: str,
 
 
 @contextlib.contextmanager
-def _override_credentials(host: str, username: str, password: str):
+def _override_credentials(host: str, username: str, password: str,
+                          verify_tls: bool = True):
     """Make `credentials_for(host)` answer with these for the duration.
 
     Lets the Test button exercise the SAME probe path a gather uses without
@@ -206,7 +237,8 @@ def _override_credentials(host: str, username: str, password: str):
     had = key in _creds_override
     prev = _creds_override.get(key)
     if key and username and password:
-        _creds_override[key] = (username, password)
+        _creds_override[key] = {"user": username, "password": password,
+                                "verify_tls": bool(verify_tls)}
         # A token minted anonymously (or under other credentials), or a digest
         # resolved earlier, would otherwise be served from cache and report a
         # pass for a credential that was never exercised.
@@ -1082,6 +1114,14 @@ async def get_remote_digest(client: httpx.AsyncClient, image: str) -> Optional[s
             return _hit[0]
     _t0 = time.monotonic()
     digest: Optional[str] = None
+    # A registry whose row turns verification OFF gets its own short-lived
+    # client: the one passed in is the PORTAINER client, whose `verify` comes
+    # from the Portainer TLS setting and has nothing to do with this registry.
+    # Everything else keeps using the caller's pooled client.
+    _own_client: Optional[httpx.AsyncClient] = None
+    if not verify_tls_for(reg):
+        _own_client = httpx.AsyncClient(verify=False, timeout=client.timeout)  # noqa: S501
+        client = _own_client
     try:
         accept = ", ".join([
             "application/vnd.docker.distribution.manifest.v2+json",
@@ -1128,6 +1168,8 @@ async def get_remote_digest(client: httpx.AsyncClient, image: str) -> Optional[s
         print(f"[digest] {image}: {e}")
         return None
     finally:
+        if _own_client is not None:
+            await _own_client.aclose()
         metrics.REGISTRY_LATENCY.labels(registry=_classify_registry(reg)).observe(time.monotonic() - _t0)
 
 

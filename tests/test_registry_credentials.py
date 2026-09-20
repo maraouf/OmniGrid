@@ -165,6 +165,23 @@ async def test_basic_auth_registry(monkeypatch):
     assert await _digest(httpx.MockTransport(handler)) == DIGEST
 
 
+def test_tls_verification_defaults_on_and_is_per_registry(monkeypatch):
+    """The gather resolves digests with the PORTAINER client, whose `verify`
+    comes from the Portainer TLS setting — so on a deployment where Portainer
+    is self-signed, registry certificates went unverified too and a registry
+    on an internal CA silently appeared to work. The decision is per registry
+    now, and opting out has to be deliberate."""
+    assert registry.verify_tls_for(HOST) is True          # nothing configured
+    _with_credentials(monkeypatch, [
+        {"host": HOST, "username": "ci", "password": "pw", "enabled": True}])
+    assert registry.verify_tls_for(HOST) is True          # configured, not opted out
+    _with_credentials(monkeypatch, [
+        {"host": HOST, "username": "ci", "password": "pw", "enabled": True,
+         "verify_tls": False}])
+    assert registry.verify_tls_for(HOST) is False
+    assert registry.verify_tls_for("other.example.com") is True
+
+
 @pytest.mark.anyio
 async def test_malformed_setting_degrades_to_anonymous(monkeypatch):
     monkeypatch.setattr(registry, "_creds_cache", ("", {}))

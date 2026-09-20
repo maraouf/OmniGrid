@@ -7469,6 +7469,7 @@
       "password": "Password or token",
       "password_stored": "Stored — leave blank to keep",
       "enabled": "Use these credentials",
+      "verify_tls": "Verify TLS certificate",
       "clear_password": "Clear stored password",
       "test_repository": "Repository to test (optional)"
     },

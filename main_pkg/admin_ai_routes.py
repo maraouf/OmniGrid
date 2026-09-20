@@ -2523,6 +2523,12 @@ async def api_registry_test(
     username = (body.get("username") or "").strip()
     password = body.get("password") or ""
     repository = (body.get("repository") or "").strip().strip("/")
+    # Unspecified means "as stored", so a Test after Save matches the live
+    # probe; a brand-new row sends the checkbox's own value.
+    if "verify_tls" in body:
+        verify_tls = body.get("verify_tls") is not False
+    else:
+        verify_tls = _registry.verify_tls_for(host)
     _log_provider_test_start("registry", target=host or "(unset)")
     if not host:
         return _stamp_test_success("registry", {
@@ -2538,7 +2544,8 @@ async def api_registry_test(
             "detail": "Username and password are both required "
                       "(no saved credential for this host yet)",
         }, target=host)
-    result = await _registry.probe_credentials(host, username, password, repository)
+    result = await _registry.probe_credentials(host, username, password, repository,
+                                               verify_tls=verify_tls)
     if not result.get("ok"):
         result = {**result, "detail": _humanise_probe_error(
             str(result.get("detail") or ""), "Registry")}

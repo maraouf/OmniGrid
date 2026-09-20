@@ -985,6 +985,12 @@ reference names (a pasted URL is reduced to its host); duplicates are rejected. 
 ever sent to that exact hostname — no suffix or wildcard matching. Saving drops the token + digest
 caches so the next refresh re-checks with the new credential instead of serving the cached result.
 
+`verify_tls` (default `true`) is per row. It matters more than it looks: the gather resolves digests
+with the PORTAINER client (`logic/gather.py`), built with `verify=PORTAINER_VERIFY_TLS` — so on a
+deployment running Portainer self-signed, registry certificates went unverified too. A row with
+`verify_tls: false` now gets its own short-lived client instead of inheriting that unrelated setting;
+everything else keeps using the caller's pooled client.
+
 | Method | Route                | Purpose                                                                                                                                                                                                                                  |
 |--------|----------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `POST` | `/api/registry/test` | Verify one credential without saving it. Body `{host, username, password?, repository?}` → `{ok, status, detail}`. Blank `password` tests the stored credential for that host. With `repository` (e.g. `user/image:latest`) it runs the REAL digest probe, so a pass here is a pass on the next gather; without one it only proves the credential authenticates. |

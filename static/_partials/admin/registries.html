@@ -56,6 +56,12 @@
             <input type="checkbox" x-model="row.enabled" :disabled="isReadonly()">
             <span x-text="t('admin_registries.fields.enabled')"></span>
           </label>
+          <!-- Unticking this is the escape hatch for a registry on an
+               internal CA the container doesn't trust. Default on. -->
+          <label class="flex items-center gap-2 fs-sm cursor-pointer select-none">
+            <input type="checkbox" x-model="row.verify_tls" :disabled="isReadonly()">
+            <span x-text="t('admin_registries.fields.verify_tls')"></span>
+          </label>
           <!-- Only offered once something is stored — clearing a row that
                has no password is a no-op that only invites confusion. -->
           <label x-show="row.password_set"

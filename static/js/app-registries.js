@@ -35,6 +35,7 @@ export default {
       password: '',
       password_set: !!(r && r.password_set),
       enabled: (r && r.enabled) !== false,
+      verify_tls: (r && r.verify_tls) !== false,
       clear_password: false,
     }));
     this.registryTests = {};
@@ -42,7 +43,7 @@ export default {
   addRegistryRow() {
     this.registryRows.push({
       host: '', username: '', password: '',
-      password_set: false, enabled: true, clear_password: false,
+      password_set: false, enabled: true, verify_tls: true, clear_password: false,
     });
   },
   removeRegistryRow(idx) {
@@ -64,6 +65,7 @@ export default {
       if (String(a.host || '').trim().toLowerCase() !== String(b.host || '').trim().toLowerCase()
         || String(a.username || '').trim() !== String(b.username || '').trim()
         || (a.enabled !== false) !== (b.enabled !== false)
+        || (a.verify_tls !== false) !== (b.verify_tls !== false)
         || String(a.password || '') !== ''
         || a.clear_password) {
         return true;
@@ -103,6 +105,7 @@ export default {
           password: String(r.password || ''),
           clear_password: !!r.clear_password,
           enabled: r.enabled !== false,
+          verify_tls: r.verify_tls !== false,
         })),
       };
       const res = await fetch('/api/settings', {
@@ -148,6 +151,9 @@ export default {
           // Blank = test the stored credential for this host.
           password: String(row.password || ''),
           repository: String(this.registryTestRepo[idx] || '').trim(),
+          // Send the checkbox's CURRENT value so Test matches what Save
+          // would store, not what was stored before an unsaved edit.
+          verify_tls: row.verify_tls !== false,
         }),
       });
       const j = await res.json().catch(() => ({}));
