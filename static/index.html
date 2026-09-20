@@ -1127,7 +1127,8 @@
     </div>
 
     <!-- ===== STACKS GROUPED VIEW ===== -->
-    <div x-show="view==='stacks'" class="fleet-section bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
+    <template x-if="view==='stacks'">
+    <div class="fleet-section bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
       <!-- Empty header-only table is hidden via the CSS `.ptable:not(:has(tbody tr))`
            rule (no-empty-table) — NOT an x-show on this wrapper. `:has()`
            reacts to the rendered rows with zero JS reactivity, so it can never
@@ -1461,9 +1462,11 @@
         <button type="button" @click="search='';statusFilter='';healthFilter=''" class="ms-2 text-[var(--primary)] hover:underline" x-text="t('empty.clear')"></button>
       </div>
     </div>
+    </template>
 
     <!-- ===== SERVICES FLAT LIST ===== -->
-    <div x-show="view==='services'" class="fleet-section bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
+    <template x-if="view==='services'">
+    <div class="fleet-section bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
       <!-- Empty header-only table hidden via the CSS `.ptable:not(:has(tbody tr))`
            rule (no-empty-table), NOT an x-show on a list getter (that froze the
            rows — same as Stacks above). The select-all `:checked` below reads
@@ -1692,13 +1695,15 @@
         <button type="button" @click="search='';statusFilter='';healthFilter=''" class="ms-2 text-[var(--primary)] hover:underline" x-text="t('empty.clear')"></button>
       </div>
     </div>
+    </template>
 
     <!-- ===== NODES VIEW ===== -->
     <!-- One collapsible card per Swarm node. Inside: items grouped by
          their stack, matching the stacks-view layout so operators can
          navigate vertically by node ("what's on web02?") instead of by
          stack. Reuses the same filter pipeline (health / status / search). -->
-    <div x-show="view==='nodes'" class="space-y-3">
+    <template x-if="view==='nodes'">
+    <div class="space-y-3">
       <template x-for="node in nodeGroups()" :key="node.key">
         <div class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
           <!-- Node header — left side toggles, right side has actions
@@ -2040,13 +2045,15 @@
         <button type="button" @click="search='';statusFilter='';healthFilter=''" class="ms-2 text-[var(--primary)] hover:underline" x-text="t('empty.clear')"></button>
       </div>
     </div>
+    </template>
 
     <!-- ===== HOSTS VIEW ===== -->
     <!-- Beszel-backed host list. Each row matches the collapsed Beszel
          layout (status dot, hostname, platform, CPU/Mem/Disk bars,
          uptime, agent, cores, arch, kernel). Expanding a row reveals
          SYSTEM + HARDWARE cards. See /api/hosts for the data shape. -->
-    <div x-show="view==='hosts'" class="space-y-3">
+    <template x-if="view==='hosts'">
+    <div class="space-y-3">
       <!-- HOSTS BULK PROGRESS BADGE — appears for ~5 s after a bulk
            action lands so the operator gets visible confirmation
            that N rows were touched. Cleared by `_bulkAppliedTimer`
@@ -2579,7 +2586,8 @@
            Mem / Disk %) and taps into the shared host drawer for
            full detail. Actions and per-row Test live in the drawer,
            not the card, to keep the tap target large. -->
-      <div x-show="hostsConfigured" class="hosts-mobile-cards">
+       <template x-if="hostsConfigured && isMobileViewport">
+       <div class="hosts-mobile-cards">
         <!-- Grouped render. When host_groups is empty the
              helper returns a single {group: null, hosts: [...]} bucket
              so the markup degrades to the flat list. -->
@@ -2587,7 +2595,7 @@
              inactive tree iterates [] so its per-host bindings (incl. the
              memoized sparklines) never run; the CSS display toggle still
              hides the now-empty container. -->
-        <template x-for="(bucket, bi) in (isMobileViewport ? groupedHosts() : [])" :key="(bucket.group ? bucket.group.name : '_ungrouped') + ':' + bi">
+         <template x-for="(bucket, bi) in groupedHosts()" :key="(bucket.group ? bucket.group.name : '_ungrouped') + ':' + bi">
           <div>
             <!-- Group heading — shown only when at least one group is
                  defined OR when the ungrouped bucket is one of many. -->
@@ -2877,9 +2885,11 @@
             </template>
           </div>
         </template>
-      </div>
+       </div>
+       </template>
 
-      <div x-show="hostsConfigured" class="hosts-desktop-table rounded border border-[var(--border)] overflow-hidden bg-[var(--surface)]">
+       <template x-if="hostsConfigured && !isMobileViewport">
+       <div class="hosts-desktop-table rounded border border-[var(--border)] overflow-hidden bg-[var(--surface)]">
         <!-- Header row — mirrors Beszel's columns. -->
         <div class="hosts-row-grid px-4 py-2 border-b border-[var(--border)] bg-[var(--surface-2)] fs-2xs uppercase tracking-wider text-[var(--text-faint)]">
           <div></div>
@@ -2902,7 +2912,7 @@
              toolbar-compact look. -->
         <!-- see the mobile-cards note above — the desktop table
              renders rows only when NOT in the mobile viewport. -->
-        <template x-for="(bucket, bi) in (isMobileViewport ? [] : groupedHosts())" :key="(bucket.group ? bucket.group.name : '_ungrouped') + ':' + bi">
+         <template x-for="(bucket, bi) in groupedHosts()" :key="(bucket.group ? bucket.group.name : '_ungrouped') + ':' + bi">
           <div>
             <div x-show="hostGroups.length > 0"
                  @click="toggleGroup(bucket.group ? bucket.group.name : '')"
@@ -3395,9 +3405,10 @@
             </template>
           </div>
         </template>
-      </div>
+       </div>
+       </template>
 
-      <!-- Empty-state ladder — loading, no hosts, providers broken.
+       <!-- Empty-state ladder — loading, no hosts, providers broken.
            Skeleton fires while either (a) the first /api/hosts/list is
            still in flight (hostsInitialLoaded=false), or (b) a refresh
            re-set hostsLoading=true after the initial load. The "no host
@@ -3468,12 +3479,14 @@
            class="text-center py-16 text-[var(--text-faint)] text-sm"
            x-html="t('hosts_extra.empty.no_data_html', { sources: (hostsActiveSources || []).length ? '<span class=&quot;mono&quot;>' + ((hostsActiveSources || []).join(' / ')) + '</span>' : t('hosts_extra.empty.fallback_sources_label') })"></div>
     </div>
+    </template>
 
     <!-- ===== APPS VIEW =====
          Cross-host aggregate. One card per distinct app (grouped by
          catalog_id or name); each card shows status pill + per-host
          instance list + per-port chips. Data shape from /api/apps. -->
-    <div x-show="view==='apps'" class="space-y-3">
+    <template x-if="view==='apps'">
+    <div class="space-y-3">
       <div class="flex items-center justify-between flex-wrap gap-2 px-1">
         <div>
           <h2 class="font-semibold fs-xl" x-text="t('apps.title') || 'Apps'"></h2>
@@ -4155,9 +4168,11 @@
         </div>
       </div>
     </div>
+    </template>
 
     <!-- ===== HISTORY VIEW ===== -->
-    <div x-show="view==='history'" class="space-y-3">
+    <template x-if="view==='history'">
+    <div class="space-y-3">
       <div class="flex justify-between items-center">
         <div>
           <h2 class="font-semibold fs-xl" x-text="t('history.title')"></h2>
@@ -4371,13 +4386,15 @@
         </div>
       </div>
     </div>
+    </template>
 
     <!-- (NOTIFICATIONS popup lives next to the HOTKEYS modal at the bottom
          of this file — operators wanted a quick check + return to current
          work without losing their place.) -->
 
     <!-- ===== SETTINGS VIEW ===== -->
-    <div x-show="view==='settings'" class="page-layout">
+    <template x-if="view==='settings'">
+    <div class="page-layout">
       <aside class="page-sidebar"
              role="tablist" aria-orientation="vertical"
              :aria-label="t('settings.title')"
@@ -4422,6 +4439,7 @@
         <!-- INCLUDE: settings/shortcuts.html -->
       </div>
     </div>
+    </template>
 
     <!-- ===== ADMIN VIEW (admin role only) ===== -->
     <!-- x-if (not x-show) so the ENTIRE admin DOM (sub-nav + all 23 admin
@@ -4523,7 +4541,8 @@
          shape (mobile select + desktop sidebar + content area) so the
          visual treatment matches Admin one-to-one. Sub-tabs are minimal
          today (Dashboard) and grow as more insight pages land. -->
-    <div x-show="view==='stats'" class="page-layout">
+    <template x-if="view==='stats'">
+    <div class="page-layout">
       <div class="page-mobile-nav">
         <label class="fs-xs text-[var(--text-faint)] block mb-1" x-text="t('nav.stats')"></label>
         <select aria-label="Stats" :aria-label="t('nav.stats') || 'Stats section'" :value="statsTab" @change="openStatsTab($event.target.value)" class="w-full fs-md py-2">
@@ -4565,6 +4584,7 @@
         <!-- INCLUDE: stats/samplers.html -->
       </div>
     </div>
+    </template>
 
   </main>
 

@@ -1,5 +1,6 @@
 <!--suppress HtmlUnknownAttribute, HtmlFormInputWithoutLabel -->
-<section x-show="settingsSection === 'language'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
+<template x-if="settingsSection === 'language'">
+<section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
   <div class="flex items-center gap-2 mb-2">
     <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
       <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-info"/>
@@ -15,4 +16,5 @@
     </template>
   </select>
 </section>
+</template>
 

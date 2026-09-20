@@ -62,6 +62,16 @@ let _parsedLogFileCache = {key: null, value: []};
 // calls become O(1) Set.has lookups. (ADMIN-PERF-06.)
 let _hostStatsSourceCache = {key: null, set: new Set()};
 
+// JSON responses create fresh array identities even when the payload is
+// unchanged. Keep nested x-for sources stable when their serialized content is
+// identical; otherwise Alpine rebuilds placement / port / history child trees
+// on every item poll. Scalar fields still use the cheap identity check below.
+function _sameArrayPayload(a, b) {
+  return Array.isArray(a) && Array.isArray(b)
+    && a.length === b.length
+    && JSON.stringify(a) === JSON.stringify(b);
+}
+
 export default {
 
   // -----------------------------------------------------------------
@@ -1920,6 +1930,9 @@ export default {
       const existing = byKey.get(k);
       if (existing) {
         for (const f of Object.keys(inc)) {
+          if (_sameArrayPayload(existing[f], inc[f])) {
+            continue;
+          }
           existing[f] = inc[f];
         }
       } else {
@@ -1943,7 +1956,26 @@ export default {
     }
   },
 
-  async refresh(force = false) {
+  refresh(force = false) {
+    if (this._refreshInFlight) {
+      if (force) {
+        this._refreshForcePending = true;
+      }
+      return this._refreshInFlight;
+    }
+    const request = this._refreshImpl(force);
+    this._refreshInFlight = request;
+    request.finally(() => {
+      this._refreshInFlight = null;
+      if (this._refreshForcePending) {
+        this._refreshForcePending = false;
+        queueMicrotask(() => this.refresh(true));
+      }
+    }).catch(() => undefined);
+    return request;
+  },
+
+  async _refreshImpl(force = false) {
     this.loading = true;
     // Watchdog cap — mirror the `_runWithBusy` pattern so a hung fetch
     // (server not responding, network blip) can't leave the topbar

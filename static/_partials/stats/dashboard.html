@@ -1,5 +1,6 @@
 <!--suppress HtmlUnknownAttribute, HtmlUnknownTag -->
-<div x-show="statsTab==='dashboard'" class="space-y-4">
+<template x-if="statsTab==='dashboard'">
+<div class="space-y-4">
   <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden"
            :aria-busy="(_loadBusy.stats_overview === true || !statsOverviewLoaded || !statsSummaryLoaded) ? 'true' : 'false'">
     <div class="p-5 border-b border-[var(--border)] flex justify-between items-center">
@@ -744,3 +745,4 @@
     </div>
   </section>
 </div>
+</template>

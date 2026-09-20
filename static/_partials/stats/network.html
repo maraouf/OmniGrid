@@ -1,5 +1,6 @@
 <!--suppress HtmlUnknownAttribute -->
-<div x-show="statsTab==='network'" class="space-y-4">
+<template x-if="statsTab==='network'">
+<div class="space-y-4">
   <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden"
            :aria-busy="_loadBusy.stats_network === true ? 'true' : 'false'">
     <div class="p-5 border-b border-[var(--border)]">
@@ -212,3 +213,4 @@
     </div>
   </section>
 </div>
+</template>

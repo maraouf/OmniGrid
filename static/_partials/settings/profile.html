@@ -1,5 +1,6 @@
 <!--suppress HtmlUnknownAttribute, HtmlFormInputWithoutLabel -->
-<div x-show="settingsSection === 'profile'" class="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-5">
+<template x-if="settingsSection === 'profile'">
+<div class="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-5">
   <!-- Avatar / identity card -->
   <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 flex flex-col items-center text-center">
     <div class="relative mb-4">
@@ -447,6 +448,7 @@
   </section>
 
 </div>
+</template>
 
 <!-- ===== SECURITY section — settings-sidebar peer of
      Profile / Notifications / Ignore list / Language. Hosts the

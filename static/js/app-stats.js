@@ -690,7 +690,26 @@ export default {
     }
     return summary;
   },
-  async loadStats(force = false) {
+  loadStats(force = false) {
+    if (this._statsInFlight) {
+      if (force) {
+        this._statsForcePending = true;
+      }
+      return this._statsInFlight;
+    }
+    const request = this._loadStatsImpl(force);
+    this._statsInFlight = request;
+    request.finally(() => {
+      this._statsInFlight = null;
+      if (this._statsForcePending) {
+        this._statsForcePending = false;
+        queueMicrotask(() => this.loadStats(true));
+      }
+    }).catch(() => undefined);
+    return request;
+  },
+
+  async _loadStatsImpl(force = false) {
     try {
       const r = await fetch('/api/stats' + (force ? '?force=true' : ''));
       if (!r.ok) {
@@ -701,7 +720,36 @@ export default {
         return;
       }
       const d = await r.json();
-      this.stats = d.stats || {};
+      // Keep the reactive map stable. Replacing it invalidates every visible
+      // stat binding on every poll, even when only one container changed.
+      // Mutating scalar fields in place preserves Alpine's fine-grained
+      // subscriptions and avoids a fleet-wide redraw.
+      const incomingStats = d.stats || {};
+      const stats = this.stats || (this.stats = {});
+      const seenStats = new Set(Object.keys(incomingStats));
+      for (const id of Object.keys(stats)) {
+        if (!seenStats.has(id)) {
+          delete stats[id];
+        }
+      }
+      for (const id of seenStats) {
+        const incoming = incomingStats[id];
+        const existing = stats[id];
+        if (!existing || typeof existing !== 'object' || !incoming || typeof incoming !== 'object') {
+          stats[id] = incoming;
+          continue;
+        }
+        for (const key of Object.keys(existing)) {
+          if (!(key in incoming)) {
+            delete existing[key];
+          }
+        }
+        for (const key of Object.keys(incoming)) {
+          if (existing[key] !== incoming[key]) {
+            existing[key] = incoming[key];
+          }
+        }
+      }
       // Background-refresh indicator. /api/stats now serves the
       // seeded cache instantly + kicks `_gather_stats` in the
       // background; ``stats_refreshing`` is true while the
@@ -716,7 +764,12 @@ export default {
       // task-derived cid on the node returned None). Empty array on
       // healthy fleet (most common case). The SPA banner in Stacks
       // / Hosts views renders when the array is non-empty.
-      this.unhealthyAgents = Array.isArray(d.unhealthy_agents) ? d.unhealthy_agents : [];
+      const unhealthy = Array.isArray(d.unhealthy_agents) ? d.unhealthy_agents : [];
+      if (typeof this._reconcileById === 'function') {
+        this._reconcileById(this.unhealthyAgents, unhealthy, 'host');
+      } else {
+        this.unhealthyAgents = unhealthy;
+      }
       // Self-diagnostic — fires when /api/stats came back with
       // ZERO has_stats=true rows AND we have items loaded. That's
       // the signature of "Portainer's per-container /stats endpoint
@@ -771,7 +824,19 @@ export default {
   // currently-known item id. The backend samples every 5 minutes (see
   // STATS_SAMPLE_INTERVAL in main.py), so polling more often than that
   // is wasted work — we refresh on a 5-minute cadence.
-  async loadSparks() {
+  loadSparks() {
+    if (this._sparksInFlight) {
+      return this._sparksInFlight;
+    }
+    const request = this._loadSparksImpl();
+    this._sparksInFlight = request;
+    request.finally(() => {
+      this._sparksInFlight = null;
+    }).catch(() => undefined);
+    return request;
+  },
+
+  async _loadSparksImpl() {
     const ids = (this.items || []).map(i => i.id).filter(Boolean);
     if (!ids.length) {
       return;

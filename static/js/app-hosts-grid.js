@@ -643,7 +643,26 @@ export default {
     return this._hostRowObserver;
   },
 
-  async loadHosts(force = false) {
+  loadHosts(force = false) {
+    if (this._hostsListInFlight) {
+      if (force) {
+        this._hostsListForcePending = true;
+      }
+      return this._hostsListInFlight;
+    }
+    const request = this._loadHostsImpl(force);
+    this._hostsListInFlight = request;
+    request.finally(() => {
+      this._hostsListInFlight = null;
+      if (this._hostsListForcePending) {
+        this._hostsListForcePending = false;
+        queueMicrotask(() => this.loadHosts(true));
+      }
+    }).catch(() => undefined);
+    return request;
+  },
+
+  async _loadHostsImpl(force = false) {
     this.hostsLoading = true;
     // Watchdog cap — mirrors `_runWithBusy`. If `fetch` itself hangs
     // (server unreachable, dead network), `await` never returns and
@@ -775,10 +794,13 @@ export default {
       // on grey with no transient "loading" flash, (b) we don't
       // burn a /api/hosts/one/{id} round-trip for every dead row.
       const isUnconfigured = (h) => h && h.status === 'unconfigured';
-      // 1+2: reconcile — update existing, append new.
+      // 1+2: reconcile — update existing, append new. Index the current
+      // rows once so a 200-host fleet does not pay an O(N) `.find()` for
+      // every incoming row on every poll.
+      const existingById = new Map((this.hosts || []).map(row => [row.id, row]));
       for (let i = 0; i < incoming.length; i++) {
         const h = incoming[i];
-        const existing = (this.hosts || []).find(r => r.id === h.id);
+        const existing = existingById.get(h.id);
         const skipProbe = isUnconfigured(h);
         if (existing) {
           // Existing row — overlay curated fields only. Deliberately
@@ -918,9 +940,11 @@ export default {
     // backend load on 200-host fleets.
     // Cleanup: drop seen-ids whose hosts have disappeared.
     const _validIds = new Set(this.hosts.map(h => h.id));
-    this._hostSeenIds = new Set(
-      [...(this._hostSeenIds || [])].filter(id => _validIds.has(id))
-    );
+      this._hostSeenIds = new Set(
+        [...(this._hostSeenIds || [])].filter(id => _validIds.has(id))
+      );
+      const hostById = new Map(this.hosts.map(h => [h.id, h]));
+      const hostByName = new Map(this.hosts.map(h => [h.host, h]));
     // Hand the queue to the SHARED worker pool — single source of
     // concurrency truth across polling, IO observer, and SSE event
     // handlers. Pre-fix this had its own worker pool independent
@@ -942,7 +966,7 @@ export default {
     // the drawer chart populates in parallel with the per-host
     // stat fetches.
     for (const name of this.hostsExpanded || []) {
-      const host = this.hosts.find(h => h.host === name);
+       const host = hostByName.get(name);
       if (!host) {
         continue;
       }
@@ -966,7 +990,7 @@ export default {
     // ≥2 points so we don't re-fetch every 15s for hosts whose
     // history is fresh. Same SNMP retry layered alongside.
     for (const id of (this._hostSeenIds || [])) {
-      const host = this.hosts.find(h => h.id === id);
+       const host = hostById.get(id);
       if (!host) {
         continue;
       }

@@ -1,5 +1,6 @@
 <!--suppress HtmlUnknownAttribute, HtmlFormInputWithoutLabel -->
-<section x-show="settingsSection === 'security'" class="page-grid space-y-5">
+<template x-if="settingsSection === 'security'">
+<section class="page-grid space-y-5">
   <!-- Security card — change password (local users only).
        Header icon is `icon-shield` matching the sidebar's
        `security` entry; the Two-factor card below uses
@@ -329,6 +330,7 @@
        x-text="t('settings.profile.totp.authentik_hint')"></p>
   </section>
 </section>
+</template>
 
 <!-- ===== NOTIFICATIONS section — settings-sidebar peer of
      Profile / Ignore list / Language. Per-user opt-in/out grid

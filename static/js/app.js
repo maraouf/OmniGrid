@@ -223,7 +223,17 @@ function app() {
         return [];
       }
     })(),
-    loading: false,
+     loading: false,
+     // Single-flight guards for the high-frequency fleet fetches. Polling,
+     // SSE bursts, and explicit refreshes can all arrive together; keep one
+     // request per resource in flight and queue one trailing forced refresh.
+     _refreshInFlight: null,
+     _refreshForcePending: false,
+     _statsInFlight: null,
+     _statsForcePending: false,
+     _sparksInFlight: null,
+     _hostsListInFlight: null,
+     _hostsListForcePending: false,
     // Background-refresh indicators. The /api/items + /api/hosts/list
     // endpoints serve cached / snapshot data instantly when warm and
     // kick a background gather → set `cache_refreshing: true` /
@@ -2111,14 +2121,6 @@ function app() {
       // location) without an extra round-trip per row-expand. Silent
       // failure is fine (asset inventory is optional).
       this.loadAssetCache();
-      // Prime the curated-host skeleton once on boot so the Hosts
-      // top-nav down-count badge is populated from cold start (parity
-      // with the always-polled Services offline badge), WITHOUT waiting
-      // for the operator to open the Hosts view. /api/hosts/list is the
-      // cheap snapshot-first skeleton; the expensive per-host fan-out is
-      // IntersectionObserver-gated on rendered rows, so nothing heavy
-      // fires while the view isn't visible. Fire-and-forget.
-      this.loadHosts().catch(() => undefined);
       this.startVersionWatcher();
       this.startHeaderClock();
       this.startHeaderWeather();
@@ -2132,9 +2134,7 @@ function app() {
       // double-init here. `?? -1` (not `|| 0`) preserves the explicit
       // 0 ("Off") choice across reloads instead of mapping it to -1.
       this.setRefreshInterval(this.refreshInterval ?? -1);
-      this.pollOps();
-      this.pollStats();
-      this.pollSparks();
+       this.pollOps();
       // If the SPA restored to the Hosts view (saved in localStorage or
       // arrived via /hosts deep-link), trigger the same load+poll the
       // view-watcher does on manual switch.
@@ -2168,13 +2168,13 @@ function app() {
         }
         this.loadHosts();
       }
-      // Prime the apps list once on boot (fire-and-forget) regardless of the
+       // Prime the apps list once on boot (fire-and-forget) regardless of the
       // restored view, so the Apps nav down-badge (appsDownCount) surfaces app
       // failures immediately — the app-level twin of the always-on loadHosts
       // above. Idempotent: loadAppsList no-ops when a load is already in flight
       // (the apps-view boot path already fired it), so this only does work on a
       // non-Apps boot view.
-      if (typeof this.loadAppsList === 'function') {
+       if (this.view !== 'apps' && typeof this.loadAppsList === 'function') {
         this.loadAppsList();
       }
       // If the SPA restored to the Apps view (saved in localStorage or a
