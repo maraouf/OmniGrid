@@ -69,10 +69,15 @@
             <input type="checkbox" x-model="row.clear_password" :disabled="isReadonly()">
             <span x-text="t('admin_registries.fields.clear_password')"></span>
           </label>
-          <button type="button" class="btn btn-ghost ms-auto"
+          <button type="button" class="btn btn-ghost fs-xs ms-auto"
                   @click="removeRegistryRow(idx)" :disabled="isReadonly()"
                   x-text="t('actions.remove')"></button>
         </div>
+        <!-- Turning verification off is a real decision, so say what it
+             costs at the moment it's made rather than only in the docs. -->
+        <p x-show="row.verify_tls === false"
+           class="fs-2xs text-[var(--text-faint)] mt-2 leading-snug max-w-[520px]"
+           x-text="t('admin_registries.fields.verify_tls_off_hint')"></p>
 
         <!-- Test. The optional repository turns "the credential logs in"
              into "OmniGrid can read THIS image's digest", which is the
@@ -80,15 +85,18 @@
         <div class="mt-3 pt-3 border-t border-[var(--border)]" x-show="isAdmin()">
           <label class="block fs-xs text-[var(--text-dim)] mb-1"
                  :for="'reg-repo-' + idx" x-text="t('admin_registries.fields.test_repository')"></label>
-          <div class="flex flex-wrap items-center gap-2">
-            <input type="text" class="input flex-1 min-w-[220px]" :id="'reg-repo-' + idx"
-                   :value="registryTestRepo[idx] || ''"
-                   @input="registryTestRepo = {...registryTestRepo, [idx]: $event.target.value}"
-                   :disabled="isReadonly()" aria-label="Repository to test"
-                   placeholder="user/image:latest">
-            <div x-data="{ tcRun: () => testRegistryRow(idx), tcResult: () => (registryTests[idx] || null) }">
-              <!-- INCLUDE: _components/og-test-connection.html -->
-            </div>
+          <!-- The shared test component stacks its button above its result
+               box, so it gets its own row: inside a flex row beside the
+               input, the growing result box drags the button off-centre. -->
+          <input type="text" class="input w-full max-w-[420px]" :id="'reg-repo-' + idx"
+                 :value="registryTestRepo[idx] || ''"
+                 @input="registryTestRepo = {...registryTestRepo, [idx]: $event.target.value}"
+                 :disabled="isReadonly()" aria-label="Repository to test"
+                 placeholder="user/image:latest">
+          <p class="fs-2xs text-[var(--text-faint)] mt-1 leading-snug max-w-[520px]"
+             x-text="t('admin_registries.fields.test_repository_help')"></p>
+          <div class="mt-2" x-data="{ tcRun: () => testRegistryRow(idx), tcResult: () => (registryTests[idx] || null) }">
+            <!-- INCLUDE: _components/og-test-connection.html -->
           </div>
         </div>
       </div>
@@ -99,9 +107,10 @@
        class="fs-sm text-[var(--text-faint)] py-3" x-text="t('admin_registries.empty')"></div>
 
   <div class="flex items-center gap-2 mt-4">
-    <button type="button" class="btn" @click="addRegistryRow()"
+    <button type="button" class="btn btn-soft fs-sm" @click="addRegistryRow()"
             :disabled="isReadonly()" x-text="t('admin_registries.add')"></button>
-    <button type="button" class="btn btn-primary ms-auto"
+    <button type="button" class="btn btn-primary fs-sm ms-auto"
+            :class="registriesSectionDirty() ? 'btn-dirty' : ''"
             @click="saveRegistriesSection()"
             :disabled="isReadonly() || registrySaving || !registriesSectionDirty()">
       <span x-show="registrySaving" class="spin" aria-hidden="true"></span>

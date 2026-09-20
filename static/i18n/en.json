@@ -7470,8 +7470,10 @@
       "password_stored": "Stored — leave blank to keep",
       "enabled": "Use these credentials",
       "verify_tls": "Verify TLS certificate",
+      "verify_tls_off_hint": "Certificate checking is off for this registry. Reasonable for a registry on your own network with an internal CA; not for one reached over the internet.",
       "clear_password": "Clear stored password",
-      "test_repository": "Repository to test (optional)"
+      "test_repository": "Repository to test (optional)",
+      "test_repository_help": "Optional. Name a repository and Test runs the real update check, so a pass here means the digest resolves on the next refresh. Leave it blank to only check that the credentials are accepted."
     },
     "errors": {
       "host_required": "Every registry row needs a host, for example git.example.com.",
