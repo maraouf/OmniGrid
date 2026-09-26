@@ -4257,7 +4257,8 @@
         <select aria-label="All op types" :aria-label="t('history.all_op_types') || 'Filter by operation type'" x-model="historyFilters.op_type" @change="historyApplyFilter()" class="fs-sm min-w-[150px]">
           <option value="" x-text="t('history.all_op_types')"></option>
           <template x-for="ot in [
-              'update_stack','update_container','restart_service','restart_container','remove_container',
+              'update_stack','update_container','restart_service','rollback_service','prefetch_image',
+              'restart_container','remove_container',
               'restart_swarm_agent','cleanup_overlay_network','hosts_bulk_pause','hosts_bulk_resume',
               'host_resume_sampling','host_provider_resume',
               'ssh_run','ssh_terminal','port_scan','port_scan_refresh',
@@ -11103,6 +11104,54 @@
               <div x-show="isAdmin() && drawerItem.status==='update' && !canUpdate(drawerItem)"
                    class="w-full bg-[var(--surface-2)] border border-[var(--warning)]/30 rounded-md p-3 fs-xs text-warning"
                    x-text="t('drawer.external_warning')"></div>
+              <!-- Run an image that's already on the node. The way out when an
+                   update is stuck downloading: "Roll back to previous version"
+                   uses Swarm's single previous spec, which after an update plus
+                   a restart already points at the NEW image. This runs an older
+                   image that's still on the node, by digest — no download. -->
+              <div x-show="isAdmin() && drawerItem.type === 'service'" class="w-full">
+                <button type="button" class="w-full btn btn-soft justify-center fs-sm"
+                        @click="loadLocalImages(drawerItem)"
+                        :disabled="localImagesLoading || isServiceBusy(drawerItem)"
+                        :aria-expanded="(localImages && localImages.service_id === drawerItem.raw_id) ? 'true' : 'false'">
+                  <span x-show="localImagesLoading" class="spin" aria-hidden="true"></span>
+                  <span x-text="t('drawer.local_images.button')"></span>
+                </button>
+                <div x-show="localImages && localImages.service_id === drawerItem.raw_id"
+                     class="mt-2 bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3">
+                  <p class="fs-xs text-[var(--text-faint)] leading-snug mb-2"
+                     x-text="t('drawer.local_images.help')"></p>
+                  <label class="flex items-start gap-2 fs-xs cursor-pointer select-none mb-2">
+                    <input type="checkbox" x-model="localImagesBackground" class="mt-0.5">
+                    <span x-text="t('drawer.local_images.background')"></span>
+                  </label>
+                  <div x-show="localImages && !(localImages.candidates || []).length"
+                       class="fs-xs text-[var(--text-faint)]"
+                       x-text="t('drawer.local_images.empty', {nodes: ((localImages && localImages.nodes) || []).join(', ') || '—'})"></div>
+                  <template x-for="c in (localImages ? localImages.candidates : [])" :key="c.digest">
+                    <div class="flex items-center gap-2 py-1.5 border-t border-[var(--border)]">
+                      <div class="min-w-0 flex-1">
+                        <div class="mono fs-xs truncate" :title="c.digest"
+                             x-text="c.digest.slice(0, 19) + '…' + (c.tags.length ? '  ·  ' + c.tags.join(', ') : '')"></div>
+                        <div class="fs-2xs text-[var(--text-faint)]">
+                          <span x-text="t('drawer.local_images.built', {date: fmtDate(c.created)})"></span>
+                          <span x-show="c.size" x-text="' · ' + fmtBytes(c.size)"></span>
+                          <span x-show="localImageLastRan(c)" x-text="' · ' + localImageLastRan(c)"></span>
+                        </div>
+                      </div>
+                      <span x-show="c.current" class="pill pill-info fs-2xs shrink-0" x-text="t('drawer.local_images.current')"></span>
+                      <span x-show="!c.current && !c.on_all_nodes" class="pill pill-warning fs-2xs shrink-0"
+                            :title="t('drawer.local_images.not_everywhere_title')"
+                            x-text="t('drawer.local_images.not_everywhere')"></span>
+                      <button type="button" x-show="!c.current && c.on_all_nodes"
+                              class="btn btn-soft fs-xs shrink-0"
+                              @click="rollbackToLocalImage(drawerItem, c)"
+                              :disabled="isServiceBusy(drawerItem)"
+                              x-text="t('drawer.local_images.use')"></button>
+                    </div>
+                  </template>
+                </div>
+              </div>
               <div class="grid grid-cols-2 gap-2">
                 <button type="button" x-show="isAdmin() && isRestartable(drawerItem)"
                         @click="restartItem(drawerItem)"

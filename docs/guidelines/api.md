@@ -1045,6 +1045,17 @@ is classified `out_of_memory` with `confidence: high`.
 Direct-Docker items answer
 `{ok: false, reason: "unsupported_backend"}` — their daemon is reached over SSH, not Portainer.
 
+### Run an image that's already on the node (admin-only)
+
+`?rollback=previous` above can't rescue a service stuck DOWNLOADING its update: Swarm keeps one previous
+spec, and after an update plus a restart that spec already points at the new image. These pin a digest
+already on the node instead, so the swap needs no download.
+
+| Method | Route | Purpose |
+|--------|-------|---------|
+| `GET`  | `/api/service/{id}/local-images` | `{service, repository, tag, current_digest, nodes, candidates}` — each candidate `{digest, tags, created, size, current, last_ran, on_all_nodes}`, newest first. `last_ran` comes from the service's task history; only candidates with `on_all_nodes: true` can be run without downloading. |
+| `POST` | `/api/rollback/service/{id}/to-image` | Body `{digest: "sha256:<64 hex>", background_fetch: true}`. Pins `<repo>:<tag>@<digest>` and waits for it to run; refuses a digest not on every node before touching the service. With `background_fetch` (default) it then starts a separate `prefetch_image` op downloading the current tag in the background, bounded by `tuning_background_prefetch_timeout_seconds`, notifying `image_prefetch_success` / `_failure`. Returns `{op_id}`; `400` for a malformed digest; `409` when the service already has an op running. |
+
 ### Stack + container retag-to-latest (admin-only)
 
 When OmniGrid detects a stack / container running a pinned tag (`:v1.2.3`) that an update would

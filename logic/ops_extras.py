@@ -50,7 +50,9 @@ in :data:`NOTIFY_PLACEHOLDERS` (curated whitelist) — see
 ``main.api_admin_notify_templates`` for the full surface.
 """
 import asyncio
+import json
 import time
+from urllib.parse import quote
 from typing import Optional
 
 import httpx
@@ -418,6 +420,21 @@ def _retag_compose_to_latest(
     return new_content, replacements, repos_found, env_updates, already_at_target
 
 
+def _rollout_wait_window() -> tuple[float, float]:
+    """``(timeout, poll)`` for waiting on a Swarm rollout to settle.
+
+    One window for every "did the swap actually come up?" wait — the stack
+    update and the rollback to a local image ask the same question of the
+    same Portainer, so one pair of knobs governs both. The fallback is the
+    pair's defaults, for a corrupt setting.
+    """
+    try:
+        return (float(_tuning_int(_Tunable.STACK_UPDATE_OBSERVE_TIMEOUT_SECONDS)),
+                float(_tuning_int(_Tunable.STACK_UPDATE_OBSERVE_POLL_SECONDS)))
+    except (KeyError, ValueError, TypeError):
+        return 300.0, 15.0
+
+
 async def _await_stack_convergence(
     client: httpx.AsyncClient, stack: dict, op: "Operation",
 ) -> Optional[str]:
@@ -453,11 +470,7 @@ async def _await_stack_convergence(
     if not stack_name:
         op.log("Convergence wait: stack name missing — skipping poll", "warning")
         return None
-    try:
-        timeout_s = _tuning_int(_Tunable.STACK_UPDATE_OBSERVE_TIMEOUT_SECONDS)
-        poll_s = _tuning_int(_Tunable.STACK_UPDATE_OBSERVE_POLL_SECONDS)
-    except (KeyError, ValueError, TypeError):
-        timeout_s, poll_s = 300, 15
+    timeout_s, poll_s = _rollout_wait_window()
     eid = portainer.PORTAINER_ENDPOINT_ID
     services_url = f"{portainer.PORTAINER_URL}/api/endpoints/{eid}/docker/services"
     deadline = time.time() + timeout_s
@@ -466,7 +479,7 @@ async def _await_stack_convergence(
     # None if no poll ever got through, so the failure message can say
     # "couldn't tell" rather than blame a service it never saw.
     last_stuck: Optional[list[tuple[str, str]]] = None
-    op.log(f"Waiting for stack convergence (timeout={timeout_s}s, poll={poll_s}s)…")
+    op.log(f"Waiting for stack convergence (timeout={timeout_s:g}s, poll={poll_s:g}s)…")
     op.set_phase("waiting", stack_name)
     while time.time() < deadline:
         try:
@@ -545,14 +558,14 @@ async def _await_stack_convergence(
         await asyncio.sleep(poll_s)
     if last_stuck is None:
         return (f"Couldn't confirm the rollout finished — Portainer's service list "
-                f"never answered within {timeout_s}s. Check the stack before "
+                f"never answered within {timeout_s:g}s. Check the stack before "
                 f"relying on it.")
     if not last_stuck:
         # Timed out between two clean polls — nothing was seen stuck.
         return None
     names = "; ".join(f"{n}" + (f" ({m[:120]})" if m else "") for n, m in last_stuck[:3])
     more = f" (+{len(last_stuck) - 3} more)" if len(last_stuck) > 3 else ""
-    return (f"Rollout didn't finish within {timeout_s}s — still updating: {names}{more}. "
+    return (f"Rollout didn't finish within {timeout_s:g}s — still updating: {names}{more}. "
             f"The new task never started, so the service may be down; check it "
             f"with `docker service ps <name>`.")
 
@@ -2167,14 +2180,244 @@ async def do_rollback_service(op: Operation, service_id: str) -> None:
     except (asyncio.CancelledError, KeyboardInterrupt):
         raise
     except Exception as e:  # noqa: BLE001
-        op.log(str(e), "error")
-        op.done("error", str(e))
-        await notify(f"❌ Service rollback failed: {op.target_name}", str(e)[:500], "error",
-                     event="service_rollback_failure", actor_username=op.actor,
-                     target_kind="service", target_id=str(op.target_id))
+        await _rollback_failed(op, e)
     finally:
         persist_history(op)
         gather.invalidate_cache()
+
+
+async def _rollback_failed(op: Operation, e: BaseException) -> None:
+    """End a rollback op as failed and send its failure notification — one
+    path for both kinds of rollback, so they report the same way."""
+    op.log(str(e), "error")
+    op.done("error", str(e))
+    await notify(f"❌ Service rollback failed: {op.target_name}", str(e)[:500], "error",
+                 event="service_rollback_failure", actor_username=op.actor,
+                 target_kind="service", target_id=str(op.target_id))
+
+
+# ---------------------------------------------------------------------------
+# Roll back to an image ALREADY ON THE NODE.
+#
+# `do_rollback_service` uses Swarm's `?rollback=previous`, and Swarm keeps only
+# ONE previous spec. After an update and then a restart, "previous" is the spec
+# the restart replaced — which already points at the NEW image. That is exactly
+# the case this exists for: a Tracearr update whose new ~400 MB image sat
+# downloading for hours, a restart that didn't help, and a "roll back" that
+# would only have pointed the service at the image it was already waiting for.
+# The images it ran before were still on the node; this runs one of them by
+# digest — nothing to download, so the swap takes seconds — and can keep the
+# new version downloading in the background so it does eventually arrive.
+# ---------------------------------------------------------------------------
+
+def _digest_of(ref: str) -> str:
+    """The ``sha256:…`` part of a pinned image ref, or ''."""
+    _, _, digest = (ref or "").partition("@")
+    return digest if digest.startswith("sha256:") else ""
+
+
+async def service_image_candidates(client: httpx.AsyncClient, service_id: str) -> dict:
+    """The images for a service that are already on its node(s).
+
+    Returns ``{service, repository, tag, current_digest, nodes, candidates}``,
+    each candidate ``{digest, tags, created, size, current, last_ran,
+    on_all_nodes}``. ``last_ran`` comes from the service's own task history,
+    which is what tells "the version it ran yesterday" from "some old tag
+    still lying around". Only images on EVERY node the service runs on can be
+    rolled back to without a download, so the others are marked, not offered
+    as instant.
+    """
+    ep = f"/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}/docker"
+    svc = await portainer.pg(client, f"{ep}/services/{service_id}")
+    spec = (svc or {}).get("Spec") or {}
+    image = (((spec.get("TaskTemplate") or {}).get("ContainerSpec") or {}).get("Image") or "")
+    repo, tag = image_pull.split_ref(image)
+    current = _digest_of(image)
+    filters = quote(json.dumps({"service": [service_id]}))
+    tasks = [t for t in (await portainer.pg(client, f"{ep}/tasks?filters={filters}") or [])
+             if isinstance(t, dict)]
+    nodes = await image_pull.swarm_task_nodes(client, service_id)
+    # When each digest last ran, from the task history.
+    last_ran: dict[str, str] = {}
+    for t in tasks:
+        d = _digest_of(((t.get("Spec") or {}).get("ContainerSpec") or {}).get("Image") or "")
+        ts = str((t.get("Status") or {}).get("Timestamp") or t.get("UpdatedAt") or "")
+        if d and ts > last_ran.get(d, ""):
+            last_ran[d] = ts
+    by_digest: dict[str, dict] = {}
+    for node in nodes:
+        for img in await image_pull.local_images(client, node, repo):
+            entry = by_digest.setdefault(img["digest"], {**img, "on_nodes": []})
+            entry["on_nodes"].append(node)
+    candidates = []
+    for d, entry in by_digest.items():
+        candidates.append({
+            "digest": d, "tags": entry["tags"], "created": entry["created"],
+            "size": entry["size"], "current": d == current,
+            "last_ran": last_ran.get(d, ""),
+            "on_all_nodes": set(entry["on_nodes"]) >= set(nodes),
+        })
+    candidates.sort(key=lambda c: (c["created"], c["last_ran"]), reverse=True)
+    return {"service": spec.get("Name") or service_id, "repository": repo, "tag": tag,
+            "current_digest": current, "nodes": nodes, "candidates": candidates}
+
+
+async def _await_service_on_digest(client: httpx.AsyncClient, op: Operation,
+                                   service_id: str, digest: str) -> Optional[str]:
+    """Wait until a task of the service RUNS ``digest``. None, or why not.
+
+    Same window and cadence as the stack-update wait, and the same rule: a
+    swap that never came up is a failure, not a success.
+    """
+    timeout_s, poll_s = _rollout_wait_window()
+    ep = f"/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}/docker"
+    filters = quote(json.dumps({"service": [service_id], "desired-state": ["running"]}))
+    op.set_phase("waiting", op.target_name)
+    deadline = time.time() + timeout_s
+    last = ""
+    while time.time() < deadline:
+        try:
+            tasks = await portainer.pg(client, f"{ep}/tasks?filters={filters}") or []
+        except (httpx.HTTPError, ValueError) as e:
+            last = f"{type(e).__name__}: {e}"
+            await asyncio.sleep(poll_s)
+            continue
+        for t in tasks:
+            if not isinstance(t, dict):
+                continue
+            state = str((t.get("Status") or {}).get("State") or "")
+            img = ((t.get("Spec") or {}).get("ContainerSpec") or {}).get("Image") or ""
+            if state == "running" and _digest_of(img) == digest:
+                return None
+            if _digest_of(img) == digest:
+                last = f"{state}: {(t.get('Status') or {}).get('Err') or ''}".strip(": ")
+        await asyncio.sleep(poll_s)
+    return (f"The service didn't come up on the earlier image within {timeout_s:g}s"
+            + (f" (last seen: {last[:200]})" if last else "")
+            + ". Check it with `docker service ps <name>`.")
+
+
+# The shared op tail (success notify, CancelledError re-raise, failure helper,
+# persist + invalidate in finally) is the same skeleton every do_* op in this
+# file uses — the same exemption as its siblings, not a copy to extract.
+# noinspection DuplicatedCode
+async def do_rollback_to_image(op: Operation, service_id: str, digest: str, *,
+                               background_fetch: bool = True) -> None:
+    """Run a Swarm service on an image that is already on its node(s).
+
+    The image must be present on EVERY node the service runs on — checked
+    here, not assumed — because the point is a swap with no download. Then
+    the service spec is repointed at ``<repo>:<tag>@<digest>`` (the tag kept,
+    so the next stack update re-resolves it as normal) and the op waits until
+    a task actually runs it.
+
+    With ``background_fetch`` the new version keeps downloading afterwards,
+    as its own `prefetch_image` op: repointing the service cancels the task
+    that was fetching it, so without this it would never arrive.
+    """
+    try:
+        portainer.ensure_reachable()
+        async with portainer.write_client(timeout=_portainer_op_timeout("medium")) as client:
+            info = await service_image_candidates(client, service_id)
+            repo, tag, nodes = info["repository"], info["tag"], info["nodes"]
+            if not nodes:
+                raise RuntimeError(
+                    "this service has no node to run on right now, so there is no local "
+                    "image to use — nothing was changed")
+            match = next((c for c in info["candidates"] if c["digest"] == digest), None)
+            if match is None or not match["on_all_nodes"]:
+                where = ", ".join(nodes)
+                raise RuntimeError(
+                    f"{repo}@{digest[:19]}… isn't on {where} any more, so rolling back to it "
+                    f"would mean downloading it first — nothing was changed")
+            if match["current"]:
+                raise RuntimeError("the service is already set to that image — nothing to do")
+            target = f"{repo}:{tag}@{digest}"
+            op.log(f"Rolling back to {target} — already on {', '.join(nodes)}, no download needed")
+            ep = f"/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}/docker/services/{service_id}"
+            svc = await portainer.pg(client, ep)
+            version = ((svc.get("Version") or {}).get("Index"))
+            spec = svc.get("Spec") or {}
+            cs = (spec.setdefault("TaskTemplate", {})).setdefault("ContainerSpec", {})
+            cs["Image"] = target
+            op.set_phase("swapping", op.target_name)
+            r = await client.post(f"{portainer.PORTAINER_URL}{ep}/update?version={version}",
+                                  json=spec, headers=portainer.headers())
+            if r.status_code >= 400:
+                raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
+            op.log("Swarm accepted the change; waiting for it to run", "step")
+            stalled = await _await_service_on_digest(client, op, service_id, digest)
+            if stalled:
+                raise RuntimeError(stalled)
+            op.log(f"Running {target}", "success")
+        op.done("success")
+        await notify(f"↩️ Service rolled back: {op.target_name}",
+                     f"Now running {repo}@{digest[:19]}…, which was already on the node.",
+                     "success", event="service_rollback_success", actor_username=op.actor,
+                     target_kind="service", target_id=str(op.target_id))
+        if background_fetch:
+            _start_background_fetch(op, service_id, f"{repo}:{tag}", nodes)
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e:  # noqa: BLE001
+        await _rollback_failed(op, e)
+    finally:
+        persist_history(op)
+        gather.invalidate_cache()
+
+
+def _start_background_fetch(parent: Operation, service_id: str, image_ref: str,
+                            nodes: list[str]) -> None:
+    """Spawn the `prefetch_image` op for the new version, without waiting.
+
+    Its own op so it is visible on the row ("Downloading new version") and in
+    History, and so a second one for the same service is refused. A refusal
+    here is logged, not raised — the rollback itself already succeeded.
+    """
+    from logic.ops import OpConflict, new_op  # noqa: PLC0415
+    try:
+        child = new_op("prefetch_image", service_id, parent.target_name,
+                       target_stack=parent.target_stack, actor=parent.actor)
+    except OpConflict as e:
+        print(f"[op {parent.id}] background download not started: {e}")
+        return
+    import main as _main  # noqa: PLC0415 — the lifespan-owned task registry
+    _main.spawn_background_task(do_prefetch_image(child, service_id, image_ref, nodes),
+                                label=f"prefetch-{service_id[:12]}")
+
+
+async def do_prefetch_image(op: Operation, service_id: str, image_ref: str,
+                            nodes: list[str]) -> None:
+    """Download ``image_ref`` onto ``nodes`` in the background. Stops nothing.
+
+    Uses the background download limit, not the pre-pull limit: nobody is
+    waiting on it and no service is down because of it. On success the next
+    Update of this service is a plain swap with nothing left to download.
+    """
+    try:
+        from logic.tuning import Tunable, tuning_int  # noqa: PLC0415
+        budget = float(tuning_int(Tunable.BACKGROUND_PREFETCH_TIMEOUT_SECONDS))
+        op.log(f"Downloading {image_ref} onto {', '.join(nodes)} in the background — "
+               f"the service keeps running meanwhile")
+        async with portainer.write_client(timeout=_portainer_op_timeout("long")) as client:
+            await image_pull.ensure_images_on_nodes(
+                client, op, [(n, image_ref) for n in nodes], strict=True, budget_s=budget)
+        op.done("success")
+        await notify(f"⬇️ New version ready: {op.target_name}",
+                     "The image finished downloading in the background — Update now "
+                     "switches over in seconds.", "success",
+                     event="image_prefetch_success", actor_username=op.actor,
+                     target_kind="service", target_id=str(op.target_id))
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e:  # noqa: BLE001
+        op.log(str(e), "error")
+        op.done("error", str(e))
+        await notify(f"❌ Background download failed: {op.target_name}", str(e)[:500], "error",
+                     event="image_prefetch_failure", actor_username=op.actor,
+                     target_kind="service", target_id=str(op.target_id))
+    finally:
+        persist_history(op)
 
 
 async def discover_swarm_agent_service(client: httpx.AsyncClient) -> tuple[Optional[str], Optional[str], list[dict]]:

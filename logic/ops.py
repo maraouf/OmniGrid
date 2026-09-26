@@ -158,6 +158,11 @@ OP_TYPES: frozenset[str] = frozenset({
     # Swarm's own `?rollback=previous` — puts a service back on the spec
     # it ran before the last update, for when the new one won't start.
     "rollback_service",
+    # A new image downloading in the BACKGROUND onto a service's node — the
+    # companion of rolling a service back to an image already there, so the
+    # new version keeps arriving while the old one serves. Never stops
+    # anything; reports when the image is ready.
+    "prefetch_image",
     "restart_container",
     "remove_container",
     "restart_swarm_agent",
@@ -518,6 +523,8 @@ NOTIFY_EVENT_NAMES = (
     "service_restart_failure",
     "service_rollback_success",
     "service_rollback_failure",
+    "image_prefetch_success",
+    "image_prefetch_failure",
     "swarm_agent_restart_success",
     "swarm_agent_restart_failure",
     "swarm_agent_unhealthy",
@@ -779,6 +786,15 @@ NOTIFY_TEMPLATE_DEFAULTS: dict = {
     },
     "service_rollback_failure": {
         "title": "❌ Service rollback failed: {name}",
+        "body": "{error}",
+    },
+    "image_prefetch_success": {
+        "title": "⬇️ New version ready: {name}",
+        "body": "The image finished downloading in the background — Update now "
+                "switches over in seconds.",
+    },
+    "image_prefetch_failure": {
+        "title": "❌ Background download failed: {name}",
         "body": "{error}",
     },
     "swarm_agent_restart_success": {
@@ -1390,6 +1406,10 @@ _CONFLICT_FAMILIES: tuple[frozenset[str], ...] = (
     frozenset({"update_stack"}),
     frozenset({"update_container", "restart_container", "remove_container"}),
     frozenset({"restart_service", "rollback_service"}),
+    # Its own group: a background download never stops anything, so it must
+    # not block a restart or rollback of the same service — only a second
+    # download of the same service.
+    frozenset({"prefetch_image"}),
 )
 
 

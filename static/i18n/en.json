@@ -172,6 +172,14 @@
         "title": "❌ Service rollback failed: {name}",
         "body": "{error}"
       },
+      "image_prefetch_success": {
+        "title": "⬇️ New version ready: {name}",
+        "body": "The image finished downloading in the background — Update now switches over in seconds."
+      },
+      "image_prefetch_failure": {
+        "title": "❌ Background download failed: {name}",
+        "body": "{error}"
+      },
       "swarm_agent_restart_success": {
         "title": "🔄 Portainer agent restarted: {name}",
         "body": "Force-update applied; agents on every node will respawn and re-register with the manager."
@@ -1863,6 +1871,7 @@
         "container_remove": "Container removals",
         "service_restart": "Service restarts",
         "service_rollback": "Service rollbacks",
+        "image_prefetch": "Background image downloads",
         "swarm_agent_restart": "Swarm agent restarts",
         "swarm_agent_unhealthy": "Swarm agent unhealthy",
         "swarm_agent_recovered": "Swarm agent recovered",
@@ -2783,6 +2792,10 @@
           "label": "Image pre-pull limit (seconds)",
           "help": "How long an update, recreate, retag or rollback may spend fetching the images it needs onto the node BEFORE anything running is stopped. Swarm's own behaviour is to stop the old container first and download afterwards, so on a slow link the whole download used to be an outage. If the fetch doesn't finish within this limit the operation fails and the running service is left exactly as it was. Default 1800 (30 minutes). Raise it for very large images on a slow connection. Range 60..7200. Resolved per operation."
         },
+        "tuning_background_prefetch_timeout_seconds": {
+          "label": "Background download limit (seconds)",
+          "help": "How long the new version may keep downloading in the background after you roll a service back to an image that's already on its node. The rolled-back service keeps running the whole time and nothing is stopped by this download, so the limit is much longer than the pre-pull limit. When it finishes you get a notification and the next Update is instant. Default 21600 (6 hours). Range 600..86400."
+        },
         "tuning_ssh_default_port": {
           "label": "SSH default port",
           "help": "Default TCP port for the SSH terminal + run-command flows. Consumed when a curated host's `ssh.port` is unset. Default 22 (standard SSH). Range 1..65535. Live — takes effect on the next SSH invocation; no restart needed."
@@ -3317,7 +3330,24 @@
     "task_error_action_cleanup_overlay": "Cleanup stale overlay network ({subnet})",
     "task_error_action_cleanup_overlay_help": "Uses the Portainer API to find the overlay network matching the failing subnet, verifies no other containers are using it, removes it, then force-updates the service. Docker recreates the overlay + a fresh VXLAN interface when the new task lands. SSH-free; safe for single-stack overlay networks (the typical compose-deploy pattern). Aborts cleanly when the network is shared with another stack.",
     "task_error_cleanup_overlay_done": "Overlay {network} removed and service force-updated. Watch for the new task to come up.",
-    "task_error_cleanup_overlay_failed": "Cleanup failed: {error}"
+    "task_error_cleanup_overlay_failed": "Cleanup failed: {error}",
+    "local_images": {
+      "button": "Run an image that's already on the node",
+      "help": "Images for this service that are already on its node, newest first. Running one needs no download, so it takes seconds — use it when an update is stuck downloading and you need the service back now. \"Roll back to previous version\" can't do this: it uses the one spec Swarm keeps, which after an update and a restart already points at the new image.",
+      "background": "Keep downloading the new version in the background, and tell me when it's ready",
+      "empty": "No other images for this service are on {nodes}.",
+      "built": "built {date}",
+      "last_ran": "last ran {ago} ago",
+      "current": "current",
+      "not_everywhere": "not on every node",
+      "not_everywhere_title": "This image isn't on every node the service runs on, so running it would mean downloading it first.",
+      "use": "Run this one",
+      "confirm_title": "Run an earlier image on {name}?",
+      "confirm_body": "The service restarts on {digest}, which is already on the node — nothing to download.",
+      "confirm_background": "The new version keeps downloading in the background and you'll be told when it's ready; Update then switches over in seconds.",
+      "confirm_ok": "Run it",
+      "queued": "Switching to {digest} — watch the row for progress"
+    }
   },
   "portainer_offline_banner": {
     "title": "Portainer is unreachable — showing the last known data",
@@ -4029,7 +4059,8 @@
     "totp_self_disable": "Disable TOTP (self)",
     "totp_self_regenerate_codes": "Regenerate TOTP backup codes",
     "passkey_self_register": "Register passkey (self)",
-    "passkey_self_delete": "Delete passkey (self)"
+    "passkey_self_delete": "Delete passkey (self)",
+    "prefetch_image": "background image download"
   },
   "op_status": {
     "running": "running",
@@ -7493,7 +7524,8 @@
       "restart_service": "Restarting",
       "restart_container": "Restarting",
       "remove_container": "Removing",
-      "default": "Working"
+      "default": "Working",
+      "prefetch_image": "Downloading new version"
     },
     "phase": {
       "fetching": "downloading image",
@@ -7508,7 +7540,8 @@
       "restart_service": "Restart failed",
       "restart_container": "Restart failed",
       "remove_container": "Remove failed",
-      "default": "Last action failed"
+      "default": "Last action failed",
+      "prefetch_image": "Background download failed"
     },
     "started_by": "started by {actor} {mins} min ago"
   }

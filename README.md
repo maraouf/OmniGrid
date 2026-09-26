@@ -267,6 +267,8 @@ POST   /api/update/stack/{id}              prune+repull+redeploy   → {op_id}
 POST   /api/update/container/{id}          recreate w/ pull        → {op_id}
 POST   /api/restart/service/{id}           ForceUpdate bump        → {op_id}
 POST   /api/rollback/service/{id}          Swarm rollback=previous → {op_id}
+GET    /api/service/{id}/local-images     images for the service already on its node(s)
+POST   /api/rollback/service/{id}/to-image  run one of them by digest (no download) → {op_id}
 GET    /api/item/{id}/diagnose             why a failed task did not start
 POST   /api/restart/container/{id}                                  → {op_id}
 POST   /api/remove/container/{id}          delete -fv              → {op_id}

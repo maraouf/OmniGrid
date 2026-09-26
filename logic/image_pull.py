@@ -280,31 +280,61 @@ def _poll_seconds() -> float:
         return 15.0
 
 
-async def _sweep_stale_jobs(client: httpx.AsyncClient, budget_s: float) -> None:
+async def _sweep_stale_jobs(client: httpx.AsyncClient) -> None:
     """Remove prefetch jobs left behind by a crash.
 
-    A live job is never older than the pre-pull limit — its own op gives up
-    and removes it by then — so anything older is an orphan. Best-effort: a
-    failure here must never block the fetch.
+    A job belongs to the op that created it (its ``omnigrid.prefetch.op``
+    label). If that op isn't RUNNING in this process, nothing will ever
+    remove the job, so this does. Keyed on the owner rather than on age: a
+    background download of a large image legitimately runs for hours, and an
+    age cut-off would kill it whenever any other fetch happened to start.
+    Single-process by design (one replica), so "not in this process's op
+    list" does mean "orphaned". Best-effort: never blocks the fetch.
     """
+    from logic import ops as _ops  # noqa: PLC0415 — leaf import, avoids a cycle
     ep = f"{portainer.PORTAINER_URL}/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}/docker"
     try:
         filters = quote(json.dumps({"label": [f"{_JOB_LABEL}=1"]}))
         r = await client.get(f"{ep}/services?filters={filters}", headers=portainer.headers())
         if r.status_code >= 400:
             return
-        cutoff = time.time() - budget_s
-        from datetime import datetime  # noqa: PLC0415
         for svc in r.json() or []:
-            created = str((svc or {}).get("CreatedAt") or "")
-            try:
-                ts = datetime.fromisoformat(created[:26].rstrip("Z") + "+00:00").timestamp()
-            except ValueError:
+            labels = ((svc or {}).get("Spec") or {}).get("Labels") or {}
+            owner = _ops.ops.get(str(labels.get(f"{_JOB_LABEL}.op") or ""))
+            if owner is not None and owner.status == "running":
                 continue
-            if ts < cutoff and svc.get("ID"):
+            if svc.get("ID"):
                 await client.delete(f"{ep}/services/{svc['ID']}", headers=portainer.headers())
     except (httpx.HTTPError, ValueError, TypeError):
         return
+
+
+async def local_images(client: httpx.AsyncClient, node: str, repository: str) -> list[dict]:
+    """Images of ``repository`` already on ``node``: ``[{digest, tags, created, size}]``.
+
+    One entry per repo digest — the identity a Swarm service pins to. An image
+    that was built locally rather than pulled has no repo digest and can't be
+    pinned by one, so it is left out rather than offered and then refused.
+    """
+    ep = f"/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}/docker"
+    filters = quote(json.dumps({"reference": [repository]}))
+    images = await portainer.pg(client, f"{ep}/images/json?filters={filters}",
+                                agent_target=node or None) or []
+    out: list[dict] = []
+    for img in images:
+        if not isinstance(img, dict):
+            continue
+        for rd in img.get("RepoDigests") or []:
+            name, _, digest = str(rd).partition("@")
+            if name == repository and digest.startswith("sha256:"):
+                out.append({
+                    "digest": digest,
+                    "tags": [str(t).rsplit(":", 1)[-1] for t in (img.get("RepoTags") or [])
+                             if str(t).startswith(repository + ":")],
+                    "created": int(img.get("Created") or 0),
+                    "size": int(img.get("Size") or 0),
+                })
+    return out
 
 
 async def _pull_via_swarm_job(client: httpx.AsyncClient, op: Operation, node: str,
@@ -389,7 +419,8 @@ def _budget_seconds() -> float:
 
 async def ensure_images_on_nodes(client: httpx.AsyncClient, op: Operation,
                                  targets: list[tuple[str, str]], *,
-                                 strict: bool, keep_digest: bool = False) -> None:
+                                 strict: bool, keep_digest: bool = False,
+                                 budget_s: Optional[float] = None) -> None:
     """Pull every ``(node, image_ref)`` before the caller stops anything.
 
     Raises ``RuntimeError`` — whose message says the running service was left
@@ -401,7 +432,10 @@ async def ensure_images_on_nodes(client: httpx.AsyncClient, op: Operation,
     unique = list(dict.fromkeys((n or "", r) for n, r in targets if r))
     if not unique:
         return
-    budget = _budget_seconds()
+    # A caller with no one waiting on it (a background download) passes its
+    # own, longer limit; everything that is about to stop a service uses the
+    # pre-pull limit.
+    budget = float(budget_s) if budget_s else _budget_seconds()
     deadline = time.monotonic() + budget
     # A job needs a Swarm manager to create it and a node to pin it to. Where
     # either is missing (a standalone endpoint, a node that couldn't be
@@ -409,7 +443,7 @@ async def ensure_images_on_nodes(client: httpx.AsyncClient, op: Operation,
     # proxy can cut, which its error message then says.
     use_jobs = await _is_swarm_manager(client)
     if use_jobs:
-        await _sweep_stale_jobs(client, budget)
+        await _sweep_stale_jobs(client)
     op.log(f"Fetching {len(unique)} image(s) onto their node(s) before anything is "
            f"stopped (limit {int(budget)}s"
            f"{', through a Swarm job' if use_jobs else ''})…")

@@ -976,7 +976,7 @@ export default {
     }
     const own = this._runningOps().find(o => o.target_id === item.raw_id && [
       'update_container', 'restart_container', 'remove_container',
-      'restart_service', 'rollback_service',
+      'restart_service', 'rollback_service', 'prefetch_image',
     ].includes(o.op_type));
     if (own) {
       return own;
@@ -1017,7 +1017,7 @@ export default {
     }
     const own = this._newestOp(o => o.target_id === item.raw_id && [
       'update_container', 'restart_container', 'remove_container',
-      'restart_service', 'rollback_service',
+      'restart_service', 'rollback_service', 'prefetch_image',
     ].includes(o.op_type));
     if (own) {
       return own.status === 'error' ? own : null;
@@ -1047,7 +1047,9 @@ export default {
       return '';
     }
     const verb = this.t('ops_status.verb.' + op.op_type) || this.t('ops_status.verb.default');
-    if (!op.phase) {
+    // A background download's verb already says what it's doing; its
+    // `fetching` phase would only repeat it.
+    if (!op.phase || op.op_type === 'prefetch_image') {
       return verb;
     }
     const p = op.progress;

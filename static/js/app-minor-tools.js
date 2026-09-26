@@ -404,6 +404,87 @@ export default {
     return out;
   },
 
+  // ---- Run an image that's already on the node ---------------------------
+  // The drawer's way out when an update is stuck downloading: Swarm keeps
+  // only one previous spec, and after an update plus a restart it already
+  // points at the NEW image, so "Roll back to previous version" can't help.
+  // This lists the images for the service that are already on its node(s)
+  // and runs the chosen one by digest — no download, so the swap takes
+  // seconds — optionally keeping the new version downloading meanwhile.
+  localImages: null,          // {service_id, repository, tag, candidates, ...}
+  localImagesLoading: false,
+  localImagesBackground: true,
+  async loadLocalImages(item) {
+    if (!item || this.localImagesLoading) {
+      return;
+    }
+    // Toggle closed when it's already open for this service.
+    if (this.localImages && this.localImages.service_id === item.raw_id) {
+      this.localImages = null;
+      return;
+    }
+    this.localImagesLoading = true;
+    try {
+      const r = await fetch('/api/service/' + encodeURIComponent(item.raw_id) + '/local-images');
+      if (!r.ok) {
+        this.showToast(await this.fmtResponseError(r), 'error');
+        return;
+      }
+      const d = await r.json();
+      this.localImages = {...d, service_id: item.raw_id};
+    } catch (e) {
+      this.showToast(String((e && e.message) || e), 'error');
+    } finally {
+      this.localImagesLoading = false;
+    }
+  },
+  localImageLastRan(c) {
+    const ms = c && c.last_ran ? Date.parse(c.last_ran) : NaN;
+    return Number.isFinite(ms) ? this.t('drawer.local_images.last_ran', {ago: this.fmtAgo(ms)}) : '';
+  },
+  async rollbackToLocalImage(item, c) {
+    if (!item || !c || c.current || !c.on_all_nodes) {
+      return;
+    }
+    const short = c.digest.slice(0, 19) + '…';
+    let ok;
+    try {
+      const res = await Swal.fire({
+        title: this.t('drawer.local_images.confirm_title', {name: item.name}),
+        text: this.t('drawer.local_images.confirm_body', {digest: short})
+          + (this.localImagesBackground ? ' ' + this.t('drawer.local_images.confirm_background') : ''),
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: this.t('drawer.local_images.confirm_ok'),
+        cancelButtonText: this.t('actions.cancel') || 'Cancel',
+      });
+      ok = !!res.isConfirmed;
+    } catch (_) {
+      ok = false;
+    }
+    if (!ok) {
+      return;
+    }
+    try {
+      const r = await fetch('/api/rollback/service/' + encodeURIComponent(item.raw_id) + '/to-image', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({digest: c.digest, background_fetch: !!this.localImagesBackground}),
+      });
+      if (!r.ok) {
+        // 409 = something is already running on this service; its detail
+        // says what and who, which is the useful part.
+        this.showToast(await this.fmtResponseError(r), 'error');
+        return;
+      }
+      this.localImages = null;
+      this.showToast(this.t('drawer.local_images.queued', {digest: short}), 'success');
+      this.pollOpsNow();
+    } catch (e) {
+      this.showToast(String((e && e.message) || e), 'error');
+    }
+  },
+
   // Match a Swarm task-error string against known patterns and
   // return localised remediation guidance (HTML-escaped). Returns
   // empty string when the error doesn't match a known pattern —

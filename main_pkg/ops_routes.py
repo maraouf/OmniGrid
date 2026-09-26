@@ -184,6 +184,58 @@ async def api_rollback_service(
     return {"op_id": op.id}
 
 
+@app.get("/api/service/{service_id}/local-images")
+async def api_service_local_images(service_id: str, _admin: AdminUser):
+    """Images for a Swarm service that are already on its node(s).
+
+    Feeds the drawer's "run an image that's already here" picker. Admin-only
+    because it reads each node's Docker image list through the agent. Each
+    candidate says whether it's the current image, when the service last ran
+    it, and whether it's on EVERY node the service runs on — only those can be
+    rolled back to without downloading anything.
+    """
+    try:
+        async with portainer.write_client(timeout=30.0) as client:
+            return await _ops_mod.service_image_candidates(client, service_id)
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(e.response.status_code,
+                            f"Portainer: HTTP {e.response.status_code}")
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"Couldn't reach Portainer: {type(e).__name__}: {e}")
+
+
+class RollbackToImageIn(BaseModel):
+    """Which local image to run, and whether to keep fetching the new one."""
+    digest: str
+    background_fetch: bool = True
+
+
+@app.post("/api/rollback/service/{service_id}/to-image")
+async def api_rollback_service_to_image(
+    service_id: str, body: RollbackToImageIn, bg: BackgroundTasks, request: Request,
+    _admin: AdminUser,
+):
+    """Run a Swarm service on an image that is already on its node(s).
+
+    For when an update is stuck downloading its new image: Swarm keeps only
+    one previous spec, and after an update plus a restart that "previous"
+    already points at the new image — so `/api/rollback/service/{id}` can't
+    help. This pins a specific local digest instead, with no download, and by
+    default keeps the new version downloading in the background (a separate
+    `prefetch_image` op) so it still arrives. Returns ``{op_id}``; 409 when
+    the service already has an op running.
+    """
+    digest = (body.digest or "").strip()
+    if not digest.startswith("sha256:") or len(digest) != 71:
+        raise HTTPException(400, "digest must be a full sha256:<64 hex> image digest")
+    name, stack = _item_context(service_id)
+    op = new_op("rollback_service", service_id, name,
+                target_stack=stack, actor=_actor_from(request))
+    bg.add_task(_ops_mod.do_rollback_to_image, op, service_id, digest,
+                background_fetch=body.background_fetch)
+    return {"op_id": op.id}
+
+
 @app.post("/api/restart/container/{container_id}")
 async def api_restart_container(
     container_id: str, bg: BackgroundTasks, request: Request,
@@ -1805,6 +1857,9 @@ class SettingsIn(BaseModel):
     # Pre-pull budget — images are fetched onto the node before anything is
     # stopped. See logic/image_pull.py.
     tuning_image_prepull_timeout_seconds: Optional[str] = None
+    # Background download limit — the new version fetched while a rolled-back
+    # service runs on an image already on its node.
+    tuning_background_prefetch_timeout_seconds: Optional[str] = None
     # In-app notifications retention window (days). Drives the
     # prune_notifications schedule kind.
     tuning_notification_retention_days: Optional[str] = None
@@ -2043,6 +2098,8 @@ class SettingsIn(BaseModel):
     notify_event_service_restart_failure: Optional[str] = None
     notify_event_service_rollback_success: Optional[str] = None
     notify_event_service_rollback_failure: Optional[str] = None
+    notify_event_image_prefetch_success: Optional[str] = None
+    notify_event_image_prefetch_failure: Optional[str] = None
     # Swarm autoheal — restart success / failure / unhealthy detection.
     # The first two are fired by `do_restart_swarm_agent` directly;
     # the third is fired by the `swarm_agent_health` schedule kind
