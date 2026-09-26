@@ -546,6 +546,8 @@ export default {
     // after Portainer accepts the PUT.
     'tuning_stack_update_observe_timeout_seconds',
     'tuning_stack_update_observe_poll_seconds',
+    // Pre-pull budget — images reach the node before anything is stopped.
+    'tuning_image_prepull_timeout_seconds',
     // In-app notifications retention — rendered inline in Admin →
     // Notifications next to the per-medium / per-event toggles
     // (was in the generic Process tunables form previously, but

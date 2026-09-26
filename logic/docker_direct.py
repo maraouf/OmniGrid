@@ -154,6 +154,10 @@ class DockerClient:
         self._conn = conn
         self._sock = socket_path
         self._to = timeout
+        # Full body of the most recent response. The returned snippet is the
+        # first 300 bytes, which is useless for an image pull: Docker streams
+        # progress and reports a failure in the LAST line, under HTTP 200.
+        self.last_body = ""
 
     async def request(self, method: str, path: str,
                       body: Optional[Any] = None) -> "tuple[int, Any, str]":
@@ -214,7 +218,8 @@ class DockerClient:
                 parsed = json.loads(body_bytes)
             except (ValueError, TypeError):
                 parsed = None
-        snippet = body_bytes[:300].decode(errors="replace")
+        self.last_body = body_bytes.decode(errors="replace")
+        snippet = self.last_body[:300]
         return status, parsed, snippet
 
     async def exec_command(self, command: str) -> "tuple[int, str, str]":
@@ -270,6 +275,8 @@ class TLSDockerClient:
         self._client = client
         self._base = base
         self._to = timeout
+        # Full body of the most recent response — see DockerClient.last_body.
+        self.last_body = ""
 
     async def request(self, method: str, path: str,
                       body: Optional[Any] = None) -> "tuple[int, Any, str]":
@@ -285,7 +292,8 @@ class TLSDockerClient:
             parsed = r.json()
         except (ValueError, TypeError):
             parsed = None
-        snippet = (r.text or "")[:300]
+        self.last_body = r.text or ""
+        snippet = self.last_body[:300]
         return r.status_code, parsed, snippet
 
     async def get(self, path: str) -> "tuple[int, Any, str]":

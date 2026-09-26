@@ -2779,6 +2779,10 @@
           "label": "Stack-update convergence poll cadence (seconds)",
           "help": "How often to ask Portainer for the per-service UpdateStatus during the post-PUT convergence wait. Default 15s — light enough on Portainer + fast enough to land within ~30s of the actual rollout completing. Lower (e.g. 5) for snappier feedback at the cost of more Portainer requests; raise (e.g. 60) for very large fleets where the per-poll service-list cost is non-trivial. Range 5..120. Resolved per op."
         },
+        "tuning_image_prepull_timeout_seconds": {
+          "label": "Image pre-pull limit (seconds)",
+          "help": "How long an update, recreate, retag or rollback may spend fetching the images it needs onto the node BEFORE anything running is stopped. Swarm's own behaviour is to stop the old container first and download afterwards, so on a slow link the whole download used to be an outage. If the fetch doesn't finish within this limit the operation fails and the running service is left exactly as it was. Default 1800 (30 minutes). Raise it for very large images on a slow connection. Range 60..7200. Resolved per operation."
+        },
         "tuning_ssh_default_port": {
           "label": "SSH default port",
           "help": "Default TCP port for the SSH terminal + run-command flows. Consumed when a curated host's `ssh.port` is unset. Default 22 (standard SSH). Range 1..65535. Live — takes effect on the next SSH invocation; no restart needed."
@@ -7480,5 +7484,23 @@
       "username_required": "Registry {host} needs a username.",
       "password_required": "Registry {host} needs a password or token."
     }
+  },
+  "ops_status": {
+    "verb": {
+      "update_stack": "Updating",
+      "update_container": "Updating",
+      "rollback_service": "Rolling back",
+      "restart_service": "Restarting",
+      "restart_container": "Restarting",
+      "remove_container": "Removing",
+      "default": "Working"
+    },
+    "phase": {
+      "fetching": "downloading image",
+      "fetching_progress": "downloading image {done}/{total}",
+      "swapping": "switching over",
+      "waiting": "waiting for it to start"
+    },
+    "started_by": "started by {actor} {mins} min ago"
   }
 }

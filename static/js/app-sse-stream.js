@@ -945,7 +945,75 @@ export default {
     if (this.busy[this._busyKey('svc', item.raw_id)]) {
       return true;
     }
-    return this.activeOps.some(o => o.op_type === 'restart_service' && o.target_id === item.raw_id);
+    return this.activeOps.some(o => ['restart_service', 'rollback_service'].includes(o.op_type)
+      && o.target_id === item.raw_id);
+  },
+  // ---- "What is happening to this row right now" ---------------------------
+  // The RUNNING op acting on a stack / row, or null. Busy state alone only
+  // greys out a button — and the stack's Update button isn't even rendered
+  // once the stack is expanded — so an update that spends many minutes
+  // downloading its image BEFORE it stops anything looked like nothing was
+  // happening. These feed the og-op-phase chip, which every surface that
+  // shows the row renders, whatever buttons happen to be visible.
+  _runningOps() {
+    return (this.activeOps || []).filter(o => o && o.status === 'running');
+  },
+  stackRunningOp(stack) {
+    if (!stack) {
+      return null;
+    }
+    const tid = stack.stack_id
+      ? String(stack.stack_id)
+      : (stack.compose_path ? (stack.compose_node_id || '') + ':' + stack.name : '');
+    if (!tid) {
+      return null;
+    }
+    return this._runningOps().find(o => o.op_type === 'update_stack' && String(o.target_id) === tid) || null;
+  },
+  itemRunningOp(item) {
+    if (!item) {
+      return null;
+    }
+    const own = this._runningOps().find(o => o.target_id === item.raw_id && [
+      'update_container', 'restart_container', 'remove_container',
+      'restart_service', 'rollback_service',
+    ].includes(o.op_type));
+    if (own) {
+      return own;
+    }
+    // A service inside a stack is being acted on whenever its stack is.
+    return item.stack_id ? this.stackRunningOp({stack_id: item.stack_id}) : null;
+  },
+  // "Updating · downloading image 12/30" — the verb comes from the op type,
+  // the second half from the phase the backend reports. Both translated;
+  // the backend sends keys, never display text.
+  opPhaseText(op) {
+    if (!op) {
+      return '';
+    }
+    const verb = this.t('ops_status.verb.' + op.op_type) || this.t('ops_status.verb.default');
+    if (!op.phase) {
+      return verb;
+    }
+    const p = op.progress;
+    const phase = (op.phase === 'fetching' && p && p.total)
+      ? this.t('ops_status.phase.fetching_progress', {done: p.done, total: p.total})
+      : this.t('ops_status.phase.' + op.phase);
+    return verb + ' · ' + phase;
+  },
+  // Tooltip: which image / service, who started it, and for how long — a
+  // long download should read as "still going", not as "stuck".
+  opPhaseTitle(op) {
+    if (!op) {
+      return '';
+    }
+    const mins = Math.max(0, Math.floor((Date.now() / 1000 - (op.started || 0)) / 60));
+    const parts = [];
+    if (op.phase_detail) {
+      parts.push(op.phase_detail);
+    }
+    parts.push(this.t('ops_status.started_by', {actor: op.actor || '—', mins}));
+    return parts.join(' — ');
   },
   isRestartBusy(item) {
     if (!item) {
@@ -1001,7 +1069,7 @@ export default {
     if (['update_container', 'remove_container', 'restart_container'].includes(op.op_type)) {
       return this._busyKey('ctn', op.target_id);
     }
-    if (op.op_type === 'restart_service') {
+    if (op.op_type === 'restart_service' || op.op_type === 'rollback_service') {
       return this._busyKey('svc', op.target_id);
     }
     return null;

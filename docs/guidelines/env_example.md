@@ -496,6 +496,13 @@ STAT_BAR_CRIT_PCT = 85
 STACK_UPDATE_OBSERVE_TIMEOUT_SECONDS = 300
 STACK_UPDATE_OBSERVE_POLL_SECONDS = 15
 
+# How long an update / recreate / retag / rollback may spend fetching the
+# images it needs onto the node BEFORE anything running is stopped. Swarm
+# stops the old task first and pulls afterwards, so on a slow link the whole
+# download used to be an outage. Past this limit the operation fails and the
+# running service is left untouched. Default 1800 (30 min); range 60..7200.
+IMAGE_PREPULL_TIMEOUT_SECONDS = 1800
+
 # In-app notifications page size for the Notifications popup. Default 25;
 # range 5..200. Surfaced via /api/me's `client_config.notifications_page_size`
 # so a Save in Admin → Config takes effect on the next round-trip.
@@ -1301,6 +1308,7 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `STAT_BAR_CRIT_PCT`                            | Runtime    | `85`                    | Stat-bar red-threshold percentage. Range 50..99.                                                                                                                                                                                                                                                                                                                                              |
 | `STACK_UPDATE_OBSERVE_TIMEOUT_SECONDS`         | Runtime    | `300`                   | Maximum time `do_update_stack` waits for Swarm-service rollouts to settle after Portainer accepts the PUT. Range 30..1800.                                                                                                                                                                                                                                                                    |
 | `STACK_UPDATE_OBSERVE_POLL_SECONDS`            | Runtime    | `15`                    | Polling cadence for the post-PUT service-list check. Range 5..120.                                                                                                                                                                                                                                                                                                                            |
+| `IMAGE_PREPULL_TIMEOUT_SECONDS`                | Runtime    | `1800`                  | How long an update / recreate / retag / rollback may spend fetching images onto the node before anything is stopped. Past it the op fails with the service untouched. Range 60..7200.                                                                                                                                                                                                         |
 | `NOTIFICATION_PAGE_SIZE`                       | Runtime    | `25`                    | In-app notifications popup page size. Range 5..200. Surfaced via `client_config.notifications_page_size`.                                                                                                                                                                                                                                                                                     |
 | `HOSTS_IDLE_FILL_INTERVAL_SECONDS`             | Runtime    | `3`                     | Idle-time progressive fill cadence for the Hosts view (0 = disabled). Range 0..30.                                                                                                                                                                                                                                                                                                            |
 | `SWARM_AUTOHEAL_COOLDOWN_MINUTES`              | Runtime    | `30`                    | Cool-down (minutes) between consecutive `swarm_agent_health` `restart` actions. Persisted across container restarts via `swarm_autoheal_last_restart_ts`. Range 1..1440.                                                                                                                                                                                                                      |

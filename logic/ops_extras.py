@@ -55,7 +55,7 @@ from typing import Optional
 
 import httpx
 
-from logic import gather, portainer
+from logic import gather, image_pull, portainer
 from logic.tuning import tuning_int as _tuning_int, Tunable as _Tunable
 
 # Cyclic-import note: `logic.ops` loads this module from its tail via
@@ -420,7 +420,7 @@ def _retag_compose_to_latest(
 
 async def _await_stack_convergence(
     client: httpx.AsyncClient, stack: dict, op: "Operation",
-) -> None:
+) -> Optional[str]:
     """Block until every Swarm service in this stack's namespace has
     finished rolling out the new image, OR until the timeout fires.
 
@@ -441,14 +441,18 @@ async def _await_stack_convergence(
     Polling cadence + timeout are operator-tunable via
     ``tuning_stack_update_observe_poll_seconds`` (default 15s, range
     5..120) and ``tuning_stack_update_observe_timeout_seconds``
-    (default 300s, range 30..1800). Defensive: a timeout WARN-logs but
-    still lets the caller stamp ``op.done("success")`` — Portainer
-    accepted the request, the rollback is a separate concern.
+    (default 300s, range 30..1800).
+
+    Returns None when the stack settled (or has no Swarm services to wait
+    on), and otherwise a message naming what never finished — the caller
+    turns that into a FAILED op. It used to warn and let the op succeed,
+    which is how a service stayed down behind a green "updated": Portainer
+    accepting the request says nothing about whether the new tasks started.
     """
     stack_name = (stack or {}).get("Name") or ""
     if not stack_name:
         op.log("Convergence wait: stack name missing — skipping poll", "warning")
-        return
+        return None
     try:
         timeout_s = _tuning_int(_Tunable.STACK_UPDATE_OBSERVE_TIMEOUT_SECONDS)
         poll_s = _tuning_int(_Tunable.STACK_UPDATE_OBSERVE_POLL_SECONDS)
@@ -458,7 +462,12 @@ async def _await_stack_convergence(
     services_url = f"{portainer.PORTAINER_URL}/api/endpoints/{eid}/docker/services"
     deadline = time.time() + timeout_s
     clean_polls = 0
+    # What the most recent successful poll saw still rolling out. Stays
+    # None if no poll ever got through, so the failure message can say
+    # "couldn't tell" rather than blame a service it never saw.
+    last_stuck: Optional[list[tuple[str, str]]] = None
     op.log(f"Waiting for stack convergence (timeout={timeout_s}s, poll={poll_s}s)…")
+    op.set_phase("waiting", stack_name)
     while time.time() < deadline:
         try:
             r = await client.get(services_url, headers=portainer.headers())
@@ -505,7 +514,8 @@ async def _await_stack_convergence(
             # external/stopped stack). Nothing to wait for —
             # Portainer's PUT-side work is the entire op.
             op.log("Convergence: no Swarm services in stack namespace — done")
-            return
+            return None
+        last_stuck = stuck_services
         if any_updating:
             clean_polls = 0
             # Surface the stuck services + Swarm's per-service status
@@ -531,13 +541,20 @@ async def _await_stack_convergence(
         clean_polls += 1
         if clean_polls >= 2:
             op.log(f"Stack converged ({in_stack_count} service(s) idle)", "success")
-            return
+            return None
         await asyncio.sleep(poll_s)
-    op.log(
-        f"Convergence wait: hit {timeout_s}s timeout — marking op done; "
-        f"actual rollout may still be in progress",
-        "warning",
-    )
+    if last_stuck is None:
+        return (f"Couldn't confirm the rollout finished — Portainer's service list "
+                f"never answered within {timeout_s}s. Check the stack before "
+                f"relying on it.")
+    if not last_stuck:
+        # Timed out between two clean polls — nothing was seen stuck.
+        return None
+    names = "; ".join(f"{n}" + (f" ({m[:120]})" if m else "") for n, m in last_stuck[:3])
+    more = f" (+{len(last_stuck) - 3} more)" if len(last_stuck) > 3 else ""
+    return (f"Rollout didn't finish within {timeout_s}s — still updating: {names}{more}. "
+            f"The new task never started, so the service may be down; check it "
+            f"with `docker service ps <name>`.")
 
 
 # noinspection DuplicatedCode
@@ -667,6 +684,17 @@ async def do_update_stack(
                             old_val = ev.get("value") or ""
                             ev["value"] = env_updates[name]
                             op.log(f"Updated stack env {name}: {old_val} → {ev['value']}")
+            # Fetch every image onto the node(s) its tasks run on BEFORE the
+            # redeploy. Swarm stops the old task first and pulls afterwards,
+            # so without this the whole download is an outage — a slow pull
+            # once kept a working service down for 25+ minutes. By the time
+            # Portainer's own pull runs below, the image is already local and
+            # the swap is an ordinary restart. A timeout or failure raises
+            # here, before anything is stopped.
+            _image_map = ({old: new for old, new in replacements}
+                          if retag_to_latest else {})
+            _targets = await image_pull.stack_targets(client, op, stack["Name"], _image_map)
+            await image_pull.ensure_images_on_nodes(client, op, _targets, strict=False)
             body = {
                 "StackFileContent": content,
                 "Env": stack_env,
@@ -674,6 +702,7 @@ async def do_update_stack(
                 "PullImage": True,
             }
             op.log("Calling Portainer: Prune=true, PullImage=true")
+            op.set_phase("swapping", stack["Name"])
             r = await client.put(
                 f"{portainer.PORTAINER_URL}/api/stacks/{stack_id}"
                 f"?endpointId={portainer.PORTAINER_ENDPOINT_ID}",
@@ -689,7 +718,13 @@ async def do_update_stack(
             # to "Update" while the stack is still mid-rollout. Wait for
             # convergence by polling Swarm-service UpdateStatus on every
             # service in this stack's namespace.
-            await _await_stack_convergence(client, stack, op)
+            stalled = await _await_stack_convergence(client, stack, op)
+            if stalled:
+                # Portainer accepted the redeploy, but the rollout didn't
+                # finish. Reporting that as success is how a service stayed
+                # down unnoticed: the op said "updated", no failure alert
+                # fired, and the operator found out from the app going quiet.
+                raise RuntimeError(stalled)
         op.done("success")
         await notify(
             f"✅ Stack updated: {op.target_name}",
@@ -1088,6 +1123,18 @@ async def do_update_container(op: Operation, container_id: str) -> None:
                 "502 / dropped connection here is EXPECTED — not a failure.",
                 "warning",
             )
+        # Fetch the image onto the container's node before Portainer's
+        # /recreate stops anything. Whether /recreate itself pulls before or
+        # after stopping is Portainer's internal business; doing it here makes
+        # the order ours. Non-strict: /recreate may carry registry credentials
+        # this step lacks, so an auth refusal warns and carries on.
+        if container_image_ref:
+            async with portainer.write_client(timeout=_portainer_op_timeout("long")) as _pull_client:
+                await image_pull.ensure_images_on_nodes(
+                    _pull_client, op, [(node or "", container_image_ref)], strict=False)
+        else:
+            op.log("Image ref unknown (inspect failed) — can't fetch it ahead of time; "
+                   "Portainer's recreate will pull it itself", "warning")
         recreate_endpoint_error: Optional[str] = None
         recreate_response_full: str = ""
         # The container ID the FALLBACK should inspect. Defaults to the
@@ -1097,6 +1144,7 @@ async def do_update_container(op: Operation, container_id: str) -> None:
         # manual-fallback inspect MUST point at the live new container
         # OR it will 404 and abort before pulling the fresh image.
         new_container_id: str = container_id
+        op.set_phase("swapping", op.target_name)
         async with portainer.write_client(timeout=_portainer_op_timeout("long")) as client:
             try:
                 # `json={}` is REQUIRED — Portainer's recreate endpoint
@@ -1374,6 +1422,7 @@ async def _stop_remove_create_connect_start(
     container picks one up from its own id."""
     pfx = log_prefix
     # ---- Stop the old container --------------------------------------
+    op.set_phase("swapping", old_name)
     op.log(f"{pfx}Stopping old container…")
     r = await client.post(
         f"{portainer.PORTAINER_URL}/api/endpoints/"
@@ -1528,15 +1577,13 @@ async def _recreate_container_in_place(op: Operation, container_id: str) -> None
                   if target_image_ref != old_image_ref else "(unchanged)"))
 
         # ---- 2. Pull a fresh manifest under the same tag ---------------
-        pull_url = (
-            f"{portainer.PORTAINER_URL}/api/endpoints/"
-            f"{portainer.PORTAINER_ENDPOINT_ID}"
-            f"/docker/images/create?fromImage={target_image_ref}"
-        )
+        # Strict: OmniGrid does this pull itself, so a failure must stop the
+        # recreate here — before step 4 stops and removes the container.
+        # Checking only the HTTP status (as this did) misses Docker's
+        # in-stream failure and recreated on whatever happened to be local.
         op.log(f"[fallback] Pulling fresh image manifest for {target_image_ref!r}…")
-        r = await client.post(pull_url, headers=portainer.headers(agent_target=node))
-        if r.status_code >= 400:
-            raise RuntimeError(f"pull HTTP {r.status_code}: {r.text[:300]}")
+        await image_pull.ensure_images_on_nodes(
+            client, op, [(node or "", target_image_ref)], strict=True)
 
         # ---- 3. Capture config (same shape as do_retag uses) -----------
         cfg, host_cfg, _networks, _first_net, extra_networks, networking_config = (
@@ -1657,13 +1704,13 @@ async def _recreate_container_direct(op: Operation, container_id: str, node: dic
         op.log(f"[direct] Image ref {old_image_ref!r}"
                + (f" → {target_image_ref!r} (digest stripped)"
                   if target_image_ref != old_image_ref else " (unchanged)"))
-        op.log(f"[direct] Pulling fresh image manifest for {target_image_ref!r}…")
-        st, _b, snip = await cli.post(
-            f"/images/create?fromImage={quote(target_image_ref, safe=':/@._-')}")
-        if st >= 400:
-            raise RuntimeError(f"pull HTTP {st}: {snip[:200]}")
+        # Strict and stream-checked: a failed pull stops here, before the
+        # stop / remove below. The client's snippet is only the first 300
+        # bytes, where a pull failure never appears — see ensure_image_direct.
+        await image_pull.ensure_image_direct(cli, op, target_image_ref)
         cfg, host_cfg, _n, _f, extra_networks, networking_config = (
             _extract_container_create_inputs(inspect, target_image_ref))
+        op.set_phase("swapping", old_name)
         op.log("[direct] Stopping old container…")
         st, _b, snip = await cli.post(f"/containers/{container_id}/stop?t=10")
         if st >= 500:
@@ -1782,15 +1829,14 @@ async def do_retag_container_to_latest(
             op.log(f"Retag {old_image_ref} → {new_image_ref}")
 
             # ---- 2. Pull the new image -------------------------------------
-            pull_url = (
-                f"{portainer.PORTAINER_URL}/api/endpoints/"
-                f"{portainer.PORTAINER_ENDPOINT_ID}"
-                f"/docker/images/create?fromImage={new_image_ref}"
-            )
+            # Strict: the retag stops and REMOVES the old container before it
+            # creates the new one, and a new tag isn't on the node yet — so a
+            # pull that failed inside Docker's HTTP-200 stream (which checking
+            # only the status let through) left no container at all. Any
+            # failure now stops the retag here, before anything is touched.
             op.log("Pulling new image…")
-            r = await client.post(pull_url, headers=portainer.headers(agent_target=node))
-            if r.status_code >= 400:
-                raise RuntimeError(f"pull HTTP {r.status_code}: {r.text[:300]}")
+            await image_pull.ensure_images_on_nodes(
+                client, op, [(node or "", new_image_ref)], strict=True)
 
             # ---- 2b. Inspect old + new image configs ----------------------
             # Captured Config from the running container conflates two
@@ -2096,6 +2142,17 @@ async def do_rollback_service(op: Operation, service_id: str) -> None:
                           .get("ContainerSpec") or {}).get("Image") or ""
             if prev_image:
                 op.log(f"Rolling back to {prev_image}")
+                # The image being rolled back TO may have been cleaned off the
+                # node since; Swarm would then stop the current task and pull
+                # it during the outage. Fetch it first. By digest where the
+                # old spec pinned one, so the rollback lands on exactly the
+                # bytes it ran before rather than whatever the tag names now.
+                _nodes = await image_pull.swarm_task_nodes(client, service_id)
+                if _nodes:
+                    await image_pull.ensure_images_on_nodes(
+                        client, op, [(n, prev_image) for n in _nodes],
+                        strict=False, keep_digest=True)
+            op.set_phase("swapping", op.target_name)
             r = await client.post(
                 f"{portainer.PORTAINER_URL}{ep}/update?version={version}&rollback=previous",
                 json=spec, headers=portainer.headers(),

@@ -266,6 +266,7 @@ class Tunable(str, Enum):
     SSH_WS_HEARTBEAT_SECONDS = "tuning_ssh_ws_heartbeat_seconds"
     STACK_UPDATE_OBSERVE_POLL_SECONDS = "tuning_stack_update_observe_poll_seconds"
     STACK_UPDATE_OBSERVE_TIMEOUT_SECONDS = "tuning_stack_update_observe_timeout_seconds"
+    IMAGE_PREPULL_TIMEOUT_SECONDS = "tuning_image_prepull_timeout_seconds"
     STAT_BAR_CRIT_PCT = "tuning_stat_bar_crit_pct"
     STAT_BAR_WARN_PCT = "tuning_stat_bar_warn_pct"
     STATS_CACHE_TTL_SECONDS = "tuning_stats_cache_ttl_seconds"
@@ -1276,6 +1277,14 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
         ("STACK_UPDATE_OBSERVE_TIMEOUT_SECONDS", 300, 30, 1800),
     "tuning_stack_update_observe_poll_seconds":
         ("STACK_UPDATE_OBSERVE_POLL_SECONDS", 15, 5, 120),
+    # How long an update / recreate / retag / rollback may spend making sure
+    # every image it needs is on the node BEFORE anything running is stopped
+    # (logic/image_pull.py). Swarm's default is to stop the old task first
+    # and pull afterwards, so on a slow link the whole download used to be
+    # an outage. Past this limit the op fails with the service untouched —
+    # generous by default because the alternative is disrupting a service.
+    "tuning_image_prepull_timeout_seconds":
+        ("IMAGE_PREPULL_TIMEOUT_SECONDS", 1800, 60, 7200),
     # In-app notifications retention window (days). The
     # `prune_notifications` schedule kind reads this to delete rows from
     # the `notifications` table older than `now - days * 86400`. Default

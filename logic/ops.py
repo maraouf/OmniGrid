@@ -139,6 +139,14 @@ MAX_OPS = 50
 #      Diff against this set; any missing name is a write-site that bypassed
 #      the registry and needs adding.
 #
+# What a running op can be doing, shown on the row it acts on. Each key has a
+# matching `ops.phase.<key>` string in static/i18n/en.json — the SPA
+# translates the key; the backend never sends display text.
+#   fetching — downloading an image onto its node; nothing stopped yet
+#   swapping — the old container / task is being replaced by the new one
+#   waiting  — the swap was requested; waiting for Swarm to finish it
+OP_PHASES: frozenset[str] = frozenset({"fetching", "swapping", "waiting"})
+
 # Out of scope: renaming any existing op_type literals — back-compat with
 # the on-disk `history` table preserves shipped names. New names go through
 # this registry; legacy names stay until the next MAJOR.
@@ -1251,7 +1259,8 @@ class Operation:
     until eviction (`MAX_OPS` cap, finished ops drop first)."""
 
     __slots__ = ("id", "op_type", "target_id", "target_name", "target_stack",
-                 "started", "ended", "status", "events", "error", "actor")
+                 "started", "ended", "status", "events", "error", "actor",
+                 "phase", "phase_detail", "progress")
 
     def __init__(self, op_type: str, target_id: str, target_name: str,
                  target_stack: Optional[str] = None, actor: str = "ui"):
@@ -1266,6 +1275,35 @@ class Operation:
         self.events: list[dict] = []
         self.error: Optional[str] = None
         self.actor = actor
+        # What the op is doing RIGHT NOW, for the row it's acting on. A
+        # machine key from OP_PHASES (the SPA translates it), a short
+        # untranslated detail such as the image name, and optional
+        # {done, total} progress. The log says what happened; this says what
+        # is happening — an update now spends its download BEFORE anything
+        # is stopped, which can take many minutes, and a row that shows only
+        # a spinning button through that looks hung.
+        self.phase = ""
+        self.phase_detail = ""
+        self.progress: Optional[dict] = None
+
+    def set_phase(self, phase: str, detail: str = "", *,
+                  done: Optional[int] = None, total: Optional[int] = None) -> None:
+        """Record the current phase and tell every open tab.
+
+        ``phase`` must be one of ``OP_PHASES`` — an unknown key would render
+        as a raw string in the UI, so it fails loudly here instead.
+        """
+        if phase and phase not in OP_PHASES:
+            raise ValueError(f"unknown op phase {phase!r}")
+        self.phase = phase
+        self.phase_detail = detail
+        self.progress = ({"done": int(done), "total": int(total)}
+                         if done is not None and total else None)
+        events.publish("op:updated", {
+            "id": self.id, "op_type": self.op_type, "status": self.status,
+            "target_name": self.target_name, "phase": self.phase,
+            "phase_detail": self.phase_detail, "progress": self.progress,
+        })
 
     def log(self, msg: str, level: str = "info"):
         """Append one event to the live op log + publish an `op:updated`
@@ -1314,6 +1352,9 @@ class Operation:
         self.status = status
         self.ended = time.time()
         self.error = error
+        # A finished op is doing nothing; a stale "Downloading…" on a done
+        # op would outlive it in the linger panel.
+        self.phase, self.phase_detail, self.progress = "", "", None
         # SSE — terminal transition. Consumer correlates by id.
         events.publish("op:completed", {
             "id": self.id, "op_type": self.op_type, "status": status,
@@ -1330,6 +1371,8 @@ class Operation:
             "status": self.status, "events": self.events, "error": self.error,
             "duration": (self.ended or time.time()) - self.started,
             "actor": self.actor,
+            "phase": self.phase, "phase_detail": self.phase_detail,
+            "progress": self.progress,
         }
 
 

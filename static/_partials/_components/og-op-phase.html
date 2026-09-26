@@ -1,0 +1,30 @@
+<!--
+  "This is being worked on right now" chip — rendered on a stack header, a
+  service / container row, and the drawer header whenever an op is RUNNING
+  against it. Says what the op is doing (downloading the image, swapping the
+  container, waiting for the rollout) with live layer progress while it
+  downloads.
+
+  Why a chip and not just the busy button: an update now fetches its image
+  BEFORE it stops anything, which can take many minutes on a slow link, and
+  the button is not a reliable place to show that — the stack's Update button
+  isn't rendered at all once the stack is expanded. Anyone looking at the
+  row must be able to see it is mid-update, from any tab and after a reload;
+  the state comes from the server's op list, so it does both.
+
+  Surrounding Alpine scope MUST define:
+    - opFn : () => op|null — the running op for THIS row
+             (stackRunningOp(stack) / itemRunningOp(item)).
+
+  Deliberately NOT a live region: the same op shows on up to five surfaces
+  at once (stack header, its rows in three views, the drawer) and the layer
+  count ticks every few seconds while it downloads, so `aria-live` would have
+  a screen reader announce every tick several times over. The op's outcome
+  is announced once, by the completion toast (app-ops.js, justDone).
+-->
+<span x-show="opFn()"
+      class="og-op-phase pill pill-info inline-flex items-center gap-1.5 fs-2xs"
+      :title="opPhaseTitle(opFn())">
+  <span class="spin" aria-hidden="true"></span>
+  <span x-text="opPhaseText(opFn())"></span>
+</span>

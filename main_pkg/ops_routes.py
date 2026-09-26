@@ -1802,6 +1802,9 @@ class SettingsIn(BaseModel):
     # Stack-update convergence-poll window — see logic/ops.py:_await_stack_convergence.
     tuning_stack_update_observe_timeout_seconds: Optional[str] = None
     tuning_stack_update_observe_poll_seconds: Optional[str] = None
+    # Pre-pull budget — images are fetched onto the node before anything is
+    # stopped. See logic/image_pull.py.
+    tuning_image_prepull_timeout_seconds: Optional[str] = None
     # In-app notifications retention window (days). Drives the
     # prune_notifications schedule kind.
     tuning_notification_retention_days: Optional[str] = None
