@@ -984,6 +984,61 @@ export default {
     // A service inside a stack is being acted on whenever its stack is.
     return item.stack_id ? this.stackRunningOp({stack_id: item.stack_id}) : null;
   },
+  // ---- "The last thing done to this row FAILED" ----------------------------
+  // The newest op on a target, from the full ring. If it failed, the row
+  // says so until the next op on that target replaces it — a failed update
+  // used to leave only a toast, and the row reverting to "Update" read as
+  // "nothing happened, click again".
+  _newestOp(match) {
+    let best = null;
+    for (const o of (this.recentOps || [])) {
+      if (o && match(o) && (!best || (o.started || 0) > (best.started || 0))) {
+        best = o;
+      }
+    }
+    return best;
+  },
+  stackFailedOp(stack) {
+    if (!stack) {
+      return null;
+    }
+    const tid = stack.stack_id
+      ? String(stack.stack_id)
+      : (stack.compose_path ? (stack.compose_node_id || '') + ':' + stack.name : '');
+    if (!tid) {
+      return null;
+    }
+    const last = this._newestOp(o => o.op_type === 'update_stack' && String(o.target_id) === tid);
+    return last && last.status === 'error' ? last : null;
+  },
+  itemFailedOp(item) {
+    if (!item) {
+      return null;
+    }
+    const own = this._newestOp(o => o.target_id === item.raw_id && [
+      'update_container', 'restart_container', 'remove_container',
+      'restart_service', 'rollback_service',
+    ].includes(o.op_type));
+    if (own) {
+      return own.status === 'error' ? own : null;
+    }
+    return item.stack_id ? this.stackFailedOp({stack_id: item.stack_id}) : null;
+  },
+  opFailedText(op) {
+    if (!op) {
+      return '';
+    }
+    return this.t('ops_status.failed.' + op.op_type) || this.t('ops_status.failed.default');
+  },
+  // The reason is the point: "the download ran past the limit", "no Swarm
+  // node named …", "the registry refused". Plus when, and who started it.
+  opFailedTitle(op) {
+    if (!op) {
+      return '';
+    }
+    const reason = String(op.error || '').slice(0, 400);
+    return (reason ? reason + ' — ' : '') + this.opPhaseTitle(op);
+  },
   // "Updating · downloading image 12/30" — the verb comes from the op type,
   // the second half from the phase the backend reports. Both translated;
   // the backend sends keys, never display text.

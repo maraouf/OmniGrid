@@ -7501,6 +7501,15 @@
       "swapping": "switching over",
       "waiting": "waiting for it to start"
     },
+    "failed": {
+      "update_stack": "Update failed",
+      "update_container": "Update failed",
+      "rollback_service": "Rollback failed",
+      "restart_service": "Restart failed",
+      "restart_container": "Restart failed",
+      "remove_container": "Remove failed",
+      "default": "Last action failed"
+    },
     "started_by": "started by {actor} {mins} min ago"
   }
 }

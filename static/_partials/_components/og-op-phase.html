@@ -1,20 +1,27 @@
 <!--
-  "This is being worked on right now" chip — rendered on a stack header, a
-  service / container row, and the drawer header whenever an op is RUNNING
-  against it. Says what the op is doing (downloading the image, swapping the
-  container, waiting for the rollout) with live layer progress while it
-  downloads.
+  "What is happening to this row" chip — rendered on a stack header, a
+  service / container row, and the drawer header. Two states:
 
-  Why a chip and not just the busy button: an update now fetches its image
-  BEFORE it stops anything, which can take many minutes on a slow link, and
-  the button is not a reliable place to show that — the stack's Update button
-  isn't rendered at all once the stack is expanded. Anyone looking at the
-  row must be able to see it is mid-update, from any tab and after a reload;
-  the state comes from the server's op list, so it does both.
+  * RUNNING (blue, spinner) — an op is acting on it now, and the chip says
+    what it is doing: downloading the image, switching over, waiting for it to
+    start, with live progress while it downloads.
+  * FAILED (red) — the most recent op on it failed. Stays until the next op on
+    that target replaces it; hover for the reason.
+
+  Why a chip and not just the busy button: an update fetches its image BEFORE
+  it stops anything, which can take many minutes on a slow link, and the
+  button is not a reliable place to show that — the stack's Update button
+  isn't rendered at all once the stack is expanded. And when the op FAILED,
+  the chip disappearing and the button coming back read as "nothing happened,
+  try again": the failure was only in a toast that faded. The state comes
+  from the server's op list, so it shows in every tab and survives a reload.
 
   Surrounding Alpine scope MUST define:
-    - opFn : () => op|null — the running op for THIS row
-             (stackRunningOp(stack) / itemRunningOp(item)).
+    - opFn   : () => op|null — the running op for THIS row
+               (stackRunningOp(stack) / itemRunningOp(item)).
+  Optional (read via $data so an omitted prop can't throw):
+    - failFn : () => op|null — the failed op to report
+               (stackFailedOp(stack) / itemFailedOp(item)).
 
   Deliberately NOT a live region: the same op shows on up to five surfaces
   at once (stack header, its rows in three views, the drawer) and the layer
@@ -27,4 +34,10 @@
       :title="opPhaseTitle(opFn())">
   <span class="spin" aria-hidden="true"></span>
   <span x-text="opPhaseText(opFn())"></span>
+</span>
+<span x-show="!opFn() && typeof $data['failFn'] === 'function' && $data['failFn']()"
+      class="og-op-phase pill pill-error inline-flex items-center gap-1.5 fs-2xs"
+      :title="typeof $data['failFn'] === 'function' ? opFailedTitle($data['failFn']()) : ''">
+  <span aria-hidden="true">✗</span>
+  <span x-text="typeof $data['failFn'] === 'function' ? opFailedText($data['failFn']()) : ''"></span>
 </span>

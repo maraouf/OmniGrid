@@ -50,7 +50,7 @@ if TYPE_CHECKING:  # pragma: no cover
 # classified separately where the status is visible.
 _AUTH_MARKERS = (
     "unauthorized", "authentication required", "access to the resource is denied",
-    "no basic auth credentials", "denied: ",
+    "no basic auth credentials", "denied: ", "pull access denied",
 )
 
 
@@ -164,6 +164,18 @@ async def _pull_via_portainer(client: httpx.AsyncClient, op: Operation,
                                  timeout=httpx.Timeout(budget_s)) as r:
             if r.status_code >= 400:
                 body = (await r.aread()).decode(errors="replace")
+                if r.status_code in (502, 503, 504) and "<html" in body.lower():
+                    # A reverse proxy in front of Portainer answered, not
+                    # Portainer: it gave up waiting because a pull sends
+                    # nothing back until it finishes. Say that instead of
+                    # pasting the proxy's error page into the op log.
+                    raise PullFailure(
+                        "failed", label, node,
+                        f"the proxy in front of Portainer ended the download with "
+                        f"HTTP {r.status_code} after "
+                        f"{time.monotonic() - started:,.0f}s — it gives up on a request "
+                        f"that stays silent that long. Raise its read timeout, or point "
+                        f"OmniGrid at Portainer directly (Admin → Portainer)")
                 raise PullFailure(
                     "auth" if r.status_code == 401 or is_auth_error(body) else "failed",
                     label, node, f"HTTP {r.status_code}: {body[:300]}")
@@ -219,6 +231,154 @@ async def _pull_via_portainer(client: httpx.AsyncClient, op: Operation,
            f"in {time.monotonic() - started:,.1f}s")
 
 
+# ---- Fetching through a Swarm job ------------------------------------------
+#
+# Why not just POST /images/create: through Portainer that is ONE long HTTP
+# request, and Portainer's agent proxy sends nothing back until the pull
+# completes. Any reverse proxy in front of Portainer (Nginx Proxy Manager's
+# default read timeout is 90 s) then cuts it with a 504 — on a slow link
+# every fetch failed at exactly 90 s, so the pre-fetch refused every update
+# of anything big. Swarm's own pull runs inside the node's daemon with no
+# request held open, which is how Portainer's stack redeploy never hit this.
+#
+# So the image is fetched by a one-shot job pinned to the node. Its command
+# is a path that cannot exist, so the image's own code NEVER RUNS: the task
+# can only get past `preparing` once the image is local (the pull), and then
+# fails to start — which is the signal that the download is done. The job is
+# always removed afterwards.
+
+_JOB_LABEL = "omnigrid.prefetch"
+# Deliberately nonexistent: guarantees nothing from the image is executed.
+_JOB_COMMAND = ["/omnigrid-prefetch-never-runs"]
+# Task states that mean "still getting ready to run" — the download happens
+# in `preparing`.
+_JOB_WAITING = {"new", "allocated", "pending", "assigned", "accepted", "preparing"}
+# Any state past preparing means the image made it onto the node. `failed` is
+# the expected one: the nonexistent command can't start.
+_JOB_PULLED = {"ready", "starting", "running", "complete", "failed", "shutdown"}
+
+
+async def _is_swarm_manager(client: httpx.AsyncClient) -> bool:
+    """True when the Portainer endpoint is a Swarm manager — the only place a
+    job can be created. Anything else falls back to the streamed pull."""
+    ep = f"/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}/docker"
+    try:
+        info = await portainer.pg(client, f"{ep}/info") or {}
+    except (httpx.HTTPError, ValueError):
+        return False
+    swarm = info.get("Swarm") or {}
+    return swarm.get("LocalNodeState") == "active" and bool(swarm.get("ControlAvailable"))
+
+
+def _poll_seconds() -> float:
+    """Reuses the stack-update poll cadence: same Portainer, same kind of
+    "is it done yet" question, so one knob governs both."""
+    from logic.tuning import Tunable, tuning_int  # noqa: PLC0415
+    try:
+        return float(tuning_int(Tunable.STACK_UPDATE_OBSERVE_POLL_SECONDS))
+    except (KeyError, ValueError, TypeError):
+        return 15.0
+
+
+async def _sweep_stale_jobs(client: httpx.AsyncClient, budget_s: float) -> None:
+    """Remove prefetch jobs left behind by a crash.
+
+    A live job is never older than the pre-pull limit — its own op gives up
+    and removes it by then — so anything older is an orphan. Best-effort: a
+    failure here must never block the fetch.
+    """
+    ep = f"{portainer.PORTAINER_URL}/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}/docker"
+    try:
+        filters = quote(json.dumps({"label": [f"{_JOB_LABEL}=1"]}))
+        r = await client.get(f"{ep}/services?filters={filters}", headers=portainer.headers())
+        if r.status_code >= 400:
+            return
+        cutoff = time.time() - budget_s
+        from datetime import datetime  # noqa: PLC0415
+        for svc in r.json() or []:
+            created = str((svc or {}).get("CreatedAt") or "")
+            try:
+                ts = datetime.fromisoformat(created[:26].rstrip("Z") + "+00:00").timestamp()
+            except ValueError:
+                continue
+            if ts < cutoff and svc.get("ID"):
+                await client.delete(f"{ep}/services/{svc['ID']}", headers=portainer.headers())
+    except (httpx.HTTPError, ValueError, TypeError):
+        return
+
+
+async def _pull_via_swarm_job(client: httpx.AsyncClient, op: Operation, node: str,
+                              image_ref: str, budget_s: float, *,
+                              keep_digest: bool = False) -> None:
+    """Fetch ``image_ref`` onto ``node`` through a one-shot Swarm job."""
+    repo, tag = split_ref(image_ref, keep_digest=keep_digest)
+    image = f"{repo}@{tag}" if tag.startswith("sha256:") else f"{repo}:{tag}"
+    label = f"{repo}@{tag[:19]}…" if tag.startswith("sha256:") else f"{repo}:{tag}"
+    ep = f"{portainer.PORTAINER_URL}/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}/docker"
+    headers = {**portainer.headers(), **_registry_auth_header(repo)}
+    spec: dict[str, Any] = {
+        "Name": f"omnigrid-prefetch-{op.id}-{abs(hash((node, image))) % 10**6:06d}",
+        "Labels": {_JOB_LABEL: "1", f"{_JOB_LABEL}.image": image, f"{_JOB_LABEL}.op": op.id},
+        "TaskTemplate": {
+            "ContainerSpec": {"Image": image, "Command": _JOB_COMMAND},
+            "Placement": {"Constraints": [f"node.hostname=={node}"]},
+            "RestartPolicy": {"Condition": "none"},
+        },
+        "Mode": {"ReplicatedJob": {"MaxConcurrent": 1, "TotalCompletions": 1}},
+    }
+    op.set_phase("fetching", label)
+    started = time.monotonic()
+    deadline = started + budget_s
+    r = await client.post(f"{ep}/services/create", json=spec, headers=headers)
+    if r.status_code == 400 and "mode" in r.text.lower():
+        # Docker older than 20.10 has no job mode; one replica that never
+        # restarts behaves the same for this purpose.
+        spec["Mode"] = {"Replicated": {"Replicas": 1}}
+        r = await client.post(f"{ep}/services/create", json=spec, headers=headers)
+    if r.status_code >= 400:
+        body = r.text[:300]
+        raise PullFailure("auth" if r.status_code == 401 or is_auth_error(body) else "failed",
+                          label, node, f"couldn't create the fetch job: HTTP {r.status_code}: {body}")
+    service_id = str((r.json() or {}).get("ID") or "")
+    try:
+        filters = quote(json.dumps({"service": [service_id]}))
+        poll = _poll_seconds()
+        while True:
+            tasks = []
+            tr = await client.get(f"{ep}/tasks?filters={filters}", headers=portainer.headers())
+            if tr.status_code < 400:
+                tasks = [t for t in (tr.json() or []) if isinstance(t, dict)]
+            if tasks:
+                newest = max(tasks, key=lambda t: str(t.get("CreatedAt") or ""))
+                status = newest.get("Status") or {}
+                state = str(status.get("State") or "").lower()
+                err = str(status.get("Err") or "")
+                if state in _JOB_PULLED:
+                    op.log(f"Fetched {label} on {node} in {time.monotonic() - started:,.1f}s")
+                    return
+                if state == "rejected":
+                    # The pull (or the image reference) failed on the node.
+                    raise PullFailure("auth" if is_auth_error(err) else "failed", label, node,
+                                      err or "the node rejected the fetch")
+                if state == "pending" and "no suitable node" in err.lower():
+                    raise PullFailure("failed", label, node,
+                                      f"no Swarm node named {node!r} is available: {err}")
+                if state not in _JOB_WAITING:
+                    raise PullFailure("failed", label, node, f"fetch job ended as {state!r}: {err}")
+            if time.monotonic() + poll > deadline:
+                raise PullFailure("timeout", label, node,
+                                  f"still downloading after {int(budget_s)}s")
+            await asyncio.sleep(poll)
+    finally:
+        # Always — success, failure, timeout or cancellation. Removing the job
+        # while it's still preparing also stops its download.
+        try:
+            await client.delete(f"{ep}/services/{service_id}", headers=portainer.headers())
+        except (httpx.HTTPError, OSError) as e:
+            op.log(f"Couldn't remove fetch job {spec['Name']} ({type(e).__name__}); it will be "
+                   f"swept up by the next fetch", "warning")
+
+
 def _budget_seconds() -> float:
     from logic.tuning import Tunable, tuning_int  # noqa: PLC0415
     try:
@@ -243,8 +403,16 @@ async def ensure_images_on_nodes(client: httpx.AsyncClient, op: Operation,
         return
     budget = _budget_seconds()
     deadline = time.monotonic() + budget
+    # A job needs a Swarm manager to create it and a node to pin it to. Where
+    # either is missing (a standalone endpoint, a node that couldn't be
+    # resolved) the streamed pull is the only option — and the one a reverse
+    # proxy can cut, which its error message then says.
+    use_jobs = await _is_swarm_manager(client)
+    if use_jobs:
+        await _sweep_stale_jobs(client, budget)
     op.log(f"Fetching {len(unique)} image(s) onto their node(s) before anything is "
-           f"stopped (limit {int(budget)}s)…")
+           f"stopped (limit {int(budget)}s"
+           f"{', through a Swarm job' if use_jobs else ''})…")
     for node, ref in unique:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
@@ -252,8 +420,12 @@ async def ensure_images_on_nodes(client: httpx.AsyncClient, op: Operation,
                 f"Image fetch ran past the {int(budget)}s limit before {ref} — "
                 f"nothing was stopped; the running service is unchanged")
         try:
-            await _pull_via_portainer(client, op, node, ref, remaining,
-                                      keep_digest=keep_digest)
+            if use_jobs and node:
+                await _pull_via_swarm_job(client, op, node, ref, remaining,
+                                          keep_digest=keep_digest)
+            else:
+                await _pull_via_portainer(client, op, node, ref, remaining,
+                                          keep_digest=keep_digest)
         except PullFailure as e:
             if e.kind == "auth" and not strict:
                 op.log(

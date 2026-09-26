@@ -1321,7 +1321,7 @@ Routes that are **safe to script against long-term**:
 
 - `/api/healthz`, `/api/version`, `/metrics` — never break.
 - `/api/items`, `/api/stats`, `/api/stats/history`, `/api/ops`, `/api/history` — additions only; existing fields are not removed.
-- `/api/update/stack/{id}`, `/api/update/container/{id}`, `/api/restart/*`, `/api/rollback/service/{id}`, `/api/remove/*`, `/api/prune/node/{hostname}`, `/api/swarm/restart-agent` — contract is `{op_id}` always.
+- `/api/update/stack/{id}`, `/api/update/container/{id}`, `/api/restart/*`, `/api/rollback/service/{id}`, `/api/remove/*`, `/api/prune/node/{hostname}`, `/api/swarm/restart-agent` — contract is `{op_id}` when the op starts. One exception, added when updates began downloading their images before swapping (which can take many minutes): a request against a target that already has an operation RUNNING — a second update of the same stack, or an update / restart / remove of a container being updated — returns **HTTP 409** `{error: "op_in_progress", detail}`, where `detail` names the running op, who started it and how long ago. Nothing is started; retry once that op has finished (poll `/api/ops`). A script that fired the same update twice used to start two racing operations.
 - `/api/hosts/list`, `/api/hosts/one/{id}`, `/api/hosts/history`, `/api/hosts/config` — additive.
 - `/api/docker-nodes` (GET / POST), `/api/docker-nodes/test` (POST) — admin-only; manage / probe direct-Docker (Portainer-less, over-SSH) nodes. Full-replace JSON-array body `{docker_nodes: [...]}`; SSH passwords redacted to a `password_set` flag (keep-current-if-blank). See `docs/guidelines/docker_nodes.md`.
 - `/api/schedules*`, `/api/backups*`, `/api/notifications*` — additive.

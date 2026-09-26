@@ -33,6 +33,8 @@ export default {
     : 50),
   historyFilters: {q: '', stack: '', op_type: '', status: '', actor: '', fromDate: '', toDate: ''},
   activeOps: [],
+  // All ops in the server's ring (running AND finished) — see pollOps.
+  recentOps: [],
   opsExpanded: true,
   _historyQueryParams(opts = {}) {
     // Build the shared ?stack=&op_type=...&since=... query string used by
@@ -352,6 +354,12 @@ export default {
         this.activeOps = all.filter(
           o => o.status === 'running' || this._opLingerUntil[o.id]
         );
+        // Every op the server still holds, finished ones included — the
+        // "last update of this stack FAILED" chip reads it. activeOps keeps a
+        // finished op for only the 8 s linger, so without this a failure
+        // vanished from the row with the toast, and the row simply went back
+        // to "Update" as though nothing had happened.
+        this.recentOps = all;
         if (justDone.length > 0) {
           const holdKeys = [...new Set(justDone.map(o => this._opBusyKey(o)).filter(Boolean))];
           holdKeys.forEach(k => this._holdBusy(k));

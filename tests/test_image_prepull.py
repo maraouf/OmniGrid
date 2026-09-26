@@ -25,6 +25,9 @@ import json
 import httpx
 import pytest
 
+# `main` first, as at app start: it wires the logic.ops <-> ops_extras
+# re-exports, which a bare `import logic.ops_extras` leaves half-done.
+import main  # noqa: F401,E402
 from logic import image_pull, ops_extras, portainer
 from logic.ops import Operation
 
@@ -56,6 +59,7 @@ class _Op:
     """Just enough of an Operation for the helper — it logs and reports phase."""
 
     def __init__(self):
+        self.id = "op0test"
         self.lines: list[tuple[str, str]] = []
         self.phases: list[tuple] = []
 
@@ -112,9 +116,21 @@ def test_auth_classification_does_not_fire_on_a_digest_containing_401():
 
 # --- the helper's policy ------------------------------------------------------
 
+def _standalone(handler):
+    """Wrap a pull handler as a NON-Swarm endpoint, so the streamed pull is
+    the path under test. `/info` answers instantly — a slow pull handler must
+    not also slow the "which method?" check."""
+    async def wrapped(req: httpx.Request):
+        if req.url.path.endswith("/docker/info"):
+            return httpx.Response(200, json={"Swarm": {"LocalNodeState": "inactive"}})
+        out = handler(req)
+        return await out if asyncio.iscoroutine(out) else out
+    return wrapped
+
+
 async def _fetch(handler, *, strict, targets=((NODE, IMAGE),)):
     op = _Op()
-    async with _client(handler) as client:
+    async with _client(_standalone(handler)) as client:
         await image_pull.ensure_images_on_nodes(client, op, list(targets), strict=strict)
     return op
 
@@ -317,6 +333,166 @@ async def test_a_rollout_that_never_finishes_is_a_failure_not_a_success(run_stac
     assert op.status == "error"
     assert "tracearr_tracearr" in (op.error or "")
     assert "didn't finish" in (op.error or "")
+
+
+# --- the Swarm-job fetch ------------------------------------------------------
+#
+# Through Portainer, a pull is one long request that sends nothing back until
+# it finishes, so the reverse proxy in front of Portainer (90 s by default)
+# cut every slow fetch with a 504 — the apprise update failed at exactly 90 s.
+# On a Swarm manager the fetch is a one-shot job instead: the node's daemon
+# downloads, no request is held open, and the job never runs the image.
+
+NEVER_STARTS = 'starting container failed: exec: "/omnigrid-prefetch-never-runs": no such file'
+
+
+def _swarm(task_states, *, create_first=None, seen=None):
+    """A fake Swarm-manager Portainer whose fetch job's task walks through
+    ``task_states`` (one per poll; the last repeats)."""
+    seen = seen if seen is not None else {}
+    seen.setdefault("creates", [])
+    seen.setdefault("deleted", [])
+    states = list(task_states)
+
+    async def handler(req: httpx.Request):
+        path = req.url.path
+        if path.endswith("/docker/info"):
+            return httpx.Response(200, json={"Swarm": {"LocalNodeState": "active",
+                                                       "ControlAvailable": True}})
+        if req.method == "GET" and path.endswith("/docker/services"):
+            return httpx.Response(200, json=[])          # stale-job sweep: nothing
+        if req.method == "POST" and path.endswith("/docker/services/create"):
+            seen["creates"].append(json.loads(req.content))
+            if create_first is not None and len(seen["creates"]) == 1:
+                return create_first
+            return httpx.Response(201, json={"ID": "job1"})
+        if req.method == "GET" and path.endswith("/docker/tasks"):
+            state, err = states.pop(0) if len(states) > 1 else states[0]
+            return httpx.Response(200, json=[{"CreatedAt": "2026-09-26T22:00:00Z",
+                                              "Status": {"State": state, "Err": err}}])
+        if req.method == "DELETE" and "/docker/services/" in path:
+            seen["deleted"].append(path.rsplit("/", 1)[-1])
+            return httpx.Response(200)
+        return httpx.Response(404)
+
+    return handler, seen
+
+
+@pytest.fixture
+def fast_poll(monkeypatch):
+    monkeypatch.setattr(image_pull, "_poll_seconds", lambda: 0.01)
+
+
+async def _job_fetch(handler, *, strict=True, keep_digest=False, ref=IMAGE):
+    op = _Op()
+    async with _client(handler) as client:
+        await image_pull.ensure_images_on_nodes(client, op, [(NODE, ref)],
+                                                strict=strict, keep_digest=keep_digest)
+    return op
+
+
+@pytest.mark.anyio
+async def test_swarm_fetch_is_a_pinned_job_that_never_runs_the_image(fast_poll):
+    # `preparing` = downloading; then the nonexistent command can't start,
+    # which is how we know the image is local.
+    handler, seen = _swarm([("preparing", ""), ("preparing", ""), ("failed", NEVER_STARTS)])
+    op = await _job_fetch(handler)
+    spec = seen["creates"][0]
+    assert spec["TaskTemplate"]["Placement"]["Constraints"] == [f"node.hostname=={NODE}"]
+    assert spec["TaskTemplate"]["ContainerSpec"]["Command"] == ["/omnigrid-prefetch-never-runs"]
+    assert spec["TaskTemplate"]["ContainerSpec"]["Image"] == IMAGE
+    assert spec["TaskTemplate"]["RestartPolicy"] == {"Condition": "none"}
+    assert "ReplicatedJob" in spec["Mode"]
+    assert seen["deleted"] == ["job1"]                    # always cleaned up
+    assert any("Fetched" in m for _, m in op.lines)
+    assert ("fetching", "ghcr.io/connorgallopo/tracearr:supervised", None, None) in op.phases
+
+
+@pytest.mark.anyio
+async def test_a_rollback_job_fetches_the_exact_digest(fast_poll):
+    handler, seen = _swarm([("failed", NEVER_STARTS)])
+    await _job_fetch(handler, keep_digest=True, ref=IMAGE + "@sha256:old")
+    assert seen["creates"][0]["TaskTemplate"]["ContainerSpec"]["Image"] == \
+        "ghcr.io/connorgallopo/tracearr@sha256:old"
+
+
+@pytest.mark.anyio
+async def test_a_rejected_fetch_job_stops_everything_and_is_removed(fast_poll):
+    handler, seen = _swarm([("preparing", ""),
+                            ("rejected", "No such image: ghcr.io/connorgallopo/tracearr:nope")])
+    with pytest.raises(RuntimeError, match="Nothing was stopped"):
+        await _job_fetch(handler)
+    assert seen["deleted"] == ["job1"]
+
+
+@pytest.mark.anyio
+async def test_a_fetch_job_past_the_limit_stops_everything_and_is_removed(fast_poll, monkeypatch):
+    monkeypatch.setattr(image_pull, "_budget_seconds", lambda: 0.2)
+    handler, seen = _swarm([("preparing", "")])          # never finishes
+    with pytest.raises(RuntimeError, match="still downloading.*nothing was stopped"):
+        await _job_fetch(handler, strict=False)          # a timeout aborts even non-strict
+    assert seen["deleted"] == ["job1"]
+
+
+@pytest.mark.anyio
+async def test_a_job_the_registry_refuses_falls_back_only_where_portainer_can_pull(fast_poll):
+    handler, _ = _swarm([("rejected", "pull access denied for private/app")])
+    op = await _job_fetch(handler, strict=False)
+    assert any(level == "warning" and "Couldn't fetch" in m for level, m in op.lines)
+    handler, _ = _swarm([("rejected", "pull access denied for private/app")])
+    with pytest.raises(RuntimeError, match="Nothing was stopped"):
+        await _job_fetch(handler, strict=True)
+
+
+@pytest.mark.anyio
+async def test_docker_without_job_mode_falls_back_to_one_replica(fast_poll):
+    handler, seen = _swarm([("failed", NEVER_STARTS)],
+                           create_first=httpx.Response(400, text='{"message":"invalid mode"}'))
+    await _job_fetch(handler)
+    assert "ReplicatedJob" in seen["creates"][0]["Mode"]
+    assert seen["creates"][1]["Mode"] == {"Replicated": {"Replicas": 1}}
+
+
+@pytest.mark.anyio
+async def test_a_proxy_cutting_a_streamed_pull_is_named_not_pasted():
+    page = "<html><head><title>504 Gateway Time-out</title></head><body>openresty</body></html>"
+    with pytest.raises(RuntimeError) as exc:
+        await _fetch(lambda r: httpx.Response(504, text=page), strict=True)
+    msg = str(exc.value)
+    assert "proxy in front of Portainer" in msg and "<html" not in msg
+
+
+# --- one op per target at a time ---------------------------------------------
+
+@pytest.fixture
+def fresh_ops(monkeypatch):
+    from logic import ops as ops_mod
+    monkeypatch.setattr(ops_mod, "ops", {})
+    monkeypatch.setattr(ops_mod, "ops_order", [])
+    return ops_mod
+
+
+def test_a_second_update_of_the_same_stack_is_refused_while_the_first_runs(fresh_ops):
+    first = fresh_ops.new_op("update_stack", "192", "apprise", actor="alice")
+    with pytest.raises(fresh_ops.OpConflict, match="apprise is already being worked on"):
+        fresh_ops.new_op("update_stack", "192", "apprise", actor="bob")
+    fresh_ops.new_op("update_stack", "193", "authentik")          # another stack: fine
+    first.done("error", "boom")
+    fresh_ops.new_op("update_stack", "192", "apprise")            # finished: allowed again
+
+
+def test_ops_on_the_same_container_conflict_across_the_family(fresh_ops):
+    fresh_ops.new_op("update_container", "c1", "web")
+    with pytest.raises(fresh_ops.OpConflict):
+        fresh_ops.new_op("remove_container", "c1", "web")
+    fresh_ops.new_op("restart_service", "c1", "web")              # a different family
+
+
+def test_a_conflict_reaches_the_browser_as_409_not_500(fresh_ops):
+    running = fresh_ops.new_op("update_stack", "192", "apprise", actor="alice")
+    resp = asyncio.run(main._op_conflict(None, fresh_ops.OpConflict(running)))
+    assert resp.status_code == 409
+    assert "apprise is already being worked on" in json.loads(resp.body)["detail"]
 
 
 @pytest.fixture

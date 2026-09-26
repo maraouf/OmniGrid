@@ -1202,7 +1202,7 @@
                   <span x-show="!stack.is_standalone && !stack.stack_id && !stack.compose_path" class="chip fs-3xs text-warning" x-text="t('chips.external')"></span>
                   <!-- Mid-update chip — here, not on the Update button, which
                        disappears once the stack is expanded. -->
-                  <span class="inline-flex" x-data="{ opFn: () => stackRunningOp(stack) }">
+                  <span class="inline-flex" x-data="{ opFn: () => stackRunningOp(stack), failFn: () => stackFailedOp(stack) }">
                     <!-- INCLUDE: _components/og-op-phase.html -->
                   </span>
                 </div>
@@ -1300,7 +1300,7 @@
                     <div class="min-w-0">
                       <div class="mono fs-sm text-[var(--text)] truncate" :title="item.name" x-text="item.name"></div>
                       <div class="fs-2xs text-[var(--text-faint)] truncate" :title="itemSubline(item)" x-text="itemSubline(item)"></div>
-                      <div class="mt-0.5" x-show="itemRunningOp(item)" x-data="{ opFn: () => itemRunningOp(item) }">
+                      <div class="mt-0.5" x-show="itemRunningOp(item) || itemFailedOp(item)" x-data="{ opFn: () => itemRunningOp(item), failFn: () => itemFailedOp(item) }">
                         <!-- INCLUDE: _components/og-op-phase.html -->
                       </div>
                       <div x-show="topologyGroups(item).length" class="topology-map">
@@ -1539,7 +1539,7 @@
                        @error="$el.classList.add('broken')"
                        @load="$el.classList.remove('broken')">
                   <span class="truncate" :title="item.name" x-text="item.name"></span>
-                  <span class="inline-flex shrink-0" x-data="{ opFn: () => itemRunningOp(item) }">
+                  <span class="inline-flex shrink-0" x-data="{ opFn: () => itemRunningOp(item), failFn: () => itemFailedOp(item) }">
                     <!-- INCLUDE: _components/og-op-phase.html -->
                   </span>
                 </div>
@@ -2005,7 +2005,7 @@
                     <div class="flex-1 min-w-0">
                       <div class="fs-sm font-medium truncate" x-text="item.name"></div>
                       <div class="fs-2xs text-[var(--text-faint)] mono truncate" x-text="item.image"></div>
-                      <div class="mt-0.5" x-show="itemRunningOp(item)" x-data="{ opFn: () => itemRunningOp(item) }">
+                      <div class="mt-0.5" x-show="itemRunningOp(item) || itemFailedOp(item)" x-data="{ opFn: () => itemRunningOp(item), failFn: () => itemFailedOp(item) }">
                         <!-- INCLUDE: _components/og-op-phase.html -->
                       </div>
                     </div>
@@ -11075,7 +11075,7 @@
                        @error="$el.style.display='none'">
                   <div class="min-w-0 flex-1">
                     <h2 class="fs-display-sm font-semibold mono break-all" x-text="drawerItem.name"></h2>
-                    <div class="mt-1" x-show="itemRunningOp(drawerItem)" x-data="{ opFn: () => itemRunningOp(drawerItem) }">
+                    <div class="mt-1" x-show="itemRunningOp(drawerItem) || itemFailedOp(drawerItem)" x-data="{ opFn: () => itemRunningOp(drawerItem), failFn: () => itemFailedOp(drawerItem) }">
                       <!-- INCLUDE: _components/og-op-phase.html -->
                     </div>
                     <div class="mono fs-xs text-[var(--text-dim)] break-all mt-1">

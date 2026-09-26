@@ -1302,6 +1302,19 @@ async def _log_unhandled_exception(request: Request, exc: Exception):
     )
 
 
+# A second op against a target that already has one running — refused inside
+# `new_op`, so every write route inherits it without its own check. 409, not
+# 500: nothing went wrong, the request just has to wait. The message names the
+# running op, who started it and how long ago; the SPA toasts `detail`.
+from logic.ops import OpConflict as _OpConflict  # noqa: E402 — `_ops_mod` is bound later in this file
+
+
+@app.exception_handler(_OpConflict)
+async def _op_conflict(request: Request, exc: Exception):
+    """Turn an OpConflict into a readable HTTP 409."""
+    return JSONResponse({"error": "op_in_progress", "detail": str(exc)}, status_code=409)
+
+
 # long-lived immutable caching for version-busted static assets.
 # Asset refs in the shell carry ?v=<APP_VERSION> (rewritten by _render_shell);
 # a real deploy bumps the PATCH version → the ?v= value changes → the URL is a

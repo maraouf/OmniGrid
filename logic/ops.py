@@ -1380,13 +1380,58 @@ ops: dict[str, Operation] = {}
 ops_order: list[str] = []
 
 
+# Ops that change what a target is running, grouped by what they act on. Two
+# from the same group on the same target at once race each other — a second
+# stack update while the first is still fetching its image would redeploy
+# underneath it. The UI disables the button, but a second tab, the AI or a
+# Telegram /update can still ask, so the refusal lives here where every path
+# passes.
+_CONFLICT_FAMILIES: tuple[frozenset[str], ...] = (
+    frozenset({"update_stack"}),
+    frozenset({"update_container", "restart_container", "remove_container"}),
+    frozenset({"restart_service", "rollback_service"}),
+)
+
+
+class OpConflict(RuntimeError):
+    """A new op would act on a target another RUNNING op is already acting
+    on. A ``RuntimeError`` so callers that already treat a failed spawn as
+    "skip this one" (Telegram /update) keep working unchanged; routes turn it
+    into HTTP 409."""
+
+    def __init__(self, running: "Operation"):
+        self.running = running
+        mins = max(0, int((time.time() - running.started) // 60))
+        super().__init__(
+            f"{running.target_name} is already being worked on — "
+            f"{running.op_type.replace('_', ' ')} started by {running.actor} "
+            f"{mins} min ago. Wait for it to finish (it shows on the row).")
+
+
+def running_conflict(op_type: str, target_id: str) -> Optional["Operation"]:
+    """The RUNNING op a new ``op_type`` on ``target_id`` would clash with."""
+    family = next((f for f in _CONFLICT_FAMILIES if op_type in f), None)
+    if family is None:
+        return None
+    for o in list(ops.values()):
+        if o.status == "running" and o.op_type in family and str(o.target_id) == str(target_id):
+            return o
+    return None
+
+
 def new_op(op_type: str, target_id: str, target_name: str,
            target_stack: Optional[str] = None, actor: str = "ui") -> Operation:
     """Construct a new :class:`Operation`, register it in the in-memory
     `ops` dict, publish the `op:created` SSE frame, and evict the
     oldest completed op when the cap is hit. Returns the Operation —
     callers stamp events via `op.log(...)` and finish with `op.done(...)
-    + persist_history(op)`."""
+    + persist_history(op)`.
+
+    Raises :class:`OpConflict` when another op is already running against
+    the same target (see ``_CONFLICT_FAMILIES``)."""
+    clash = running_conflict(op_type, target_id)
+    if clash is not None:
+        raise OpConflict(clash)
     # Validate against the canonical registry — logs a WARN line when
     # `op_type` isn't recognised. Doesn't raise (so existing behaviour
     # is back-compat); the WARN surfaces in Admin → Logs so a new
