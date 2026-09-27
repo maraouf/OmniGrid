@@ -435,6 +435,55 @@ def _rollout_wait_window() -> tuple[float, float]:
         return 300.0, 15.0
 
 
+async def _rollout_task_state(client: httpx.AsyncClient,
+                              service_id: str) -> tuple[int, str]:
+    """``(running, unplaceable)`` for one service mid-rollout.
+
+    ``running`` counts tasks actually running — the replicas still serving,
+    usually on the previous version. ``unplaceable`` is Swarm's reason when a
+    task it wants to run is stuck in ``pending`` with nowhere to go ("no
+    suitable node (…)"), else ''. That reason sits on the TASK, never on the
+    service's UpdateStatus, which just says "update in progress" — so without
+    this the wait sat out its whole timeout and then guessed. Best-effort:
+    a failed read answers (-1, '') and the wait carries on as before.
+    """
+    filters = quote(json.dumps({"service": [service_id], "desired-state": ["running"]}))
+    url = (f"{portainer.PORTAINER_URL}/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}"
+           f"/docker/tasks?filters={filters}")
+    try:
+        r = await client.get(url, headers=portainer.headers())
+        tasks = r.json() if r.status_code < 400 else None
+    except (httpx.HTTPError, OSError, ValueError):
+        tasks = None
+    if not isinstance(tasks, list):
+        return -1, ""
+    running, unplaceable = 0, ""
+    for t in tasks:
+        status = (t or {}).get("Status") or {}
+        state = str(status.get("State") or "").lower()
+        err = str(status.get("Err") or "")
+        if state == "running":
+            running += 1
+        elif state == "pending" and "no suitable node" in err.lower():
+            unplaceable = err
+    return running, unplaceable
+
+
+def _unplaceable_message(service: str, err: str, running: int) -> str:
+    """Say why Swarm can't place the new task, and what to change."""
+    serving = (f" The {running} running replica(s) keep serving the previous version."
+               if running > 0 else "")
+    if "max replicas per node" in err.lower():
+        return (f"Swarm can't place the new task for {service}: {err}. The service allows "
+                f"one replica per node and updates start-first — the new task has to start "
+                f"on a node BEFORE the old one there stops, which that limit forbids, so the "
+                f"update can never proceed. Set `update_config.order: stop-first` (and "
+                f"`rollback_config.order: stop-first`) in the stack, or drop "
+                f"`max_replicas_per_node`, then redeploy.{serving}")
+    return (f"Swarm can't place the new task for {service}: {err}. Check the service's "
+            f"placement constraints and resource reservations against the nodes.{serving}")
+
+
 async def _await_stack_convergence(
     client: httpx.AsyncClient, stack: dict, op: "Operation",
 ) -> Optional[str]:
@@ -479,6 +528,12 @@ async def _await_stack_convergence(
     # None if no poll ever got through, so the failure message can say
     # "couldn't tell" rather than blame a service it never saw.
     last_stuck: Optional[list[tuple[str, str]]] = None
+    # Per stuck service: how many replicas were running at the last look, and
+    # the unplaceable reason seen on the previous poll. The same reason on two
+    # polls in a row fails the wait at once — one poll alone can be the
+    # scheduler's brief gap while an old task releases its slot.
+    running_by_svc: dict[str, int] = {}
+    unplaceable_prev: dict[str, str] = {}
     op.log(f"Waiting for stack convergence (timeout={timeout_s:g}s, poll={poll_s:g}s)…")
     op.set_phase("waiting", stack_name)
     while time.time() < deadline:
@@ -522,6 +577,13 @@ async def _await_stack_convergence(
                 svc_msg = (us.get("Message") or "").strip()
                 if svc_name:
                     stuck_services.append((svc_name, svc_msg))
+                    if svc.get("ID"):
+                        running, unplaceable = await _rollout_task_state(client, str(svc["ID"]))
+                        if running >= 0:
+                            running_by_svc[svc_name] = running
+                        if unplaceable and unplaceable_prev.get(svc_name) == unplaceable:
+                            return _unplaceable_message(svc_name, unplaceable, running)
+                        unplaceable_prev[svc_name] = unplaceable
         if in_stack_count == 0:
             # Stack has no Swarm services (compose-only stack, or
             # external/stopped stack). Nothing to wait for —
@@ -566,8 +628,20 @@ async def _await_stack_convergence(
     names = "; ".join(f"{n}" + (f" ({m[:120]})" if m else "") for n, m in last_stuck[:3])
     more = f" (+{len(last_stuck) - 3} more)" if len(last_stuck) > 3 else ""
     return (f"Rollout didn't finish within {timeout_s:g}s — still updating: {names}{more}. "
-            f"The new task never started, so the service may be down; check it "
-            f"with `docker service ps <name>`.")
+            f"{_serving_note(last_stuck, running_by_svc)} Check it with "
+            f"`docker service ps <name>`.")
+
+
+def _serving_note(stuck: list[tuple[str, str]], running_by_svc: dict[str, int]) -> str:
+    """Whether the stuck services are still up — from what was SEEN, not
+    guessed. Saying "may be down" while every old replica is serving sent
+    the operator looking for an outage that wasn't there."""
+    counts = [running_by_svc.get(n) for n, _ in stuck]
+    if counts and all(c is not None and c > 0 for c in counts):
+        return "Its running replicas are still serving the previous version."
+    if counts and all(c == 0 for c in counts):
+        return "No replica is running — the service is down."
+    return "The new task never started, so the service may be down."
 
 
 # noinspection DuplicatedCode

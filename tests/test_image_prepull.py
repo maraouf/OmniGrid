@@ -19,6 +19,7 @@ These tests drive the real code against a fake Portainer and pin:
 from __future__ import annotations
 
 import asyncio
+import time
 import contextlib
 import json
 
@@ -230,8 +231,13 @@ async def test_direct_docker_reads_the_whole_body_not_the_snippet():
 
 # --- the stack update, end to end ---------------------------------------------
 
-def _stack_portainer(*, pull, rollout="completed", calls):
-    """A fake Portainer for one stack, `tracearr`, with one service on NODE."""
+def _stack_portainer(*, pull, rollout="completed", calls, tasks=None):
+    """A fake Portainer for one stack, `tracearr`, with one service on NODE.
+
+    ``tasks`` — the service's tasks as the rollout wait sees them: a list of
+    task lists, one per poll (the last repeats). Default: one task with no
+    status, as before."""
+    task_polls = list(tasks or [[{"NodeID": "n1"}]])
     service = {
         "ID": "svc1",
         "Spec": {"Name": "tracearr_tracearr",
@@ -250,7 +256,10 @@ def _stack_portainer(*, pull, rollout="completed", calls):
         if req.method == "GET" and path.endswith("/docker/services"):
             return httpx.Response(200, json=[service])
         if req.method == "GET" and path.endswith("/docker/tasks"):
-            return httpx.Response(200, json=[{"NodeID": "n1"}])
+            if "desired-state" not in (req.url.params.get("filters") or ""):
+                return httpx.Response(200, json=[{"NodeID": "n1"}])   # node lookup
+            now = task_polls.pop(0) if len(task_polls) > 1 else task_polls[0]
+            return httpx.Response(200, json=now)
         if req.method == "GET" and path.endswith("/docker/nodes"):
             return httpx.Response(200, json=[{"ID": "n1", "Description": {"Hostname": NODE}}])
         if req.method == "POST" and path.endswith("/docker/images/create"):
@@ -333,6 +342,58 @@ async def test_a_rollout_that_never_finishes_is_a_failure_not_a_success(run_stac
     assert op.status == "error"
     assert "tracearr_tracearr" in (op.error or "")
     assert "didn't finish" in (op.error or "")
+
+
+# The cloudflared case: 3 replicas, one per node, on 3 nodes, updating
+# start-first. The new task can never be placed, the old ones keep serving,
+# and the service's UpdateStatus only ever says "update in progress" — the
+# reason is on the pending TASK.
+RUNNING = {"Status": {"State": "running"}}
+UNPLACEABLE = {"Status": {"State": "pending",
+                          "Err": "no suitable node (max replicas per node limit exceed)"}}
+
+
+async def _ok_pull(req):
+    return httpx.Response(200, text=PULL_OK)
+
+
+@pytest.mark.anyio
+async def test_an_unplaceable_task_fails_fast_with_the_reason_and_the_fix(run_stack_update,
+                                                                          monkeypatch):
+    # A long window: the failure must come from the reason, not the timeout.
+    monkeypatch.setattr(ops_extras, "_tuning_int", lambda key: (
+        30 if key == ops_extras._Tunable.STACK_UPDATE_OBSERVE_TIMEOUT_SECONDS else 0.01))
+    calls: list = []
+    handler = _stack_portainer(pull=_ok_pull, rollout="updating", calls=calls,
+                               tasks=[[RUNNING, RUNNING, RUNNING, UNPLACEABLE]])
+    started = time.monotonic()
+    op = await run_stack_update(handler)
+    assert time.monotonic() - started < 5
+    assert op.status == "error"
+    err = op.error or ""
+    assert "max replicas per node" in err and "stop-first" in err
+    assert "3 running replica(s) keep serving" in err
+    assert "may be down" not in err
+
+
+@pytest.mark.anyio
+async def test_one_unplaceable_poll_is_not_enough(run_stack_update):
+    """A task can be pending for one poll while an old one frees its slot."""
+    calls: list = []
+    handler = _stack_portainer(pull=_ok_pull, rollout="updating", calls=calls,
+                               tasks=[[RUNNING, UNPLACEABLE], [RUNNING, RUNNING]])
+    op = await run_stack_update(handler)
+    assert "can't place" not in (op.error or "")          # timed out the ordinary way
+
+
+@pytest.mark.anyio
+async def test_a_timed_out_rollout_says_the_old_replicas_are_still_serving(run_stack_update):
+    calls: list = []
+    handler = _stack_portainer(pull=_ok_pull, rollout="updating", calls=calls,
+                               tasks=[[RUNNING, RUNNING]])
+    op = await run_stack_update(handler)
+    assert "still serving the previous version" in (op.error or "")
+    assert "may be down" not in (op.error or "")
 
 
 # --- the Swarm-job fetch ------------------------------------------------------
