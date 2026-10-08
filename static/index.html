@@ -1320,7 +1320,9 @@
                   </div>
                 </td>
                 <td class="mono fs-xs text-dim col-image">
-                  <span x-text="imageRepo(item)"></span><span class="text-[var(--text-faint)]">:</span><span class="text-[var(--text-faint)]" x-text="item.tag"></span>
+                  <div class="image-clip" :title="imageRepo(item) + ':' + item.tag">
+                    <span x-text="imageRepo(item)"></span><span class="text-[var(--text-faint)]">:</span><span class="text-[var(--text-faint)]" x-text="item.tag"></span>
+                  </div>
                 </td>
                 <td><span class="pill" :class="'pill-' + (item.health || 'unknown')" x-text="item.health || '—'"></span></td>
                 <td><span class="pill" :class="'pill-' + statusKey(item.status)" x-text="item.status"></span></td>
@@ -1546,7 +1548,9 @@
               </td>
               <td class="mono fs-xs text-[var(--text-dim)]" x-text="item.stack || '—'"></td>
               <td class="mono fs-xs text-dim col-image">
-                <span x-text="imageRepo(item)"></span><span class="text-[var(--text-faint)]">:</span><span class="text-[var(--text-faint)]" x-text="item.tag"></span>
+                <div class="image-clip" :title="imageRepo(item) + ':' + item.tag">
+                  <span x-text="imageRepo(item)"></span><span class="text-[var(--text-faint)]">:</span><span class="text-[var(--text-faint)]" x-text="item.tag"></span>
+                </div>
               </td>
               <td><span class="pill" :class="'pill-' + (item.health || 'unknown')" x-text="item.health || '—'"></span></td>
               <td><span class="pill" :class="'pill-' + statusKey(item.status)" x-text="item.status"></span></td>

@@ -1083,6 +1083,27 @@ def _group_items_into_stacks(items: list) -> list:
     return sorted(groups.values(), key=lambda _s: (_s.get("name") or "").lower())
 
 
+def _status_without_registry(item: dict) -> Optional[str]:
+    """The status an item gets WITHOUT consulting a registry, or None when the
+    remote digest has to decide.
+
+    Shared by the Portainer enrich step and ``_classify_item_status`` so the
+    two backends can't disagree about it:
+
+    * ``ignored`` — the operator excluded it.
+    * ``unknown`` — there is nothing to compare: no local digest was found, or
+      the image is a bare digest with no repository (an exited task container
+      whose tag has since moved to a newer image). That is "nothing to ask",
+      never a failed lookup — which is what ``error`` means, and what these
+      rows used to be marked, with a pointless Docker Hub request per refresh.
+    """
+    if item.get("ignored"):
+        return "ignored"
+    if not item.get("current_digest") or registry.is_digest_only_ref(item.get("image") or ""):
+        return "unknown"
+    return None
+
+
 async def _classify_item_status(reg_client: "httpx.AsyncClient", item: dict,
                                 node_platforms: Optional[dict] = None) -> None:
     """Resolve ``remote_digest`` + ``status`` for one direct-Docker item — the
@@ -1099,10 +1120,9 @@ async def _classify_item_status(reg_client: "httpx.AsyncClient", item: dict,
     except (httpx.HTTPError, OSError, ValueError):
         remote = None
     item["remote_digest"] = remote
-    if item.get("ignored"):
-        item["status"] = "ignored"
-    elif not item.get("current_digest"):
-        item["status"] = "unknown"
+    pre = _status_without_registry(item)
+    if pre:
+        item["status"] = pre
     elif not remote:
         item["status"] = "error"
     elif item["current_digest"] == remote:
@@ -2969,10 +2989,9 @@ async def _gather_impl() -> None:
             async with sem:
                 remote = await registry.get_remote_digest(client, enrich_item["image"])
             enrich_item["remote_digest"] = remote
-            if enrich_item["ignored"]:
-                enrich_item["status"] = "ignored"
-            elif not enrich_item["current_digest"]:
-                enrich_item["status"] = "unknown"
+            pre = _status_without_registry(enrich_item)
+            if pre:
+                enrich_item["status"] = pre
             elif not remote:
                 enrich_item["status"] = "error"
             elif enrich_item["current_digest"] == remote:

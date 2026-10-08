@@ -6795,10 +6795,26 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   max-width: clamp(140px, 32vw, 420px);
 }
 
-/* Image column — soft cap: short image names stay compact, very long registry
-   paths truncate with ellipsis via an inner wrapper (see col-image > span). */
+/* Image column — soft cap: short image names stay compact, very long ones
+   truncate with ellipsis via the inner `.image-clip` block.
+   The cap alone is NOT enough: Chrome honours `max-width` on the cell but
+   leaves the text overflowing, so an unbreakable reference painted over the
+   neighbouring Health pill. That is what a bare `sha256:<64 hex>` does — an
+   exited task container whose tag has moved on reports its image that way,
+   71 characters with no break point. The clip lives on an INNER block (the
+   repo's table-truncation pattern, see `.history-target-clip`); the full
+   reference stays on the title attribute. */
 .col-image {
-  max-width: 360px;
+  --image-max: 360px;
+  max-width: var(--image-max);
+}
+
+.col-image > .image-clip {
+  display: block;
+  max-width: var(--image-max);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ---------------------------------------------------------------------------

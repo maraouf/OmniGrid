@@ -9,6 +9,7 @@ as a leaf module.
 """
 import asyncio
 import contextlib
+import re
 import time
 from typing import Optional
 
@@ -404,12 +405,33 @@ def parse_image_ref(ref: str) -> tuple[str, str, str]:
     return registry, repo, tag
 
 
+_DIGEST_ONLY_RE = re.compile(r"^(?:sha256:)?[0-9a-f]{64}$")
+
+
+def is_digest_only_ref(image: str) -> bool:
+    """True when ``image`` is a bare image ID / digest with no repository.
+
+    Docker reports a container's image this way once the tag it was started
+    from has moved on — an exited Swarm task container left behind by an
+    update, whose image is now untagged. There is no registry to ask about
+    such a ref: ``parse_image_ref`` reads ``sha256:<64 hex>`` as Docker Hub's
+    ``library/sha256`` repository with the digest as its tag, which doesn't
+    exist, so every probe 404'd and the row was marked ERROR (and a pointless
+    Hub request was made for it on every refresh). Callers treat it as
+    "nothing to compare against", not as a failed lookup.
+    """
+    return bool(_DIGEST_ONLY_RE.match((image or "").strip()))
+
+
 def hub_link(image: str) -> Optional[str]:
     """Return a user-browsable link for the image's repo tags page.
 
     Best-effort — known registries only. Falls back to None for private
-    registries and anything not on this list.
+    registries and anything not on this list, and for a bare digest, which
+    belongs to no repository.
     """
+    if is_digest_only_ref(image):
+        return None
     try:
         reg, repo, _ = parse_image_ref(image)
     except (ValueError, AttributeError):
@@ -1093,6 +1115,8 @@ async def get_remote_digest(client: httpx.AsyncClient, image: str) -> Optional[s
 
     Records per-registry latency and error counters for Prometheus.
     """
+    if is_digest_only_ref(image):
+        return None    # no repository to ask — see is_digest_only_ref
     # Parse OUTSIDE the timed block — we need the registry host for the
     # histogram label, and we shouldn't charge parse-only failures to
     # registry latency.
