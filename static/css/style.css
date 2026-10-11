@@ -1261,6 +1261,27 @@ button:disabled {
   color: var(--text-on-primary);
 }
 
+/* Layer progress under a running op chip's text: a thin bar sized by `--w`,
+   drawn only while the fetch reports layer counts. */
+.og-op-bar {
+  display: inline-block;
+  width: 40px;
+  height: 4px;
+  border-radius: var(--r-sm);
+  background: var(--surface-3);
+  overflow: hidden;
+  position: relative;
+}
+
+.og-op-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: var(--w);
+  background: currentcolor;
+  transition: width 0.3s ease;
+}
+
 .btn .spin,
 .spin {
   width: 11px;

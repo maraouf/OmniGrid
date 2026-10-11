@@ -398,6 +398,10 @@ async def _pull_via_swarm_job(client: httpx.AsyncClient, op: Operation, node: st
             if time.monotonic() + poll > deadline:
                 raise PullFailure("timeout", label, node,
                                   f"still downloading after {int(budget_s)}s")
+            # The job reports no layer or byte figures, so the row shows how
+            # long it has been going: a long download reads as "still
+            # working", not as stuck.
+            op.set_phase("fetching", label, elapsed=int(time.monotonic() - started))
             await asyncio.sleep(poll)
     finally:
         # Always — success, failure, timeout or cancellation. Removing the job

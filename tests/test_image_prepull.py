@@ -63,12 +63,15 @@ class _Op:
         self.id = "op0test"
         self.lines: list[tuple[str, str]] = []
         self.phases: list[tuple] = []
+        self.elapsed: list[int] = []
 
     def log(self, msg, level="info"):
         self.lines.append((level, msg))
 
-    def set_phase(self, phase, detail="", *, done=None, total=None):
+    def set_phase(self, phase, detail="", *, done=None, total=None, elapsed=None):
         self.phases.append((phase, detail, done, total))
+        if elapsed is not None:
+            self.elapsed.append(elapsed)
 
 
 @pytest.fixture(autouse=True)
@@ -559,3 +562,16 @@ def test_a_conflict_reaches_the_browser_as_409_not_500(fresh_ops):
 @pytest.fixture
 def anyio_backend():
     return "asyncio"
+
+
+def test_a_running_phase_carries_layer_counts_and_or_elapsed_time():
+    """The Swarm fetch job exposes no layer figures, so the row shows how long
+    it has been going; layer counts still win when the stream reports them."""
+    from logic.ops import Operation
+    op = Operation("update_stack", "7", "homarr")
+    op.set_phase("fetching", "img", elapsed=250)
+    assert op.progress == {"elapsed": 250}
+    op.set_phase("fetching", "img", done=3, total=30, elapsed=12)
+    assert op.progress == {"done": 3, "total": 30, "elapsed": 12}
+    op.set_phase("swapping", "img")
+    assert op.progress is None

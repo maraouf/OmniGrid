@@ -1303,7 +1303,8 @@ class Operation:
         self.progress: Optional[dict] = None
 
     def set_phase(self, phase: str, detail: str = "", *,
-                  done: Optional[int] = None, total: Optional[int] = None) -> None:
+                  done: Optional[int] = None, total: Optional[int] = None,
+                  elapsed: Optional[int] = None) -> None:
         """Record the current phase and tell every open tab.
 
         ``phase`` must be one of ``OP_PHASES`` — an unknown key would render
@@ -1313,8 +1314,15 @@ class Operation:
             raise ValueError(f"unknown op phase {phase!r}")
         self.phase = phase
         self.phase_detail = detail
-        self.progress = ({"done": int(done), "total": int(total)}
-                         if done is not None and total else None)
+        # Layer counts when the fetch reports them; otherwise only how long it
+        # has been going. A Swarm fetch job exposes no byte or layer figures,
+        # and an honest "4m 10s" beats a bar that has to be made up.
+        prog: dict = {}
+        if done is not None and total:
+            prog.update(done=int(done), total=int(total))
+        if elapsed is not None:
+            prog["elapsed"] = max(0, int(elapsed))
+        self.progress = prog or None
         events.publish("op:updated", {
             "id": self.id, "op_type": self.op_type, "status": self.status,
             "target_name": self.target_name, "phase": self.phase,

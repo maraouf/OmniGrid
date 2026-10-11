@@ -7530,6 +7530,7 @@
     "phase": {
       "fetching": "downloading image",
       "fetching_progress": "downloading image {done}/{total}",
+      "fetching_elapsed": "downloading image · {elapsed}",
       "swapping": "switching over",
       "waiting": "waiting for it to start"
     },

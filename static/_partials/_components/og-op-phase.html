@@ -34,6 +34,8 @@
       :title="opPhaseTitle(opFn())">
   <span class="spin" aria-hidden="true"></span>
   <span x-text="opPhaseText(opFn())"></span>
+  <span x-show="opProgressPct(opFn()) !== null" class="og-op-bar" aria-hidden="true"
+        :style="'--w:' + (opProgressPct(opFn()) || 0) + '%'"></span>
 </span>
 <span x-show="!opFn() && typeof $data['failFn'] === 'function' && $data['failFn']()"
       class="og-op-phase pill pill-error inline-flex items-center gap-1.5 fs-2xs"

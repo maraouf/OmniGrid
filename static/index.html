@@ -1200,9 +1200,9 @@
                   <span class="text-[var(--text-faint)] fs-xs font-normal" x-text="'(' + stack.total + ')'"></span>
                   <span x-show="stack.is_standalone" class="chip fs-3xs" x-text="t('chips.standalone')"></span>
                   <span x-show="!stack.is_standalone && !stack.stack_id && !stack.compose_path" class="chip fs-3xs text-warning" x-text="t('chips.external')"></span>
-                  <!-- Mid-update chip — here, not on the Update button, which
-                       disappears once the stack is expanded. -->
-                  <span class="inline-flex" x-data="{ opFn: () => stackRunningOp(stack), failFn: () => stackFailedOp(stack) }">
+                  <!-- Mid-update chip for a COLLAPSED stack. Expanded, the rows
+                       carry it, so it is hidden here rather than shown twice. -->
+                  <span class="inline-flex" x-show="!expanded.includes(stack.name)" x-data="{ opFn: () => stackRunningOp(stack), failFn: () => stackFailedOp(stack) }">
                     <!-- INCLUDE: _components/og-op-phase.html -->
                   </span>
                 </div>

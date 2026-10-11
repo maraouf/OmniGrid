@@ -1053,10 +1053,24 @@ export default {
       return verb;
     }
     const p = op.progress;
-    const phase = (op.phase === 'fetching' && p && p.total)
-      ? this.t('ops_status.phase.fetching_progress', {done: p.done, total: p.total})
-      : this.t('ops_status.phase.' + op.phase);
+    let phase;
+    if (op.phase === 'fetching' && p && p.total) {
+      phase = this.t('ops_status.phase.fetching_progress', {done: p.done, total: p.total});
+    } else if (op.phase === 'fetching' && p && p.elapsed > 0) {
+      phase = this.t('ops_status.phase.fetching_elapsed', {elapsed: this.fmtDurationShort(p.elapsed)});
+    } else {
+      phase = this.t('ops_status.phase.' + op.phase);
+    }
     return verb + ' · ' + phase;
+  },
+  // 0..100 while layer counts are known, else null (no bar is drawn rather
+  // than one that guesses).
+  opProgressPct(op) {
+    const p = op && op.phase === 'fetching' ? op.progress : null;
+    if (!p || !p.total) {
+      return null;
+    }
+    return Math.max(0, Math.min(100, Math.round((100 * p.done) / p.total)));
   },
   // Tooltip: which image / service, who started it, and for how long — a
   // long download should read as "still going", not as "stuck".
