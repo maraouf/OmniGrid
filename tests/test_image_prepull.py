@@ -68,7 +68,8 @@ class _Op:
     def log(self, msg, level="info"):
         self.lines.append((level, msg))
 
-    def set_phase(self, phase, detail="", *, done=None, total=None, elapsed=None):
+    def set_phase(self, phase, detail="", *, done=None, total=None, elapsed=None,
+                  bytes_done=None, bytes_total=None):
         self.phases.append((phase, detail, done, total))
         if elapsed is not None:
             self.elapsed.append(elapsed)
@@ -575,3 +576,19 @@ def test_a_running_phase_carries_layer_counts_and_or_elapsed_time():
     assert op.progress == {"done": 3, "total": 30, "elapsed": 12}
     op.set_phase("swapping", "img")
     assert op.progress is None
+
+
+def test_byte_progress_totals_grow_but_fraction_never_falls():
+    from logic.image_pull import ByteProgress
+    bp = ByteProgress()
+    assert bp.snapshot() == (0, 0)
+    bp.feed({"id": "a", "status": "Downloading", "progressDetail": {"current": 50, "total": 100}})
+    assert bp.snapshot() == (50, 100)
+    # A second layer announces its size: the raw fraction drops to a quarter,
+    # the reported one holds.
+    bp.feed({"id": "b", "status": "Downloading", "progressDetail": {"current": 0, "total": 300}})
+    done, total = bp.snapshot()
+    assert total == 400 and done / total >= 0.5
+    bp.feed({"id": "a", "status": "Pull complete"})
+    bp.feed({"id": "b", "status": "Pull complete"})
+    assert bp.snapshot() == (400, 400)

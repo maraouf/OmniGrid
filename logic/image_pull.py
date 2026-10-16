@@ -337,6 +337,78 @@ async def local_images(client: httpx.AsyncClient, node: str, repository: str) ->
     return out
 
 
+class ByteProgress:
+    """Folds Docker's pull stream into one "bytes downloaded of bytes known".
+
+    Layers announce their size only once they start, so the total grows while
+    the pull runs; the reported fraction is held monotonic so the bar never
+    walks backwards when a new layer appears.
+    """
+
+    def __init__(self) -> None:
+        self._layers: dict[str, list[int]] = {}
+        self._best = 0.0
+
+    def feed(self, evt: dict) -> None:
+        lid = evt.get("id")
+        if not lid:
+            return
+        status = str(evt.get("status") or "")
+        detail = evt.get("progressDetail") or {}
+        cur, tot = int(detail.get("current") or 0), int(detail.get("total") or 0)
+        row = self._layers.setdefault(str(lid), [0, 0])
+        if tot:
+            row[0], row[1] = cur, max(tot, row[1])
+        if status in ("Download complete", "Pull complete", "Already exists", "Extracting"):
+            row[0] = row[1]
+
+    def snapshot(self) -> tuple[int, int]:
+        """``(done, total)`` bytes; ``(0, 0)`` until a layer size is known."""
+        total = sum(r[1] for r in self._layers.values())
+        done = sum(min(r[0], r[1]) for r in self._layers.values())
+        if not total:
+            return 0, 0
+        frac = max(self._best, done / total)
+        self._best = frac
+        return int(frac * total), total
+
+
+async def _watch_job_progress(client: httpx.AsyncClient, node: str, repo: str, tag: str,
+                              keep_digest: bool, tracker: ByteProgress) -> None:
+    """Best-effort: stream a second pull of the same image to read its bytes.
+
+    The node's daemon shares an in-flight layer download between concurrent
+    pulls, so this attaches to the job's download rather than starting another
+    one, and its stream carries the byte counts the job itself never exposes.
+    A reverse proxy cuts a long-silent request, so a dropped stream just
+    reconnects; every failure is swallowed — progress is cosmetic and must
+    never fail the fetch.
+    """
+    url = (f"{portainer.PORTAINER_URL}/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}"
+           f"/docker/images/create?fromImage={quote(repo, safe='/:.-_')}"
+           f"&tag={quote(tag, safe='.-_:')}")
+    headers = {**portainer.headers(agent_target=node or None), **_registry_auth_header(repo)}
+    while True:
+        try:
+            async with client.stream("POST", url, headers=headers,
+                                     timeout=httpx.Timeout(None, connect=10.0)) as r:
+                if r.status_code >= 500:
+                    await asyncio.sleep(2)  # a proxy cut it; attach again
+                    continue
+                if r.status_code >= 400:
+                    return
+                async for line in r.aiter_lines():
+                    try:
+                        evt = json.loads(line)
+                    except ValueError:
+                        continue
+                    if isinstance(evt, dict):
+                        tracker.feed(evt)
+                return  # the stream ended on its own: the pull finished
+        except (httpx.HTTPError, OSError):
+            await asyncio.sleep(2)
+
+
 async def _pull_via_swarm_job(client: httpx.AsyncClient, op: Operation, node: str,
                               image_ref: str, budget_s: float, *,
                               keep_digest: bool = False) -> None:
@@ -370,6 +442,9 @@ async def _pull_via_swarm_job(client: httpx.AsyncClient, op: Operation, node: st
         raise PullFailure("auth" if r.status_code == 401 or is_auth_error(body) else "failed",
                           label, node, f"couldn't create the fetch job: HTTP {r.status_code}: {body}")
     service_id = str((r.json() or {}).get("ID") or "")
+    tracker = ByteProgress()
+    watcher = asyncio.create_task(
+        _watch_job_progress(client, node, repo, tag, keep_digest, tracker))
     try:
         filters = quote(json.dumps({"service": [service_id]}))
         poll = _poll_seconds()
@@ -398,12 +473,15 @@ async def _pull_via_swarm_job(client: httpx.AsyncClient, op: Operation, node: st
             if time.monotonic() + poll > deadline:
                 raise PullFailure("timeout", label, node,
                                   f"still downloading after {int(budget_s)}s")
-            # The job reports no layer or byte figures, so the row shows how
-            # long it has been going: a long download reads as "still
-            # working", not as stuck.
-            op.set_phase("fetching", label, elapsed=int(time.monotonic() - started))
+            # The job itself reports nothing; the side stream supplies bytes
+            # when it can, and the elapsed time is always shown so a long
+            # download reads as "still working", not as stuck.
+            got, of = tracker.snapshot()
+            op.set_phase("fetching", label, elapsed=int(time.monotonic() - started),
+                         bytes_done=got, bytes_total=of)
             await asyncio.sleep(poll)
     finally:
+        watcher.cancel()
         # Always — success, failure, timeout or cancellation. Removing the job
         # while it's still preparing also stops its download.
         try:

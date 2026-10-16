@@ -7531,6 +7531,7 @@
       "fetching": "downloading image",
       "fetching_progress": "downloading image {done}/{total}",
       "fetching_elapsed": "downloading image · {elapsed}",
+      "fetching_bytes": "downloading image {pct}% · {done} / {total}",
       "swapping": "switching over",
       "waiting": "waiting for it to start"
     },

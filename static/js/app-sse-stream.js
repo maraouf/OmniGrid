@@ -1054,7 +1054,13 @@ export default {
     }
     const p = op.progress;
     let phase;
-    if (op.phase === 'fetching' && p && p.total) {
+    if (op.phase === 'fetching' && p && p.bytes_total) {
+      phase = this.t('ops_status.phase.fetching_bytes', {
+        pct: this.opProgressPct(op),
+        done: this.fmtBytes(p.bytes_done),
+        total: this.fmtBytes(p.bytes_total),
+      });
+    } else if (op.phase === 'fetching' && p && p.total) {
       phase = this.t('ops_status.phase.fetching_progress', {done: p.done, total: p.total});
     } else if (op.phase === 'fetching' && p && p.elapsed > 0) {
       phase = this.t('ops_status.phase.fetching_elapsed', {elapsed: this.fmtDurationShort(p.elapsed)});
@@ -1067,6 +1073,9 @@ export default {
   // than one that guesses).
   opProgressPct(op) {
     const p = op && op.phase === 'fetching' ? op.progress : null;
+    if (p && p.bytes_total) {
+      return Math.max(0, Math.min(100, Math.floor((100 * p.bytes_done) / p.bytes_total)));
+    }
     if (!p || !p.total) {
       return null;
     }

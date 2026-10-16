@@ -1304,7 +1304,9 @@ class Operation:
 
     def set_phase(self, phase: str, detail: str = "", *,
                   done: Optional[int] = None, total: Optional[int] = None,
-                  elapsed: Optional[int] = None) -> None:
+                  elapsed: Optional[int] = None,
+                  bytes_done: Optional[int] = None,
+                  bytes_total: Optional[int] = None) -> None:
         """Record the current phase and tell every open tab.
 
         ``phase`` must be one of ``OP_PHASES`` — an unknown key would render
@@ -1320,6 +1322,8 @@ class Operation:
         prog: dict = {}
         if done is not None and total:
             prog.update(done=int(done), total=int(total))
+        if bytes_total:
+            prog.update(bytes_done=max(0, int(bytes_done or 0)), bytes_total=int(bytes_total))
         if elapsed is not None:
             prog["elapsed"] = max(0, int(elapsed))
         self.progress = prog or None
