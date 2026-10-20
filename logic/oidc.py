@@ -839,6 +839,14 @@ async def callback(request: Request, provider_id: str = _providers.DEFAULT_PROVI
                 status_code=403, detail="Account disabled",
                 headers=_flow_clear_headers,
             )
+    # Best-effort profile picture — never blocks or fails the sign-in.
+    try:
+        await _sync_avatar(provider, u.id, claims, str(tok.get("access_token") or ""),
+                           doc, verify_tls)
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e:  # noqa: BLE001
+        print(f"[oidc] avatar sync skipped for {u.username}: {type(e).__name__}: {e}")
         auth.touch_last_login(c, u.id)
         cookie_value, expires_at = auth.create_session(
             c, u.id, ip, request.headers.get("user-agent"),
@@ -1011,6 +1019,63 @@ def _default_redirect_uri(request: Request, provider) -> str:
     scheme = "https" if _is_https(request) else "http"
     host = request.headers.get("x-forwarded-host") or request.headers.get("host", "")
     return f"{scheme}://{host}{_callback_path(provider)}"
+
+
+_AVATAR_EXT = {"image/png": "png", "image/jpeg": "jpg", "image/jpg": "jpg",
+               "image/gif": "gif", "image/webp": "webp"}
+_AVATAR_MAX_BYTES = 1_000_000  # same cap as a self-service upload
+
+
+async def _sync_avatar(provider, user_id: int, claims: dict, access_token: str,
+                       doc: dict, verify_tls: bool) -> None:
+    """Fetch the provider's ``picture`` claim into the user's avatar.
+
+    The id_token often omits ``picture`` (Authentik puts it only in the
+    userinfo response), so when the id_token has none the userinfo endpoint is
+    asked with the access token. Only fills an EMPTY avatar: a picture the
+    user uploaded themselves is never overwritten by a sign-in. The download
+    follows no redirects, takes only an http(s) URL, and applies the same
+    type allowlist and 1 MB cap as an upload.
+    """
+    import os  # noqa: PLC0415
+    from logic import backups  # noqa: PLC0415
+    with db_conn() as c:
+        profile = auth.get_user_profile(c, user_id) or {}
+    if profile.get("avatar_path"):
+        return
+    pic = str(claims.get("picture") or "").strip()
+    async with httpx.AsyncClient(timeout=_http_timeout_seconds(), verify=verify_tls,
+                                 follow_redirects=False) as client:
+        ui_ep = doc.get("userinfo_endpoint")
+        if not pic and access_token and isinstance(ui_ep, str):
+            r = await client.get(ui_ep, headers={"Authorization": f"Bearer {access_token}",
+                                                 "Accept": "application/json"})
+            if r.status_code == 200:
+                pic = str((r.json() or {}).get("picture") or "").strip()
+        if not pic:
+            print(f"[oidc] avatar: {provider.id} sent no picture claim "
+                  f"(is the 'profile' scope granted?)")
+            return
+        if not pic.lower().startswith(("http://", "https://")):
+            return
+        r = await client.get(pic, headers={"Accept": "image/*"})
+        ext = _AVATAR_EXT.get(r.headers.get("content-type", "").split(";")[0].strip().lower())
+        if r.status_code != 200 or not ext or not r.content or len(r.content) > _AVATAR_MAX_BYTES:
+            print(f"[oidc] avatar: {provider.id} picture not usable "
+                  f"(HTTP {r.status_code}, type {r.headers.get('content-type')!r}, "
+                  f"{len(r.content)} bytes)")
+            return
+    os.makedirs(backups.AVATAR_DIR, exist_ok=True)
+    fname = f"u{user_id}.{ext}"
+    await asyncio.to_thread(_write_file, os.path.join(backups.AVATAR_DIR, fname), r.content)
+    with db_conn() as c:
+        auth.set_user_avatar_path(c, user_id, fname)
+    print(f"[oidc] avatar: stored {provider.label} picture for user {user_id} ({len(r.content)} bytes)")
+
+
+def _write_file(path: str, data: bytes) -> None:
+    with open(path, "wb") as f:
+        f.write(data)
 
 
 def _effective_redirect_uri(request: Request, provider) -> str:
