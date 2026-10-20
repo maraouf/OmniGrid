@@ -87,3 +87,32 @@ def test_uploaded_avatar_is_never_overwritten_and_bad_pictures_are_skipped(monke
                          {"https://idp/p": _Resp(body=b"<html>", ctype="text/html")},
                          {"picture": "https://idp/p"})
     assert not saved
+
+
+def test_session_is_minted_in_the_sign_in_path_not_a_swallowed_handler():
+    """The avatar step once landed in the middle of the sign-in `with` block,
+    which pushed the session minting into its `except` — every SSO login then
+    died with UnboundLocalError on `cookie_value`. Those calls must sit under
+    the `with`, never under an exception handler."""
+    import ast
+    import inspect
+
+    tree = ast.parse(inspect.getsource(oidc))
+    parents = {}
+    for node in ast.walk(tree):
+        for child in ast.iter_child_nodes(node):
+            parents[child] = node
+    wanted = {"touch_last_login", "create_session"}
+    found = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) \
+                and node.func.attr in wanted and isinstance(node.func.value, ast.Name) \
+                and node.func.value.id == "auth":
+            chain, cur = [], node
+            while cur in parents:
+                cur = parents[cur]
+                chain.append(type(cur).__name__)
+            if "AsyncFunctionDef" in chain and "With" in chain:
+                assert "ExceptHandler" not in chain, node.func.attr
+                found.add(node.func.attr)
+    assert found == wanted

@@ -1096,6 +1096,46 @@ def _ai_rate_limit_check(user_id: int, calls_per_minute: int) -> tuple[bool, flo
 # cross-module-shim rationale. The directive above silences both
 # the protected-member warning AND the unresolved-reference
 # warning that the lazy-import shim triggers in PyCharm.
+# ---- Short per-chat memory ---------------------------------------------------
+# Each Telegram message used to reach the model alone, so "what was the port
+# from our previous commands" or a bare "And?" had nothing to refer to and got
+# a generic fleet summary. The last few turns of THIS chat are now fed back as
+# the same `Prior conversation:` block the web sidebar uses. In-process only
+# (single replica) and expiring, so a stale topic doesn't colour a new question
+# hours later. 12 matches the turn cap build_palette_user_prompt applies itself.
+_CONVO_MAX_TURNS = 12
+_CONVO_TTL_SECONDS = 1800
+_chat_turns: dict[int, list[tuple[float, str, str]]] = {}
+_TAG_RE = _re.compile(r"<[^>]+>")
+
+
+def _recall(chat_id: Optional[int]) -> list[dict]:
+    """Recent turns of this chat as ``[{role, text}]``, oldest first."""
+    if chat_id is None:
+        return []
+    cutoff = time.time() - _CONVO_TTL_SECONDS
+    turns = [t for t in _chat_turns.get(chat_id, []) if t[0] >= cutoff]
+    _chat_turns[chat_id] = turns
+    return [{"role": role, "text": text} for _, role, text in turns]
+
+
+def _remember(chat_id: Optional[int], question: str, answer: str) -> None:
+    if chat_id is None or not answer:
+        return
+    now = time.time()
+    plain = _TAG_RE.sub("", answer).strip()
+    turns = _chat_turns.setdefault(chat_id, [])
+    turns += [(now, "user", question), (now, "assistant", plain)]
+    del turns[:-_CONVO_MAX_TURNS]
+
+
+# A reply that only announces a lookup ("Let me check the logs…") and emits no
+# TOOL: line does nothing — the operator is left holding a promise.
+_PROMISE_RE = _re.compile(
+    r"^\s*(?:let me|i(?:'|’)ll|i will|one moment|checking|looking)[^.\n]{0,40}"
+    r"(?:check|look|pull|fetch|search|find|see|review)", _re.IGNORECASE)
+
+
 async def _ai_reply(
     client: httpx.AsyncClient,
     text: str,
@@ -1189,7 +1229,10 @@ async def _ai_reply(
     # hostnames) via the same GROUNDING-STRICT block both surfaces
     # share.
     ctx = await _build_telegram_ai_context(omnigrid_username)
-    user_prompt = ai.build_palette_user_prompt(text, ctx)
+    chat_id = ((msg.get("chat") or {}).get("id"))
+    chat_id = chat_id if isinstance(chat_id, int) else None
+    convo = _recall(chat_id)
+    user_prompt = ai.build_palette_user_prompt(text, ctx, conversation=convo)
 
     # Snapshot the REAL Telegram command roster from `_listener()._COMMANDS` so the
     # AI grounds its replies in actual commands instead of hallucinating
@@ -1482,6 +1525,8 @@ async def _ai_reply(
     # `_listener()._ai` access is intentional — see the `_listener()`
     # shim docstring at the top of this file.
     def _record_call(ok: bool, raw_result: dict | None, answer_text: str) -> None:
+        if ok:
+            _remember(chat_id, text, answer_text)
         try:
             from logic.db import db_conn
             ai.record_ai_call(
@@ -1535,6 +1580,34 @@ async def _ai_reply(
         )
         return
     raw_text = (result.get("text") or "").strip()
+    # A reply that only promises a lookup and carries no TOOL:/ACTION: line has
+    # run nothing. Ask once more, naming the miss, rather than ship the promise.
+    if (_PROMISE_RE.match(raw_text) and len(raw_text) < 400
+            and "TOOL:" not in raw_text and "ACTION:" not in raw_text):
+        try:
+            _nudged = await ai.ask_provider(
+                provider,
+                api_key=api_key,
+                prompt=ai.build_palette_user_prompt(
+                    text + "\n\n[System note: your previous reply only announced a lookup "
+                    f"({raw_text[:120]!r}) but emitted no TOOL: directive, so nothing ran. "
+                    "Now EITHER emit the TOOL:/TOOL_ARGS: lines that fetch it (past "
+                    "operations are get_recent_history) OR answer from the supplied "
+                    "context and the prior conversation. Never announce work you do "
+                    "not perform.]", ctx, conversation=convo),
+                system_prompt=system_prompt,
+                model=model,
+                base_url=base_url,
+                max_tokens=max_toks,
+            )
+            if isinstance(_nudged, dict) and _nudged.get("ok") and (_nudged.get("text") or "").strip():
+                result = _nudged
+                raw_text = (_nudged.get("text") or "").strip()
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
+        # noinspection PyBroadException
+        except Exception as _en:  # noqa: BLE001
+            print(f"[telegram_ai] promise nudge failed: {type(_en).__name__}: {_en}")
     # ------------------------------------------------------------------
     # Diagnostic TOOL loop (Telegram) — mirrors the web path's two-round
     # dispatch. If the first-round reply emits `TOOL:` directives, run them
@@ -1584,7 +1657,7 @@ async def _ai_reply(
             _result2 = await ai.ask_provider(
                 provider,
                 api_key=api_key,
-                prompt=ai.build_palette_user_prompt(text, ctx),
+                prompt=ai.build_palette_user_prompt(text, ctx, conversation=convo),
                 system_prompt=system_prompt,
                 model=model,
                 base_url=base_url,

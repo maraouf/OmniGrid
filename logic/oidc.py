@@ -839,14 +839,6 @@ async def callback(request: Request, provider_id: str = _providers.DEFAULT_PROVI
                 status_code=403, detail="Account disabled",
                 headers=_flow_clear_headers,
             )
-    # Best-effort profile picture — never blocks or fails the sign-in.
-    try:
-        await _sync_avatar(provider, u.id, claims, str(tok.get("access_token") or ""),
-                           doc, verify_tls)
-    except (asyncio.CancelledError, KeyboardInterrupt):
-        raise
-    except Exception as e:  # noqa: BLE001
-        print(f"[oidc] avatar sync skipped for {u.username}: {type(e).__name__}: {e}")
         auth.touch_last_login(c, u.id)
         cookie_value, expires_at = auth.create_session(
             c, u.id, ip, request.headers.get("user-agent"),
@@ -865,6 +857,15 @@ async def callback(request: Request, provider_id: str = _providers.DEFAULT_PROVI
             actor=u.username,
             message=f"Signed in via {provider.label} SSO from {ip}",
         )
+
+    # Best-effort profile picture — never blocks or fails the sign-in.
+    try:
+        await _sync_avatar(provider, u.id, claims, str(tok.get("access_token") or ""),
+                           doc, verify_tls)
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e:  # noqa: BLE001
+        print(f"[oidc] avatar sync skipped for {u.username}: {type(e).__name__}: {e}")
 
     # Server-side path retrieval — `state` is the server-generated
     # nonce already verified against the cookie above (line ~446's
