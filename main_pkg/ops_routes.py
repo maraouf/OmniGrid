@@ -1273,6 +1273,10 @@ class SettingsIn(BaseModel):
     # case-insensitive admin-group claim match. Default
     # True preserves the legacy exact-match contract.
     oidc_group_case_sensitive: Optional[bool] = None
+    # Hostnames that show each provider's login button (blank = auto from the
+    # redirect URI host, "*" = every host).
+    oidc_login_hosts: Optional[str] = None
+    oidc_unifiedsso_login_hosts: Optional[str] = None
     # Second OIDC provider (UnifiedSSO) — role-claim admin mode. Mirrors the
     # oidc_* block above but namespaced; client_secret uses the same
     # keep-current-if-blank contract.

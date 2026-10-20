@@ -149,6 +149,15 @@
       </div>
       <p class="fs-xs text-[var(--text-faint)] mt-1" x-text="t('settings.oidc.redirect_uri_hint')"></p>
     </div>
+    <div>
+      <label for="og-oidc-login-hosts" class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('settings.oidc.login_hosts')"></label>
+      <input id="og-oidc-login-hosts" x-model="oidcForm.login_hosts" type="text"
+             @input="markOidcFormDirty()" autocomplete="off" spellcheck="false"
+             class="w-full mono fs-sm"
+             :placeholder="t('settings.oidc.login_hosts_placeholder')">
+      <p class="fs-xs text-[var(--text-faint)] mt-1"
+         x-text="t('settings.oidc.login_hosts_hint', {host: (oidcStatus && oidcStatus.request_host) || ''})"></p>
+    </div>
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
       <div>
         <label for="og-oidc-scopes" class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('settings.oidc.scopes')"></label>

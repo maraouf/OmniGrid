@@ -39,7 +39,7 @@ export default {
   oidcStatus: null,            // == oidcStatuses[oidcProviderId]
   oidcForm: {
     enabled: false, issuer_url: '', client_id: '', client_secret: '',
-    redirect_uri: '', scopes: 'openid email profile groups',
+    redirect_uri: '', login_hosts: '', scopes: 'openid email profile groups',
     admin_group: 'omnigrid-admins', group_case_sensitive: true, verify_tls: true,
   },
   oidcTestResult: null,
@@ -71,6 +71,7 @@ export default {
       client_secret: '',  // write-only — never prefill
       redirect_uri: st.redirect_uri || st.redirect_uri_default || '',
       scopes: st.scopes || 'openid email profile groups',
+      login_hosts: st.login_hosts || '',
       verify_tls: st.verify_tls !== false,
     };
     if ((st.admin_mode || 'group') === 'group') {
@@ -159,6 +160,7 @@ export default {
     body[K('redirect_uri')] = (f.redirect_uri || '').trim();
     body[K('scopes')] = (f.scopes || '').trim();
     body[K('verify_tls')] = !!f.verify_tls;
+    body[K('login_hosts')] = (f.login_hosts || '').trim();
     if (this.oidcSelectedMode() === 'group') {
       body[K('admin_group')] = (f.admin_group || '').trim();
       body[K('group_case_sensitive')] = !!f.group_case_sensitive;
@@ -320,6 +322,8 @@ export default {
       redirect: (f.redirect_uri || '').trim(),
       scopes: (f.scopes || '').trim(),
       verify_tls: f.verify_tls !== false,
+      login_hosts: (f.login_hosts || '').trim(),
+      baseLogin: s.login_hosts || '',
       baseEnabled: !!s.enabled,
       baseIssuer: s.issuer_url || '',
       baseCid: s.client_id || '',

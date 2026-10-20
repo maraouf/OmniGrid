@@ -525,7 +525,7 @@ async def login(request: Request, provider_id: str = _providers.DEFAULT_PROVIDER
     issuer = _pget_str(provider, "issuer_url")
     client_id = _pget_str(provider, "client_id")
     configured_redirect = (_pget(provider, "redirect_uri") or "").strip()
-    redirect_uri = configured_redirect or _default_redirect_uri(request, provider)
+    redirect_uri = _effective_redirect_uri(request, provider)
     scopes = _pget(provider, "scopes") or provider.default_scopes
 
     # Diagnostic log — prints to docker service logs so we can see
@@ -686,7 +686,7 @@ async def callback(request: Request, provider_id: str = _providers.DEFAULT_PROVI
     issuer = _pget_str(provider, "issuer_url")
     client_id = _pget_str(provider, "client_id")
     client_secret = _pget(provider, "client_secret")
-    redirect_uri = (_pget(provider, "redirect_uri") or "").strip() or _default_redirect_uri(request, provider)
+    redirect_uri = _effective_redirect_uri(request, provider)
     verify_tls = _verify_tls(provider)
 
     doc = await _fetch_discovery(issuer, verify_tls)
@@ -1013,6 +1013,25 @@ def _default_redirect_uri(request: Request, provider) -> str:
     return f"{scheme}://{host}{_callback_path(provider)}"
 
 
+def _effective_redirect_uri(request: Request, provider) -> str:
+    """The callback URL to send for THIS request.
+
+    A pinned redirect URI wins — unless the provider lists explicit
+    ``login_hosts`` and the request came in on a different one of them, in
+    which case the callback follows the request's own origin so each listed
+    domain round-trips to itself (every one must be in the IdP's allowlist).
+    """
+    from urllib.parse import urlparse
+    pinned = (_pget(provider, "redirect_uri") or "").strip()
+    if not pinned:
+        return _default_redirect_uri(request, provider)
+    if _providers.parse_login_hosts(_pget(provider, "login_hosts")):
+        host = (request.url.hostname or "").strip().lower()
+        if (urlparse(pinned).hostname or "").strip().lower() != host:
+            return _default_redirect_uri(request, provider)
+    return pinned
+
+
 def public_redirect_uri(request: Request, provider_id: str = _providers.DEFAULT_PROVIDER_ID) -> str:
     """What to display in the "Redirect URI" field of a provider's Settings
     panel when the admin hasn't pinned one. Computed from the request origin
@@ -1063,7 +1082,7 @@ async def register_client(provider_id: str, initial_access_token: str, request: 
                     "dynamic client registration isn't enabled on this provider. "
                     "Register the client manually and paste the client_id / secret."),
         )
-    redirect_uri = (_pget(provider, "redirect_uri") or "").strip() or _default_redirect_uri(request, provider)
+    redirect_uri = _effective_redirect_uri(request, provider)
     scopes = _pget(provider, "scopes") or provider.default_scopes
     body = {
         "client_name": "OmniGrid",

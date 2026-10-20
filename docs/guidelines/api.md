@@ -1193,7 +1193,7 @@ Admin → Prayer Times.
 
 | Method | Route                 | Purpose                                                                                                                                                                                                      |
 |--------|-----------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `GET`  | `/api/auth/providers` | Public. Tells the login page which paths are live — `{local: bool, oidc: bool, ...}`. OIDC is hidden when the request's hostname doesn't match the configured `oidc_redirect_uri` host (multi-FQDN deploys). |
+| `GET`  | `/api/auth/providers` | Public. Tells the login page which paths are live — `{local: bool, oidc: bool, ...}`. Each provider's button is hidden when the request's hostname doesn't match its `redirect_uri` host, unless the provider's `login_hosts` setting lists hostnames explicitly (or `*`), in which case exactly those hosts show it and the callback follows the host the user signed in from (multi-FQDN deploys). |
 
 ### Logs (reads: any authenticated caller, including a read-only token · writes: admin-only)
 

@@ -101,6 +101,8 @@ def _oidc_provider_block(a: dict, request, p) -> dict:
         "redirect_uri_default": oidc.public_redirect_uri(request, p.id),
         "scopes": a.get(sk(p, "scopes")) or p.default_scopes,
         "verify_tls": bool(a.get(sk(p, "verify_tls"), True)),
+        "login_hosts": a.get(sk(p, "login_hosts")) or "",
+        "request_host": (request.url.hostname or "") if request is not None else "",
     }
     if p.admin_mode == "group":
         block["admin_group"] = a.get(sk(p, "admin_group")) or ""
@@ -2108,6 +2110,12 @@ async def _api_set_settings_inner(s: "SettingsIn", request: Request, _portainer)
         if s.oidc_group_case_sensitive is not None:
             auth.set_auth_setting(c, "oidc_group_case_sensitive",
                                   "true" if s.oidc_group_case_sensitive else "false")
+            auth_changed = True
+        if s.oidc_login_hosts is not None:
+            auth.set_auth_setting(c, "oidc_login_hosts", s.oidc_login_hosts.strip())
+            auth_changed = True
+        if s.oidc_unifiedsso_login_hosts is not None:
+            auth.set_auth_setting(c, "oidc_unifiedsso_login_hosts", s.oidc_unifiedsso_login_hosts.strip())
             auth_changed = True
         # Client secret: keep-current-if-blank.
         if s.oidc_client_secret is not None and s.oidc_client_secret.strip() != "":

@@ -1095,8 +1095,9 @@ async def api_auth_providers(request: Request):
     Returns one entry per CONFIGURED provider so the login page renders a
     button each (registry-driven multi-provider SSO).
 
-    Multi-URL deployments: a provider is hidden when the request's hostname
-    doesn't match its configured redirect_uri host. OmniGrid is often reachable
+    Multi-URL deployments: by default a provider is hidden when the request's
+    hostname doesn't match its configured redirect_uri host; the provider's
+    ``login_hosts`` setting overrides that with an explicit list (or ``*``). OmniGrid is often reachable
     via multiple FQDNs (LAN / Cloudflare-tunnel / VPN), but an IdP only honours
     the flow for its ONE registered redirect URI — a button from a different
     FQDN would fail the round-trip with a "redirect_uri_mismatch" error. Hiding
@@ -1106,19 +1107,17 @@ async def api_auth_providers(request: Request):
     (defensive — better a useless button than hiding the SSO path on a typo).
     """
     from logic import oidc_providers as _oidc_providers
-    from urllib.parse import urlparse
     request_host = (request.url.hostname or "").strip().lower()
     providers = []
     for p in _oidc_providers.all_providers():
         if not oidc.is_configured(p.id):
             continue
         try:
-            redirect_uri = (get_setting(_oidc_providers.setting_key(p, "redirect_uri")) or "").strip()
-            if redirect_uri:
-                expected_host = (urlparse(redirect_uri).hostname or "").strip().lower()
-                # Both populated AND mismatched → hide the button.
-                if expected_host and request_host and expected_host != request_host:
-                    continue
+            if not _oidc_providers.host_allowed(
+                    get_setting(_oidc_providers.setting_key(p, "login_hosts")),
+                    get_setting(_oidc_providers.setting_key(p, "redirect_uri")),
+                    request_host):
+                continue
         except Exception as e:  # noqa: BLE001
             print(f"[auth] providers redirect_uri host-match check failed for {p.id}: {e}")
         login_url = ("/api/oidc/login" if p.id == _oidc_providers.DEFAULT_PROVIDER_ID

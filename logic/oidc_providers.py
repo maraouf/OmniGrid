@@ -129,7 +129,7 @@ def setting_key(provider: OidcProvider, name: str) -> str:
 # admin-mode-specific set is appended by :func:`provider_setting_names`.
 COMMON_KEYS: tuple[str, ...] = (
     "enabled", "issuer_url", "client_id", "client_secret",
-    "redirect_uri", "scopes", "verify_tls",
+    "redirect_uri", "scopes", "verify_tls", "login_hosts",
 )
 GROUP_MODE_KEYS: tuple[str, ...] = ("admin_group", "group_case_sensitive")
 ROLE_MODE_KEYS: tuple[str, ...] = ("admin_role_claim", "admin_role_value")
@@ -160,3 +160,39 @@ def default_for(provider: OidcProvider, name: str) -> object:
         return provider.admin_role_value
     # issuer_url / client_id / client_secret / redirect_uri
     return ""
+
+
+# ---------------------------------------------------------------------------
+# Which hostnames show a provider's login button
+# ---------------------------------------------------------------------------
+def parse_login_hosts(raw: object) -> list[str]:
+    """Hostnames from the ``login_hosts`` setting: comma / space / newline
+    separated, lower-cased; a pasted URL or ``host:port`` is reduced to the
+    bare host. ``*`` stays as-is (every host)."""
+    out: list[str] = []
+    for tok in str(raw or "").replace(",", " ").split():
+        tok = tok.strip().lower()
+        if tok != "*":
+            tok = tok.split("://", 1)[-1].split("/", 1)[0].split(":", 1)[0]
+        if tok and tok not in out:
+            out.append(tok)
+    return out
+
+
+def host_allowed(login_hosts: object, redirect_uri: object, request_host: str) -> bool:
+    """Should this provider's button show for a request to ``request_host``?
+
+    * ``login_hosts`` blank → the legacy rule: show only on the host of the
+      pinned redirect URI (an IdP honours the flow for registered URIs only).
+      A blank / unparseable redirect URI shows the button.
+    * ``*`` → every host.
+    * otherwise → only the listed hosts. This is how a provider that has BOTH
+      an internal and an external callback registered is offered on both.
+    """
+    from urllib.parse import urlparse
+    host = (request_host or "").strip().lower()
+    listed = parse_login_hosts(login_hosts)
+    if listed:
+        return "*" in listed or host in listed
+    expected = (urlparse(str(redirect_uri or "").strip()).hostname or "").strip().lower()
+    return not (expected and host and expected != host)
