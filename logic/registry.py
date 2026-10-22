@@ -381,6 +381,9 @@ def _tag_is_moving(cache_key: str) -> bool:
     return False
 
 
+_DOCKER_HUB_HOSTS = ("docker.io", "index.docker.io", "registry-1.docker.io")
+
+
 def parse_image_ref(ref: str) -> tuple[str, str, str]:
     """Return (registry, repo, tag) from an image reference.
 
@@ -395,6 +398,15 @@ def parse_image_ref(ref: str) -> tuple[str, str, str]:
     is_reg = "." in first or ":" in first or first == "localhost"
     if is_reg and len(parts) == 2:
         registry, repo = first, parts[1]
+        # `docker.io/ghcr.io/org/app` — a registry host tucked behind Docker
+        # Hub's name (a deploy tool prefixing every image, or a hand-typed
+        # compose line). A Hub namespace can't contain a dot or a port, so
+        # this can only mean the inner registry; asked as written, Hub 401s
+        # for a repository that doesn't exist and the row turns ERROR.
+        if registry in _DOCKER_HUB_HOSTS:
+            inner = repo.split("/", 1)
+            if len(inner) == 2 and ("." in inner[0] or ":" in inner[0] or inner[0] == "localhost"):
+                return parse_image_ref(repo)
     else:
         registry = ExternalURL.DOCKER_REGISTRY_HOST
         repo = ref if "/" in ref else f"library/{ref}"

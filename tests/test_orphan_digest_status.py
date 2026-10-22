@@ -133,3 +133,14 @@ def _fresh_digest_cache():
 @pytest.fixture
 def anyio_backend():
     return "asyncio"
+
+
+def test_a_registry_hidden_behind_docker_io_is_read_as_that_registry():
+    from logic.registry import parse_image_ref
+    assert parse_image_ref("docker.io/ghcr.io/moghtech/komodo-core:2") == (
+        "ghcr.io", "moghtech/komodo-core", "2")
+    assert parse_image_ref("docker.io/registry.example:5000/team/app") == (
+        "registry.example:5000", "team/app", "latest")
+    # Real Hub references are untouched.
+    assert parse_image_ref("docker.io/library/nginx:1.27")[1:] == ("library/nginx", "1.27")
+    assert parse_image_ref("docker.io/team/app:3")[1:] == ("team/app", "3")
