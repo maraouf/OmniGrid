@@ -1239,6 +1239,12 @@ async def api_service_run_skill(host_id: str, service_idx: int, skill_id: str,
     return result
 
 
+def _rekey_chip_history(host_id: str, removed_idx: int) -> dict:
+    from logic import service_reindex
+    with db_conn() as c:
+        return service_reindex.drop_and_shift(c, host_id, removed_idx)
+
+
 @app.delete("/api/services/{host_id}/{service_idx}")
 async def api_service_unpin(host_id: str, service_idx: int, request: Request, _admin: AdminUser):
     """Admin-only: remove (unpin) one chip from a host's services[].
@@ -1256,6 +1262,19 @@ async def api_service_unpin(host_id: str, service_idx: int, request: Request, _a
     removed = chips.pop(service_idx)
     removed_name = (removed.get("name") if isinstance(removed, dict) else None) or f"service_idx={service_idx}"
     _persist_host_services(hosts, target_idx, chips)
+    # Stored probe history is keyed by chip POSITION, so the chips after the
+    # removed one must take their rows with them — see logic/service_reindex.py.
+    # Off the event loop: the sample tables are large and this rewrites them.
+    try:
+        moved = await asyncio.to_thread(_rekey_chip_history, host_id, service_idx)
+        if moved:
+            print(f"[apps] unpinned {removed_name!r} from {host_id}: re-keyed probe history "
+                  f"in {len(moved)} table(s)")
+    except (sqlite3.Error, OSError, RuntimeError) as e:
+        print(f"[apps] unpinned {removed_name!r} from {host_id} but re-keying its probe "
+              f"history failed (later chips show stale results until re-probed): {e}")
+    from logic import service_catalog as _sc
+    _sc.invalidate_list_apps_cache()
     with db_conn() as _c:
         _ops_mod.write_admin_audit(
             _c, "services_unpin",
