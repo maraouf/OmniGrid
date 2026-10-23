@@ -32,6 +32,7 @@ import pytest
 from logic.task_diagnosis import diagnose, exit_code_of
 
 _EXIT_255 = "task: non-zero exit (255)"
+_EXIT_1 = "task: non-zero exit (1)"
 
 
 def test_the_exit_code_is_read_off_swarms_own_string():
@@ -68,6 +69,30 @@ def test_a_specific_cause_wins_over_the_generic_crash():
     logs = ("panic: failed to load config: yaml: line 3: mapping values are "
             "not allowed in this context\n")
     assert diagnose(_EXIT_255, logs)["cause"] == "config_invalid"
+
+
+def test_a_python_crash_shows_the_exception_not_the_traceback_header():
+    """The rule matches the `Traceback (most recent call last):` HEADER, and a
+    restart loop writes one per attempt — the evidence used to be that header
+    four times over, with the exception that explains the crash nowhere."""
+    one = ("Traceback (most recent call last):\n"
+           '  File "/app/main.py", line 4, in <module>\n'
+           "    import telegram\n"
+           "ModuleNotFoundError: No module named 'telegram'\n")
+    out = diagnose(_EXIT_1, one * 4)
+    assert out["cause"] == "crashed"
+    assert out["evidence"][-1] == "ModuleNotFoundError: No module named 'telegram'"
+    assert out["evidence"][0] == "Traceback (most recent call last):"
+    # one trace, not the same header repeated per attempt
+    assert sum("Traceback" in ln for ln in out["evidence"]) == 1
+
+
+def test_a_long_traceback_keeps_its_exception_line():
+    frames = "".join(f'  File "/app/m{i}.py", line {i}, in f{i}\n    call()\n' for i in range(20))
+    logs = "Traceback (most recent call last):\n" + frames + "RuntimeError: boom\n"
+    out = diagnose(_EXIT_1, logs)
+    assert out["evidence"][-1] == "RuntimeError: boom"
+    assert len(out["evidence"]) <= 12
 
 
 def test_nothing_recognised_stays_honest():

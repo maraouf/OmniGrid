@@ -194,6 +194,30 @@ def _evidence(lines: list[str], pattern: Optional[re.Pattern[str]]) -> list[str]
     return hits
 
 
+_TRACEBACK = re.compile(r"traceback .most recent call last.", re.I)
+_MAX_TRACE_LINES = 12
+
+
+def _last_traceback(lines: list[str]) -> list[str]:
+    """The final Python traceback in the log, header through exception line.
+
+    The rule that names a crash matches the ``Traceback (most recent call
+    last):`` HEADER, so the generic evidence picker returned that header once
+    per attempt — four identical lines and none of the information. What the
+    operator needs is at the bottom: the frame that raised and the exception
+    itself. A long trace keeps its opening and its tail, because the exception
+    line is the one that must never be cut.
+    """
+    start = next((i for i in range(len(lines) - 1, -1, -1)
+                  if _TRACEBACK.search(lines[i])), None)
+    if start is None:
+        return []
+    block = [c for c in (_clean(x) for x in lines[start:]) if c]
+    if len(block) > _MAX_TRACE_LINES:
+        block = block[:2] + ["…"] + block[-(_MAX_TRACE_LINES - 3):]
+    return block
+
+
 def diagnose(task_error: str = "", logs: str = "", *,
              update_state: str = "",
              rollback_available: bool = False) -> dict[str, Any]:
@@ -214,11 +238,14 @@ def diagnose(task_error: str = "", logs: str = "", *,
     for cause, pattern, actions in _RULES:
         if any(pattern.search(ln) for ln in lines):
             acts = [a for a in actions if a != "rollback" or rollback_available]
+            evidence = _evidence(lines, pattern)
+            if cause == "crashed":
+                evidence = _last_traceback(lines) or evidence
             return {
                 "cause": cause,
                 "confidence": "high",
                 "exit_code": code,
-                "evidence": _evidence(lines, pattern),
+                "evidence": evidence,
                 # These lines are the ones that MATCHED the rule, so they
                 # are genuinely why this cause was named.
                 "evidence_supports_cause": True,
