@@ -21,6 +21,7 @@ import httpx
 
 from logic import metrics, portainer, registry
 from logic.coerce import safe_int
+from logic.stack_drift import command_text
 from logic.db import db_conn
 from logic.settings_keys import Settings
 
@@ -1280,6 +1281,7 @@ def _build_direct_service_items(services: list, tasks: list, nodes: list,
             "task_error": task_error,
             "task_history": task_history,
             "network_issue": network_issue,
+            "command": command_text(list(cs.get("Command") or []) + list(cs.get("Args") or [])),
             "health": health,
             "state": "running" if running > 0 else "stopped",
             "removable": False,
@@ -2866,6 +2868,7 @@ async def _gather_impl() -> None:
                 "task_error": task_error,
                 "task_history": task_history,
                 "network_issue": network_issue,
+                "command": command_text(list(cs.get("Command") or []) + list(cs.get("Args") or [])),
                 "health": health,
                 "state": "running" if running > 0 else "stopped",
                 "removable": False,

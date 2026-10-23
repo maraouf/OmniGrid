@@ -136,3 +136,8 @@ icmplib>=3.0.4
 # unreachable under this pin but kept as defence-in-depth in case
 # pysnmp 8.x reorganises the namespace again.
 pysnmp>=7.1.29
+# YAML parser for `logic/stack_drift.py`, which reads the compose file Portainer
+# stores for a stack to tell the operator what a redeploy would change. Already
+# installed transitively by `uvicorn[standard]`; listed explicitly because the
+# code now imports it directly, and a transitive dependency can be dropped.
+pyyaml>=6.0.3

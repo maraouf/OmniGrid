@@ -278,11 +278,19 @@ export default {
       // tiles in that state, giving a clear "what's degraded / down"
       // view. Shallow-copy so the reactive appsList source isn't
       // mutated; group_id is preserved so keyed x-for still reuses DOM.
+      // `problem` is the Apps nav badge's own set (down + degraded). A
+      // DEGRADED app is one where some instances are DOWN, so its instances
+      // are matched on down-or-degraded too: matching on `degraded` alone left
+      // every degraded app with an empty instance list, hiding the very
+      // instances that made it degraded.
+      const failing = (s) => s === 'down' || s === 'degraded';
+      const appMatches = (s) => (sf === 'problem' ? failing(s) : s === sf);
+      const instanceMatches = (s) => (sf === 'degraded' || sf === 'problem' ? failing(s) : s === sf);
       out = out
-        .filter(a => a.status === sf)
+        .filter(a => appMatches(a.status))
         .map(a => Object.assign({}, a, {
           instances: Array.isArray(a.instances)
-            ? a.instances.filter(i => i.status === sf)
+            ? a.instances.filter(i => instanceMatches(i.status))
             : a.instances,
         }));
     }

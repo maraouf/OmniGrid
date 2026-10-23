@@ -100,6 +100,45 @@ from typing import Optional
 # block authoritative (e.g. DB_PATH).
 
 
+@app.get("/api/update/stack/{stack_id}/preview")
+async def api_update_stack_preview(stack_id: int, _admin: AdminUser):
+    """What redeploying this stack would change in what is running.
+
+    A stack update sends Portainer's STORED compose file to Swarm. When that
+    copy is behind what was last deployed, the redeploy silently reverts it, so
+    the SPA asks here first and shows the differences in the confirm dialog.
+    Compares each service's image, command and entrypoint, and which services
+    would be added or (because the update prunes) removed — see
+    ``logic/stack_drift.py`` for exactly what is and is not compared.
+
+    Never blocks the update: when Portainer or the compose file can't be read
+    the answer is ``{ok: false, checked: false}`` and the SPA proceeds as before.
+    """
+    from logic import stack_drift
+    try:
+        portainer.ensure_reachable()
+        timeout = float(tuning.tuning_int(Tunable.PORTAINER_OP_TIMEOUT_SHORT_SECONDS))
+        async with portainer.write_client(timeout=timeout) as client:
+            stack = await portainer.pg(client, f"/api/stacks/{stack_id}")
+            # Swarm stacks only: a standalone compose stack has containers, not
+            # services, so there is no service spec to compare against.
+            if int(stack.get("Type") or 0) != 1:
+                return {"ok": True, "checked": False, "reason": "not_swarm", "changes": []}
+            file_data = await portainer.pg(client, f"/api/stacks/{stack_id}/file")
+            services = await portainer.pg(
+                client, f"/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}/docker/services")
+    except (httpx.HTTPError, OSError, RuntimeError, KeyError, ValueError) as e:
+        print(f"[stack_drift] preview unavailable for stack {stack_id}: {e}")
+        return {"ok": False, "checked": False, "reason": "unavailable", "changes": []}
+    out = stack_drift.compute_drift(
+        str(file_data.get("StackFileContent") or ""),
+        services if isinstance(services, list) else [],
+        str(stack.get("Name") or ""))
+    out["checked"] = bool(out.get("ok"))
+    out["stack"] = stack.get("Name")
+    return out
+
+
 @app.post("/api/update/stack/{stack_id}/retag-latest")
 async def api_update_stack_retag_latest(
     stack_id: int, body: StackRetagIn, bg: BackgroundTasks, request: Request,

@@ -416,6 +416,7 @@ GET / POST / DELETE          /api/admin/config-backup/saved/{name}  fetch / rest
 
 # Registry + retag
 GET                           /api/registry/release-notes            resolve OCI labels for blast-radius preview
+GET                           /api/update/stack/{id}/preview         what a redeploy would change vs what is running (admin)
 POST                          /api/update/stack/{id}/retag-latest    switch a Portainer stack's tag → {op_id}
 POST                          /api/update/container/{id}/retag-latest  switch a container's image tag → {op_id}
 

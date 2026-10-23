@@ -96,6 +96,7 @@
     "offline_title": "{count} offline service(s)",
     "hosts_down_title": "{count} host(s) down",
     "apps_down_title": "{count} app(s) down or degraded",
+    "apps_down_more": " +{n} more",
     "apps": "Apps"
   },
   "avatar": {
@@ -3262,6 +3263,7 @@
     "placement": "Placement",
     "ports": "Exposed ports",
     "ports_open": "Open",
+    "command": "Command",
     "local_digest": "Local digest",
     "remote_digest": "Remote digest",
     "last_updated": "Last updated",
@@ -3817,6 +3819,18 @@
     "has_update": "update available"
   },
   "dialogs": {
+    "stack_drift_title": "This redeploy would change what is running",
+    "stack_drift_intro": "Redeploying applies the copy of this stack saved in Portainer, and it differs from what is running now:",
+    "stack_drift_field_image": "image",
+    "stack_drift_field_command": "command",
+    "stack_drift_field_entrypoint": "entrypoint",
+    "stack_drift_running": "Running now:",
+    "stack_drift_stored": "After redeploy:",
+    "stack_drift_empty": "(none)",
+    "stack_drift_added": "{service} would be created",
+    "stack_drift_removed": "{service} would be removed — it is not in the saved copy",
+    "stack_drift_hint": "If this stack is deployed from a repository, update its YAML in Portainer first, or the redeploy puts the older definition back.",
+    "stack_drift_confirm": "Redeploy anyway",
     "update_stack_title": "Update stack",
     "update_stack_html": "<div class=\"update-confirm\"><div class=\"update-confirm-chip-row\"><code>{name}</code></div><ul class=\"update-confirm-list\"><li>Prune removed services</li><li>Re-pull all images</li><li>Redeploy the stack</li></ul></div>",
     "retag_latest_title": "Switch to :latest",
@@ -5751,6 +5765,7 @@
     "filter_all": "All",
     "filter_up": "Up",
     "filter_degraded": "Degraded",
+    "filter_problem": "Problems ({count})",
     "filter_down": "Down",
     "group_by_label": "Group apps by",
     "group_by_app": "By app",

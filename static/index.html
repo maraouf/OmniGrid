@@ -302,7 +302,7 @@
                  footprint so actionable app failures land at a glance. -->
             <span x-show="nav[0]==='apps' && appsDownCount() > 0"
                   class="nav-offline-badge"
-                  :title="t('nav.apps_down_title', { count: appsDownCount() }) || (appsDownCount() + ' app(s) down')"
+                  :title="appsDownTitle()"
                   x-text="appsDownCount()"></span>
           </button>
         </template>
@@ -3533,6 +3533,13 @@
                     :aria-pressed="appsStatusFilter === ''"
                     @click="appsStatusFilter = ''"
                     x-text="t('apps.filter_all') || 'All'"></button>
+            <!-- Down + degraded together — the set the Apps nav badge counts. -->
+            <button type="button" class="chip fs-2xs"
+                    x-show="appsDownCount() > 0 || appsStatusFilter === 'problem'"
+                    :class="appsStatusFilter === 'problem' ? 'pill-error' : 'pill-muted'"
+                    :aria-pressed="appsStatusFilter === 'problem'"
+                    @click="appsStatusFilter = appsStatusFilter === 'problem' ? '' : 'problem'"
+                    x-text="t('apps.filter_problem', { count: appsDownCount() })"></button>
             <button type="button" class="chip fs-2xs"
                     :class="appsStatusFilter === 'up' ? 'pill-ok' : 'pill-muted'"
                     :aria-pressed="appsStatusFilter === 'up'"
@@ -11537,6 +11544,13 @@
                     </template>
                   </div>
                 </div>
+              </div>
+              <div x-show="drawerItem.command">
+                <div class="fs-3xs text-[var(--text-faint)] uppercase tracking-wider flex justify-between">
+                  <span x-text="t('drawer.command')"></span>
+                  <button type="button" @click="copy(drawerItem.command)" class="hover:text-[var(--text)]" x-text="t('drawer.copy')"></button>
+                </div>
+                <div class="mono fs-2xs break-all mt-1 text-[var(--text-dim)]" x-text="drawerItem.command"></div>
               </div>
               <div x-show="drawerItem.current_digest">
                 <div class="fs-3xs text-[var(--text-faint)] uppercase tracking-wider flex justify-between">

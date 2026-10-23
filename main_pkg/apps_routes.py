@@ -1267,10 +1267,13 @@ async def api_service_unpin(host_id: str, service_idx: int, request: Request, _a
 
 
 @app.get("/api/apps")
-async def api_apps_list(_admin: AdminUser, force: bool = False):
-    """Admin-only: cross-host aggregate view. Returns one row per
+async def api_apps_list(force: bool = False):
+    """Cross-host aggregate view, readable by any signed-in role (a read-only
+    API token included — the same footing as the hosts and items reads, so a
+    down app can be diagnosed without an admin session). Returns one row per
     distinct app (grouped by catalog_id or name) with every host that
-    runs an instance + per-instance status.
+    runs an instance + per-instance status. Credentials never appear in it:
+    per-instance secrets are reduced to ``*_set`` flags.
 
     Served from a short-TTL (8s) cache in `list_apps()` so a burst of
     page loads / polls doesn't re-run the heavy `service_samples`

@@ -133,6 +133,22 @@ export default {
     }
     return n;
   },
+  // Tooltip for the Apps nav badge: the count AND which apps it counts, so the
+  // number can be acted on without opening the page and guessing. The same
+  // down / degraded set as appsDownCount(); long lists are cut with a "+N more".
+  appsDownTitle() {
+    const names = [];
+    for (const a of (Array.isArray(this.appsList) ? this.appsList : [])) {
+      const s = a && a.status;
+      if (s === 'down' || s === 'degraded') {
+        names.push(a.name + (s === 'degraded' ? ' ⚠' : ''));
+      }
+    }
+    const shown = names.slice(0, 8);
+    const more = names.length - shown.length;
+    return this.t('nav.apps_down_title', {count: names.length})
+      + (names.length ? ': ' + shown.join(', ') + (more > 0 ? this.t('nav.apps_down_more', {n: more}) : '') : '');
+  },
   // Inner-SVG markup for each top-nav icon. Returned as an HTML
   // string rendered via `x-html` on a shared <svg> wrapper so the
   // stroke / viewBox / size stay consistent. Lucide-derived shapes —

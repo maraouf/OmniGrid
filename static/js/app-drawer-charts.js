@@ -2186,6 +2186,47 @@ export default {
       cp.addEventListener('click', () => this.copyToClipboard(this._lastReleaseNotesText || ''));
     }
   },
+  // HTML for the "this redeploy would change what is running" dialog body.
+  // Every value is escaped — the running and saved commands are free text.
+  _stackDriftHtml(changes) {
+    const esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;'}[c]));
+    const val = (s) => (s ? `<code>${esc(s)}</code>` : esc(this.t('dialogs.stack_drift_empty')));
+    const rows = (changes || []).map(c => {
+      const svc = `<code>${esc(c.service)}</code>`;
+      if (c.field === 'added') {
+        return `<li>${this.t('dialogs.stack_drift_added', {service: svc})}</li>`;
+      }
+      if (c.field === 'removed') {
+        return `<li>${this.t('dialogs.stack_drift_removed', {service: svc})}</li>`;
+      }
+      return `<li>${svc} — ${esc(this.t('dialogs.stack_drift_field_' + c.field))}`
+        + `<br>${esc(this.t('dialogs.stack_drift_running'))} ${val(c.running)}`
+        + `<br>${esc(this.t('dialogs.stack_drift_stored'))} ${val(c.stored)}</li>`;
+    });
+    return `<div class="update-confirm"><p>${esc(this.t('dialogs.stack_drift_intro'))}</p>`
+      + `<ul class="update-confirm-list">${rows.join('')}</ul>`
+      + `<p>${esc(this.t('dialogs.stack_drift_hint'))}</p></div>`;
+  },
+  // Ask the backend what redeploying this stack would change in what is running,
+  // and make the operator confirm when Portainer's saved copy differs from it.
+  // True means go ahead. A check that can't run (Portainer unreachable, a
+  // standalone compose stack, a file that won't parse) never blocks the update.
+  async confirmStackDrift(stackId) {
+    if (!stackId) {
+      return true;
+    }
+    const j = await fetch(`/api/update/stack/${encodeURIComponent(stackId)}/preview`)
+      .then(r => (r.ok ? r.json() : null))
+      .catch(() => null);
+    if (!j || !j.checked || !Array.isArray(j.changes) || !j.changes.length) {
+      return true;
+    }
+    return await this.confirmDialog({
+      title: this.t('dialogs.stack_drift_title'),
+      html: this._stackDriftHtml(j.changes),
+      icon: 'warning', confirmText: this.t('dialogs.stack_drift_confirm'),
+    });
+  },
   async updateStack(stack, opts) {
     if (this.isStackBusy(stack)) {
       return;
@@ -2221,6 +2262,11 @@ export default {
         focusConfirm: true,
       });
       if (!ok) {
+        return;
+      }
+      // The AI sidebar path (skipConfirm) never raises a popup, so only a
+      // confirmed click here gets the check.
+      if (stack.stack_id && !(await this.confirmStackDrift(stack.stack_id))) {
         return;
       }
     }

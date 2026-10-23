@@ -291,6 +291,9 @@ export default {
           this.refresh();
         }
       } else if (action.kind === 'redeploy_stack') {
+        if (!(await this.confirmStackDrift(action.stack_id))) {
+          return;
+        }
         const r = await fetch('/api/update/stack/' + encodeURIComponent(action.stack_id), {
           method: 'POST',
         });
