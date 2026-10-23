@@ -384,6 +384,20 @@ def _tag_is_moving(cache_key: str) -> bool:
 _DOCKER_HUB_HOSTS = ("docker.io", "index.docker.io", "registry-1.docker.io")
 
 
+def unwrap_hub_prefix(ref: str) -> str:
+    """``docker.io/ghcr.io/org/app:1`` → ``ghcr.io/org/app:1``; anything else unchanged.
+
+    The same reading ``parse_image_ref`` applies, for callers that need the
+    reference STRING back (a pull) rather than its parts (a manifest probe).
+    """
+    head, sep, rest = (ref or "").partition("/")
+    if sep and head in _DOCKER_HUB_HOSTS:
+        inner = rest.split("/", 1)[0]
+        if "/" in rest and ("." in inner or ":" in inner or inner == "localhost"):
+            return unwrap_hub_prefix(rest)
+    return ref
+
+
 def parse_image_ref(ref: str) -> tuple[str, str, str]:
     """Return (registry, repo, tag) from an image reference.
 

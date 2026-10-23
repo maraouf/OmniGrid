@@ -99,6 +99,10 @@ def _client(handler) -> httpx.AsyncClient:
     ("registry:5000/team/app", ("registry:5000/team/app", "latest")),      # port ≠ tag
     ("registry:5000/team/app:1.2", ("registry:5000/team/app", "1.2")),
     (IMAGE + "@sha256:abc", ("ghcr.io/connorgallopo/tracearr", "supervised")),  # by tag
+    # a registry hidden behind docker.io is pulled from that registry — Hub
+    # answers "pull access denied" for a repository that doesn't exist there
+    ("docker.io/ghcr.io/moghtech/komodo-core:2", ("ghcr.io/moghtech/komodo-core", "2")),
+    ("docker.io/library/nginx:1", ("docker.io/library/nginx", "1")),            # a real Hub ref is left alone
 ])
 def test_split_ref_pulls_by_tag(ref, expected):
     assert image_pull.split_ref(ref) == expected

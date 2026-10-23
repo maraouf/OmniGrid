@@ -39,7 +39,7 @@ from urllib.parse import quote
 
 import httpx
 
-from logic import portainer
+from logic import portainer, registry
 
 if TYPE_CHECKING:  # pragma: no cover
     from logic.ops import Operation
@@ -79,7 +79,11 @@ def split_ref(ref: str, *, keep_digest: bool = False) -> tuple[str, str]:
     exact bytes it ran before, and pulling its tag would fetch the new image
     it is rolling away from. Docker accepts a digest in the ``tag`` field.
     """
-    ref = (ref or "").strip()
+    # A registry hidden behind docker.io (`docker.io/ghcr.io/org/app`) is asked
+    # of Docker Hub as written and answers "pull access denied". Docker keeps
+    # the image under its familiar name, `ghcr.io/org/app`, so pulling that
+    # name refreshes the very tag the container is created from.
+    ref = registry.unwrap_hub_prefix((ref or "").strip())
     if "@" in ref:
         name_part, digest = ref.split("@", 1)
         if keep_digest and digest:
