@@ -3334,6 +3334,12 @@
     "task_error_action_cleanup_overlay_help": "Uses the Portainer API to find the overlay network matching the failing subnet, verifies no other containers are using it, removes it, then force-updates the service. Docker recreates the overlay + a fresh VXLAN interface when the new task lands. SSH-free; safe for single-stack overlay networks (the typical compose-deploy pattern). Aborts cleanly when the network is shared with another stack.",
     "task_error_cleanup_overlay_done": "Overlay {network} removed and service force-updated. Watch for the new task to come up.",
     "task_error_cleanup_overlay_failed": "Cleanup failed: {error}",
+    "network_issue_title": "No network attached",
+    "network_issue_body": "This service belongs to a stack but is attached to no network. Swarm still counts it as running, yet nothing can reach it and it cannot find the other services in its stack by name. This usually follows a stale overlay network being removed or refused.",
+    "network_issue_action": "Redeploy stack to restore its network",
+    "network_issue_action_help": "Redeploys the stack from its saved compose file. Swarm recreates the stack's network and attaches every service to it. Images are fetched first and the stack's services restart, so expect a short interruption.",
+    "network_issue_queued": "Stack redeploy queued. Watch the rows — the warning clears once each service has its network back.",
+    "network_issue_failed": "Redeploy failed: {error}",
     "local_images": {
       "button": "Run an image that's already on the node",
       "help": "Images for this service that are already on its node, newest first. Running one needs no download, so it takes seconds — use it when an update is stuck downloading and you need the service back now. \"Roll back to previous version\" can't do this: it uses the one spec Swarm keeps, which after an update and a restart already points at the new image.",

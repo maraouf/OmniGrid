@@ -221,6 +221,27 @@ export default {
     return out;
   },
 
+  // The fix for a stack service that is attached to no network: redeploy its
+  // stack, which recreates the network and re-attaches every service to it.
+  // Null when the service has no network problem, the viewer isn't an admin,
+  // or there is no stack to redeploy (a direct-Docker service has no stack id).
+  networkIssueAction(item) {
+    if (!item || item.network_issue !== 'no_network' || !item.stack_id) {
+      return null;
+    }
+    if (!this.isAdmin || typeof this.isAdmin !== 'function' || !this.isAdmin()) {
+      return null;
+    }
+    return {
+      id: 'redeploy-stack',
+      kind: 'redeploy_stack',
+      stack_id: item.stack_id,
+      label: this.t('drawer.network_issue_action'),
+      help: this.t('drawer.network_issue_action_help'),
+      danger: true,
+    };
+  },
+
   // Dispatcher for the known-issue panel's auto-fix buttons. Each
   // kind maps to a specific click path; failures surface as a
   // toast. `_auto_fix_running` flag on the item drives the
@@ -266,6 +287,19 @@ export default {
           || 'Force-restart queued. Watch the row for the new task to come up; the error should clear automatically when it does.', 'success');
         // Refresh items so the operation banner appears + the
         // task_error / task_history fields reflect the new attempt.
+        if (typeof this.refresh === 'function') {
+          this.refresh();
+        }
+      } else if (action.kind === 'redeploy_stack') {
+        const r = await fetch('/api/update/stack/' + encodeURIComponent(action.stack_id), {
+          method: 'POST',
+        });
+        if (!r.ok) {
+          const friendly = await this.fmtResponseError(r);
+          this.showToast(this.t('drawer.network_issue_failed', {error: friendly}), 'error');
+          return;
+        }
+        this.showToast(this.t('drawer.network_issue_queued'), 'success');
         if (typeof this.refresh === 'function') {
           this.refresh();
         }

@@ -1104,6 +1104,25 @@ def _status_without_registry(item: dict) -> Optional[str]:
     return None
 
 
+def service_network_issue(spec: dict, stack_name: Optional[str]) -> str:
+    """``"no_network"`` for a stack service that is attached to no network, else ``""``.
+
+    ``docker stack deploy`` always joins a service to ``<stack>_default`` (or the
+    networks it names), so a stack-managed service whose spec lists none lost its
+    network — typically after the overlay was removed or rejected as stale. Swarm
+    keeps reporting such a service ``1/1`` and healthy, but nothing can reach it
+    and it cannot resolve its siblings by name, so every caller that relies on
+    the replica count alone reads it as fine. A service outside any stack is left
+    alone: a standalone service may legitimately publish through the ingress only.
+    """
+    if not stack_name:
+        return ""
+    tt = (spec or {}).get("TaskTemplate") or {}
+    if tt.get("Networks") or (spec or {}).get("Networks"):
+        return ""
+    return "no_network"
+
+
 async def _classify_item_status(reg_client: "httpx.AsyncClient", item: dict,
                                 node_platforms: Optional[dict] = None) -> None:
     """Resolve ``remote_digest`` + ``status`` for one direct-Docker item — the
@@ -1241,6 +1260,9 @@ def _build_direct_service_items(services: list, tasks: list, nodes: list,
             health = "degraded"
         else:
             health = "healthy"
+        network_issue = service_network_issue(spec, stack_name)
+        if network_issue and health == "healthy":
+            health = "degraded"
         out.append({
             "id": f"svc:{svc['ID'][:12]}",
             "raw_id": svc["ID"],
@@ -1257,6 +1279,7 @@ def _build_direct_service_items(services: list, tasks: list, nodes: list,
             "placements": placements,
             "task_error": task_error,
             "task_history": task_history,
+            "network_issue": network_issue,
             "health": health,
             "state": "running" if running > 0 else "stopped",
             "removable": False,
@@ -2804,6 +2827,9 @@ async def _gather_impl() -> None:
                 health = "degraded"
             else:
                 health = "healthy"
+            network_issue = service_network_issue(spec, stack_name)
+            if network_issue and health == "healthy":
+                health = "degraded"
 
             # Running app version. The image tag is often uninformative
             # (everything pinned to :latest), so surface the OCI version label:
@@ -2839,6 +2865,7 @@ async def _gather_impl() -> None:
                 "placements": placements,
                 "task_error": task_error,
                 "task_history": task_history,
+                "network_issue": network_issue,
                 "health": health,
                 "state": "running" if running > 0 else "stopped",
                 "removable": False,
