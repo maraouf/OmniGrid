@@ -34,6 +34,7 @@ total without fetching the rows). Single-instance app (NOT fleet).
 """
 from __future__ import annotations
 
+import re
 import time
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -314,6 +315,35 @@ async def _fetch_activity(cli: "httpx.AsyncClient", base: str, token: str,
     return _heatmap_week(heatmap, now), _heatmap_daily_series(heatmap, now)
 
 
+# Forgejo echoes the credential it rejected as `[sha: <the token>]`, so that
+# fragment is cut before the message is shown anywhere.
+_SHA_FRAGMENT = re.compile(r"\s*\[sha:[^\]]*\]")
+
+
+def _upstream_reason(resp: "httpx.Response", token: str = "") -> str:
+    """The reason Forgejo gave for refusing a request, safe to show.
+
+    A rejected token comes back as a stack of lines, one per authentication
+    method it tried (``token is malformed: …`` from the OAuth attempt, then
+    ``access token does not exist``), so the first line is usually the noise and
+    the useful one is further down. The token itself is masked wherever it
+    appears. Empty when the body isn't Forgejo's JSON error.
+    """
+    try:
+        message = str(as_dict(resp.json()).get("message") or "")
+    except (ValueError, TypeError):
+        return ""
+    lines = []
+    for line in message.splitlines():
+        line = _SHA_FRAGMENT.sub("", line).strip()
+        if token:
+            line = line.replace(token, "***")
+        if line:
+            lines.append(line)
+    useful = [ln for ln in lines if "malformed" not in ln and not ln.startswith("task with token")]
+    return ((useful or lines or [""])[0])[:160]
+
+
 async def test_credential(host_row: dict, chip: dict, candidate_key: str, **_kw) -> dict:
     """Probe Forgejo's auth-required ``/api/v1/user`` with the supplied token.
     Returns ``{ok, detail, status}``. Falls back to the chip's stored
@@ -344,7 +374,10 @@ async def test_credential(host_row: dict, chip: dict, candidate_key: str, **_kw)
                 "detail": (f"OK{who} (Forgejo {ver})" if ver else f"OK{who}"),
                 "status": 200}
     if r.status_code in (401, 403):
-        return {"ok": False, "detail": "auth failed (check the Forgejo token)",
+        why = _upstream_reason(r, token)
+        return {"ok": False,
+                "detail": ("auth failed (check the Forgejo token)"
+                           + (f" — Forgejo says: {why}" if why else "")),
                 "status": r.status_code}
     return {"ok": False, "detail": f"HTTP {r.status_code}", "status": r.status_code}
 
@@ -373,12 +406,19 @@ async def fetch_data(host_row: dict, chip: dict, *,
             rr = await cli.get(repos_url, headers=_headers(token),
                                params={"limit": "1"})
             if rr.status_code != 200:
+                auth_refused = rr.status_code in (401, 403)
+                # A refused credential is not a wrong-URL problem, so the hint
+                # about the chip URL is kept for the other failures.
                 print(f"[forgejo] error: fetch host={host_id} url={rr.request.url} "
-                      f"returned HTTP {rr.status_code} (check the chip URL points at "
-                      f"the Forgejo root, e.g. https://git.example.com:3000)")
-                if rr.status_code in (401, 403):
-                    raise RuntimeError(f"upstream auth failed: HTTP {rr.status_code} "
-                                       f"(check the Forgejo token) — {repos_url}")
+                      f"returned HTTP {rr.status_code}"
+                      + ("" if auth_refused else
+                         " (check the chip URL points at the Forgejo root, "
+                         "e.g. https://git.example.com:3000)"))
+                if auth_refused:
+                    why = _upstream_reason(rr, token)
+                    raise RuntimeError(f"upstream auth failed: HTTP {rr.status_code}"
+                                       + (f" ({why})" if why else "")
+                                       + f" — check the Forgejo token — {repos_url}")
                 raise RuntimeError(f"upstream returned HTTP {rr.status_code} for {repos_url}")
             repos = _count_header(rr)
             # Open PRs / issues / notifications — nice-to-have; a failure on any
