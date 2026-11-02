@@ -84,7 +84,7 @@ pyotp>=2.10.0
 # the newest pyOpenSSL so this floor is satisfiable, but if you raise it
 # again, check pyOpenSSL's range first: an unsatisfiable pair fails the
 # image build, not a test.
-cryptography>=50.0.1
+cryptography>=50.0.2
 # WebAuthn / FIDO2 passkeys as a 2FA factor. Duo Security's
 # `webauthn` package wraps the W3C ceremony in a small, dependency-light
 # API: generate_registration_options / verify_registration_response /
