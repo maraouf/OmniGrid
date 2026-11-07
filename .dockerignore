@@ -34,6 +34,7 @@ old_code
 *.old*
 debug.txt
 CLAUDE.md
+QUEUE.md
 tests
 
 # --- CI / compose / Docker meta — not needed at runtime -----------------

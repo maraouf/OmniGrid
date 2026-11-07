@@ -518,6 +518,10 @@ async def ensure_images_on_nodes(client: httpx.AsyncClient, op: Operation,
     unique = list(dict.fromkeys((n or "", r) for n, r in targets if r))
     if not unique:
         return
+    # The operator usually pushed a new build just before this; make the next
+    # update check read the registry afresh rather than a cached older answer.
+    for _img in {r for _n, r in unique}:
+        registry.forget_digest_for_image(_img)
     # A caller with no one waiting on it (a background download) passes its
     # own, longer limit; everything that is about to stop a service uses the
     # pre-pull limit.

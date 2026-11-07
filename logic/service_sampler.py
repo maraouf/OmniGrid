@@ -203,7 +203,28 @@ def resolve_chip_probe_target(host_row: dict, service_idx: int, svc: dict,
         "path": path,
         "expected_status": expected_status,
         "sub_ports": sub_ports,
+        "beszel_agent": _is_beszel_agent_chip(svc),
+        "beszel_name": (host_row.get("beszel_name") or "").strip()
+        or (host_row.get("id") or "").strip(),
     }
+
+
+def _is_beszel_agent_chip(svc: dict) -> bool:
+    """True for a chip pinned from the "Beszel Agent" catalog template.
+
+    The Hub template shares the ``beszel`` icon, so the icon alone is only
+    a cheap pre-check; the catalog slug (or, for a hand-made chip, the
+    name) decides.
+    """
+    if (svc.get("icon") or "").strip().lower() != "beszel":
+        return False
+    cid = svc.get("catalog_id")
+    if cid not in (None, ""):
+        from logic.service_catalog import get_catalog_by_id
+        tpl = get_catalog_by_id(cid)  # type: ignore[arg-type]
+        if tpl:
+            return (tpl.get("slug") or "") == "beszel"
+    return "agent" in (svc.get("name") or "").lower()
 
 
 def _curated_service_probe_targets() -> list[dict]:
@@ -442,7 +463,32 @@ async def service_sampler_loop() -> None:
                     except (sqlite3.Error, OSError):
                         pass
 
+                    # One Beszel hub fetch per tick, shared by every agent
+                    # chip — fetched lazily so a fleet with no agent chip
+                    # never touches the hub.
+                    hub_lock = asyncio.Lock()
+                    hub_box: dict = {}
+
+                    async def _hub_says_up(tgt: dict) -> bool:
+                        async with hub_lock:
+                            if "map" not in hub_box:
+                                from logic.host_beszel_sampler import _probe_one_tick
+                                hub_box["map"] = await _probe_one_tick()
+                        from logic.beszel import lookup as _hub_lookup
+                        rec = _hub_lookup(hub_box["map"], tgt.get("beszel_name") or "")
+                        return bool(rec) and rec.get("beszel_status") == "up"
+
                     async def _probe_target(tgt: dict) -> tuple[dict, dict]:
+                        tgt, res = await _probe_target_ports(tgt)
+                        # An agent in WebSocket mode dials out to the hub and
+                        # listens on no port, so a refused port is expected;
+                        # the hub's own report for the system is the truth.
+                        if (tgt.get("beszel_agent") and not res.get("alive")
+                                and await _hub_says_up(tgt)):
+                            res = {**res, "alive": True, "error": None}
+                        return tgt, res
+
+                    async def _probe_target_ports(tgt: dict) -> tuple[dict, dict]:
                         async with sem:
                             sub_ports = tgt.get("sub_ports") or []
                             if sub_ports:

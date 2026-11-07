@@ -267,6 +267,24 @@ def _drop_digest_cache_for(registry_host: str) -> None:
             cache.pop(k, None)
 
 
+def forget_digest_for_image(image: str) -> None:
+    """Drop the cached remote digest (and platform maps) for ONE image ref.
+
+    An update that is about to pull ``image`` is the moment the operator
+    expects the next check to read the registry afresh: they usually pushed a
+    new build just before. Left alone, the cached answer — up to the digest
+    TTL old — predates that push, and an image that was just updated reads
+    "update available" until it expires.
+    """
+    try:
+        reg, repo, tag = parse_image_ref(image)
+    except Exception:  # noqa: BLE001
+        return
+    _digest_cache.pop(f"{reg}|{repo}|{tag}", None)
+    # Platform maps are keyed by the immutable index digest, so they cannot go
+    # stale and are left in place.
+
+
 def invalidate_auth_caches() -> None:
     """Forget every cached token and resolved digest.
 
@@ -972,7 +990,9 @@ async def _get_release_notes_impl(image: str) -> dict:
             if mapped is not None:
                 gh_fallback = mapped
                 source_url = f"{ExternalURL.GITHUB}/{mapped[0]}/{mapped[1]}"
-            else:
+            elif reg in _DOCKER_HUB_HOSTS:
+                # Hub-only: on a self-hosted registry the same owner/name
+                # path names a project on THAT host, not on GitHub.
                 guess = _docker_hub_to_github_guess(repo)
                 if guess is not None:
                     gh_fallback = guess
