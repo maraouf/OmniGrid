@@ -74,6 +74,7 @@ from typing import Any, Optional
 from main import (  # noqa: E402,F401  — re-imports for IDE static-analysis
     sqlite3,
     AdminUser,
+    AuthedUser,
     CurrentUser,
     HTTPException,
     Request,
@@ -1888,9 +1889,11 @@ _AGENT_NODE_RE = __import__("re").compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"
 
 
 @app.get("/api/container/{raw_id}/logs")
-async def api_container_logs(raw_id: str, _admin: AdminUser,
+async def api_container_logs(raw_id: str, _user: AuthedUser,
                              tail: int = 200, node: str = ""):
-    """Admin-only: tail a container's logs via Portainer. Powers the App
+    """Any signed-in role (a read-only API token included): tail a
+    container's logs via Portainer, so a failing app can be diagnosed without
+    an admin session. Same footing as `GET /api/logs`. Powers the App
     detail drawer's Docker-link "Logs" action. Threads
     ``X-PortainerAgent-Target`` so worker-node containers resolve, and
     demuxes Docker's multiplexed log stream to plain text. Read-only — no
@@ -1928,8 +1931,9 @@ async def api_container_logs(raw_id: str, _admin: AdminUser,
 
 # noinspection DuplicatedCode
 @app.get("/api/service/{raw_id}/logs")
-async def api_service_logs(raw_id: str, _admin: AdminUser, tail: int = 200):
-    """Admin-only: tail a Swarm SERVICE's logs via Portainer (the
+async def api_service_logs(raw_id: str, _user: AuthedUser, tail: int = 200):
+    """Any signed-in role (a read-only API token included): tail a Swarm
+    SERVICE's logs via Portainer (the
     ``docker service logs`` aggregate). Powers the App-drawer Docker-link
     "Logs" action for SERVICE links (``docker_stack``) — a service spans
     N task containers across hosts, so Docker interleaves their
@@ -1973,8 +1977,9 @@ def _cached_item(raw_id: str) -> Optional[dict]:
 
 
 @app.get("/api/item/{raw_id}/diagnose")
-async def api_item_diagnose(raw_id: str, _admin: AdminUser, tail: int = 200):
-    """Read a failed task's logs and say why it did not start.
+async def api_item_diagnose(raw_id: str, _user: AuthedUser, tail: int = 200):
+    """Read a failed task's logs and say why it did not start. Any signed-in
+    role, a read-only API token included — it only reads.
 
     Swarm's own answer is an exit code. The reason is in the container's
     output, which this fetches and hands to `logic.task_diagnosis` — a

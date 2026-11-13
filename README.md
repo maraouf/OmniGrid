@@ -488,8 +488,8 @@ GET                           /api/apps/plex/auth/poll               poll the Pl
 POST                          /api/apps/catalog/{slug}/show-extras   toggle a catalog template's show_extras flag (admin)
 GET                           /api/services/{host_id}/{service_idx}/debug   per-chip diagnostics
 GET                           /api/services/{host_id}/{service_idx}/history per-chip probe-result series
-GET                           /api/container/{raw_id}/logs?lines=N   Portainer-routed container logs (admin)
-GET                           /api/service/{raw_id}/logs?lines=N     Portainer-routed Swarm service logs (admin)
+GET                           /api/container/{raw_id}/logs?lines=N   Portainer-routed container logs (any role)
+GET                           /api/service/{raw_id}/logs?lines=N     Portainer-routed Swarm service logs (any role)
 
 # HTTP probe (admin-only)
 POST                          /api/http-probe/test                   probe one HTTP / TLS / DNS target (no save)

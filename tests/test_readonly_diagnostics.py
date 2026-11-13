@@ -20,6 +20,7 @@ import re
 # star-import chain, so importing one directly is a circular import.
 import main  # noqa: F401  (import for side effect: builds the facade)
 from main_pkg import admin_ai_routes as ai_routes
+from main_pkg import apps_routes
 from main_pkg import scan_routes
 
 # (module, function name) -> the dependency its signature must carry.
@@ -28,6 +29,11 @@ READ_OPEN = [
     (scan_routes, "api_admin_logs_files"),
     (scan_routes, "api_admin_logs_file_view"),
     (scan_routes, "api_admin_logs_file_download"),
+    # A failing app's own output: without these a read-only client sees that
+    # an app is down but not why.
+    (apps_routes, "api_service_logs"),
+    (apps_routes, "api_container_logs"),
+    (apps_routes, "api_item_diagnose"),
 ]
 
 STILL_ADMIN = [

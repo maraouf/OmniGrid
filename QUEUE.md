@@ -1,3 +1,3 @@
 # Queue
-Trimmed 2026-11-07: finished items removed — the file was untracked until this release, so no earlier copy is in git (shipped work is in CHANGELOG.md).
-Last updated: 2026-11-07 — queue trimmed and now tracked; no open items.
+Trimmed 2026-11-13: finished items removed — they are in git history (`git log -p -- QUEUE.md`, last full copy at `4572dbb2`).
+Last updated: 2026-11-13 — read-only role can read service logs; no open items.
