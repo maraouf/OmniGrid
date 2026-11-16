@@ -56,10 +56,14 @@ For every change:
 3. Push to `main`. The CI pipeline:
 
 - rsyncs the build context to `/opt/omnigrid/app` on the Swarm manager,
-- resolves the previous version from THREE sources and picks the
-  highest semver:
+- resolves the previous version from FOUR sources and picks the
+  highest semver (and refuses to deploy if a service is running but none
+  of the live, service-tag or local-image sources can name its version):
   1. **Live `/api/version`** on the running service — most authoritative
-     when reachable.
+     when reachable. Retried five times, since a busy app can miss one.
+  1b. **The running service's own image tag** — every deploy ends by
+     rolling the service to `<registry>/omnigrid:<version>`, so the spec
+     names the version with no request to the app.
   2. **`VERSION.txt` from the rsynced build context** (file-grounded
      floor; survives a brief outage of the live service AND lets the
      maintainer seed MAJOR / MINOR bumps from the repo).
