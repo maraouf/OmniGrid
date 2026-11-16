@@ -57,7 +57,7 @@ python-multipart>=0.0.32
 # correctly. The repo is private, so .env is COMMITTED — see
 # CLAUDE.md "Secrets" for the private-repo trade-off + the rotate-
 # everything rule if visibility ever changes.
-python-dotenv>=1.2.3
+python-dotenv>=1.2.4
 # OIDC SSO (Authentik / any OIDC provider) — JWT signature verification
 # against the issuer's JWKS. PyJWT is used instead of authlib: smaller
 # surface, and we already own the discovery + token-exchange httpx calls.
