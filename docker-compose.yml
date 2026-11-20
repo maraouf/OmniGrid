@@ -97,10 +97,17 @@ services:
       placement:
         constraints:
           - node.role == manager
+      # `any`, not `on-failure`: a host reboot stops the container with a
+      # clean exit (code 0), which Swarm records as a COMPLETED task, and
+      # `on-failure` never replaces a completed task — so after a reboot the
+      # service sat at 0/1 until someone ran `service update --force`.
+      # `max_attempts: 0` is unlimited for the same reason: after a boot
+      # DNS / the registry / the network may need longer than five 10s
+      # retries, and a service that has given up never comes back by itself.
       restart_policy:
-        condition: on-failure
+        condition: any
         delay: 10s
-        max_attempts: 5
+        max_attempts: 0
       # CPU + memory reservations / limits. Operator-flagged 2026-05-10
       # after observing OmniGrid pinned at 100% CPU on the host.
       # Default (no resources block) lets the container use ALL host
